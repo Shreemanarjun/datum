@@ -1,31 +1,30 @@
 import 'dart:async';
 
-import 'package:datum/source/adapter/local_adapter.dart';
-import 'package:datum/source/adapter/remote_adapter.dart';
-import 'package:datum/source/config/datum_config.dart';
-import 'package:datum/source/core/manager/datum_manager.dart';
-import 'package:datum/source/core/events/datum_event.dart';
-import 'package:datum/source/core/models/datum_entity.dart';
-import 'package:datum/source/core/models/datum_sync_operation.dart';
-import 'package:datum/source/core/models/datum_sync_options.dart';
-import 'package:datum/source/core/models/datum_sync_result.dart';
-import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
-import 'package:datum/source/core/resolver/conflict_resolution.dart';
+import 'package:datum/datum.dart';
+import 'package:datum/source/core/engine/_internal.dart'; // Correct import
+import 'package:flutter/foundation.dart';
 import 'package:rxdart/rxdart.dart';
-import 'package:datum/source/utils/connectivity_checker.dart';
-import 'package:datum/source/utils/datum_logger.dart';
-import 'package:datum/source/core/middleware/datum_middleware.dart';
-import 'package:datum/source/core/engine/datum_observer.dart';
 
 class Datum {
+  /// The singleton instance of the Datum engine.
+  static Datum? _instance;
+  static Datum get instance {
+    if (_instance == null) {
+      throw StateError(
+        'Datum has not been initialized. Call Datum.initialize() first.',
+      );
+    }
+    return _instance!;
+  }
+
   final DatumConfig config;
   final Map<Type, DatumManager<DatumEntity>> _managers = {};
-  final Map<Type, _AdapterPair<DatumEntity>> _adapterPairs = {};
-  final ConnectivityChecker _connectivityChecker;
-  final List<GlobalDatumObserver> _globalObservers = [];
+  final Map<Type, AdapterPair> _adapterPairs = {};
+  final ConnectivityChecker connectivityChecker;
+  final List<GlobalDatumObserver> globalObservers = [];
   final List<StreamSubscription<DatumSyncEvent<DatumEntity>>>
   _managerSubscriptions = [];
-  final DatumLogger _logger;
+  final DatumLogger logger;
 
   // Stream controllers for events and status
   final StreamController<DatumSyncEvent<DatumEntity>> _eventController =
@@ -39,80 +38,137 @@ class Datum {
 
   final Map<String, DatumSyncStatusSnapshot> _snapshots = {};
 
-  Datum({
+  Datum._({
     required this.config,
+    required this.connectivityChecker,
+    DatumLogger? logger,
+  }) : logger = logger ?? DatumLogger(enabled: config.enableLogging);
+
+  /// Initializes the central Datum engine as a singleton.
+  ///
+  /// This must be called once before accessing [Datum.instance] or any other methods.
+  static Future<Datum> initialize({
+    required DatumConfig config,
     required ConnectivityChecker connectivityChecker,
     DatumLogger? logger,
-  }) : _connectivityChecker = connectivityChecker,
-       _logger = logger ?? DatumLogger(enabled: config.enableLogging);
+    List<DatumRegistration> registrations = const [],
+  }) async {
+    final datum = Datum._(
+      config: config,
+      connectivityChecker: connectivityChecker,
+      logger: logger,
+    );
+    for (final reg in registrations) {
+      // Use <TT> to avoid shadowing the generic type from the capture method.
+      reg.capture(
+        <TT extends DatumEntity>() =>
+            datum._register<TT>(reg as DatumRegistration<TT>),
+      );
+    }
+    await datum._initializeManagers();
+    return _instance = datum;
+  }
 
   /// Adds a global observer to listen to events from all managers.
   void addObserver(GlobalDatumObserver observer) {
-    _globalObservers.add(observer);
+    globalObservers.add(observer);
   }
 
   /// Registers an entity type with its specific adapters.
-  void register<T extends DatumEntity>({
-    required LocalAdapter<T> localAdapter,
-    required RemoteAdapter<T> remoteAdapter,
-    DatumConflictResolver<T>? conflictResolver,
-    DatumConfig<T>? config,
-    List<DatumMiddleware<T>>? middlewares,
-    List<DatumObserver<T>>? observers,
-  }) {
-    _adapterPairs[T] = _AdapterPairImpl<T>(
-      localAdapter,
-      remoteAdapter,
-      conflictResolver: conflictResolver,
-      middlewares: middlewares,
-      config: config,
-      observers: observers,
-    );
+  ///
+  /// This can be called after `Datum.initialize()` to dynamically add support
+  /// for new entity types. It will create and initialize the manager for the
+  /// given registration.
+  Future<void> register<T extends DatumEntity>({
+    required DatumRegistration<T> registration,
+  }) async {
+    _register<T>(registration);
+    await _initializeManagerForType(T);
+  }
+
+  void _register<T extends DatumEntity>(DatumRegistration<T> registration) {
+    // With modern Dart, using the generic type T directly as a map key is reliable.
+    if (_managers.containsKey(T)) {
+      logger.warn('Entity type $T is already registered. Overwriting.');
+    }
+    _adapterPairs[T] = AdapterPairImpl<T>.fromRegistration(registration);
   }
 
   /// Initializes all registered managers and the central engine.
-  Future<void> initialize() async {
+  Future<void> _initializeManagers() async {
     for (final type in _adapterPairs.keys) {
-      final adapters = _adapterPairs[type]!;
-      // The generic factory helps create the correctly typed manager.
-      final manager = adapters.createManager(this);
-      _managers[type] = manager;
-      // Subscribe to the manager's event stream and pipe events to the global controller.
-      final subscription = manager.eventStream.listen(
-        _eventController.add,
-        onError: _eventController.addError,
-      );
-      _managerSubscriptions.add(subscription);
-      await manager.initialize();
+      await _initializeManagerForType(type);
     }
     // Pass shared components from a new central SyncEngine
 
     // Initialize a new "RelationalSyncEngine" that knows about all managers.
   }
 
+  Future<void> _initializeManagerForType(Type type) async {
+    final adapters = _adapterPairs[type];
+    if (adapters == null) {
+      throw StateError(
+        'AdapterPair not found for type $type during initialization.',
+      );
+    }
+
+    // The generic factory helps create the correctly typed manager.
+    final manager = adapters.createManager(this);
+    _managers[type] = manager;
+    // Subscribe to the manager's event stream and pipe events to the global controller.
+    final subscription = manager.eventStream.listen(
+      _eventController.add,
+      onError: _eventController.addError,
+    );
+    _managerSubscriptions.add(subscription);
+    await manager.initialize(); // This calls DatumManager.initialize()
+  }
+
   /// Provides access to the specific manager for an entity type.
   /// This preserves the familiar `SynqManager` API.
-  DatumManager<T> manager<T extends DatumEntity>() {
-    final manager = _managers[T];
-    if (manager == null) {
-      throw StateError('Entity type $T is not registered.');
+  static DatumManager<T> manager<T extends DatumEntity>() {
+    final manager = instance._managers[T];
+    // By checking the type with 'is', Dart's flow analysis promotes `manager`
+    // to the specific `DatumManager<T>` type, making the return type-safe.
+    if (manager is DatumManager<T>) {
+      return manager;
     }
-    return manager as DatumManager<T>;
+    throw StateError(
+      'Entity type $T is not registered or has a manager of the wrong type.',
+    );
+  }
+
+  /// Provides access to a manager for a given entity [Type].
+  ///
+  /// This is useful for relational data fetching where the type of the
+  /// related entity is not known at compile time.
+  static DatumManager<DatumEntity> managerByType(Type type) {
+    final manager = instance._managers[type];
+    if (manager != null) {
+      return manager;
+    }
+    throw StateError(
+      'Entity type $type is not registered or has a manager of the wrong type.',
+    );
   }
 
   /// A global sync that can coordinate across all managers.
-  Future<DatumSyncResult> synchronize(
+  Future<DatumSyncResult<DatumEntity>> synchronize(
     String userId, {
     DatumSyncOptions? options,
   }) async {
     final snapshot = _getSnapshot(userId);
     if (snapshot.status == DatumSyncStatus.syncing) {
-      _logger.info('Sync already in progress for user $userId. Skipping.');
+      logger.info('Sync already in progress for user $userId. Skipping.');
       return DatumSyncResult.skipped(userId, snapshot.pendingOperations);
     }
 
     final stopwatch = Stopwatch()..start();
     _updateSnapshot(userId, (s) => s.copyWith(status: DatumSyncStatus.syncing));
+    for (final observer in globalObservers) {
+      observer.onSyncStart();
+    }
+
     var totalSynced = 0;
     var totalFailed = 0;
     var totalConflicts = 0;
@@ -129,7 +185,7 @@ class Datum {
             totalSynced += res.syncedCount;
             totalFailed += res.failedCount;
             totalConflicts += res.conflictsResolved;
-            allPending.addAll(res.pendingOperations.cast());
+            allPending.addAll(res.pendingOperations);
           }
           break;
         case SyncDirection.pullThenPush:
@@ -138,7 +194,7 @@ class Datum {
             totalSynced += res.syncedCount;
             totalFailed += res.failedCount;
             totalConflicts += res.conflictsResolved;
-            allPending.addAll(res.pendingOperations.cast());
+            allPending.addAll(res.pendingOperations);
           }
           await _pushChanges(userId, options);
           break;
@@ -151,12 +207,12 @@ class Datum {
             totalSynced += res.syncedCount;
             totalFailed += res.failedCount;
             totalConflicts += res.conflictsResolved;
-            allPending.addAll(res.pendingOperations.cast());
+            allPending.addAll(res.pendingOperations);
           }
           break;
       }
 
-      final result = DatumSyncResult(
+      final result = DatumSyncResult<DatumEntity>(
         userId: userId,
         duration: stopwatch.elapsed,
         syncedCount: totalSynced,
@@ -169,9 +225,12 @@ class Datum {
         userId,
         (s) => s.copyWith(status: DatumSyncStatus.completed),
       );
+      for (final observer in globalObservers) {
+        observer.onSyncEnd(result);
+      }
       return result;
     } catch (e, stack) {
-      _logger.error('Synchronization failed for user $userId', stack);
+      logger.error('Synchronization failed for user $userId', stack);
       _updateSnapshot(
         userId,
         (s) => s.copyWith(status: DatumSyncStatus.failed, errors: [e]),
@@ -184,7 +243,7 @@ class Datum {
   }
 
   Future<void> _pushChanges(String userId, DatumSyncOptions? options) async {
-    _logger.info('Starting global push phase for user $userId...');
+    logger.info('Starting global push phase for user $userId...');
     // Ensure we only perform a push operation, respecting the original options.
     final pushOnlyOptions = (options ?? const DatumSyncOptions()).copyWith(
       direction: SyncDirection.pushOnly,
@@ -196,17 +255,17 @@ class Datum {
     }
   }
 
-  Future<List<DatumSyncResult>> _pullChanges(
+  Future<List<DatumSyncResult<DatumEntity>>> _pullChanges(
     String userId,
     DatumSyncOptions? options,
   ) async {
-    _logger.info('Starting global pull phase for user $userId...');
+    logger.info('Starting global pull phase for user $userId...');
     // Ensure we only perform a pull operation, respecting the original options.
     final pullOnlyOptions = (options ?? const DatumSyncOptions()).copyWith(
       direction: SyncDirection.pullOnly,
     );
 
-    final results = <DatumSyncResult>[];
+    final results = <DatumSyncResult<DatumEntity>>[];
     for (final manager in _managers.values) {
       // We call synchronize with pullOnly for each manager.
       results.add(await manager.synchronize(userId, options: pullOnlyOptions));
@@ -230,24 +289,24 @@ class Datum {
 
   /// Creates a new entity of type T.
   Future<T> create<T extends DatumEntity>(T entity) {
-    return manager<T>().push(item: entity, userId: entity.userId);
+    return Datum.manager<T>().push(item: entity, userId: entity.userId);
   }
 
   /// Reads a single entity of type T by its ID.
   Future<T?> read<T extends DatumEntity>(String id, {String? userId}) {
     // In a multi-manager setup, we might need to know which manager to ask.
     // For now, we assume the first one that can handle type T.
-    return manager<T>().read(id, userId: userId);
+    return Datum.manager<T>().read(id, userId: userId);
   }
 
   /// Reads all entities of type T.
   Future<List<T>> readAll<T extends DatumEntity>({String? userId}) {
-    return manager<T>().readAll(userId: userId);
+    return Datum.manager<T>().readAll(userId: userId);
   }
 
   /// Updates an existing entity of type T.
   Future<T> update<T extends DatumEntity>(T entity) {
-    return manager<T>().push(item: entity, userId: entity.userId);
+    return Datum.manager<T>().push(item: entity, userId: entity.userId);
   }
 
   /// Deletes an entity of type T by its ID.
@@ -255,7 +314,7 @@ class Datum {
     required String id,
     required String userId,
   }) async {
-    return manager<T>().delete(id: id, userId: userId);
+    return Datum.manager<T>().delete(id: id, userId: userId);
   }
 
   Future<void> dispose() async {
@@ -267,43 +326,10 @@ class Datum {
     await _eventController.close();
     await _statusSubject.close();
   }
-}
 
-// Helper to hold adapter pairs before managers are created.
-abstract class _AdapterPair<T extends DatumEntity> {
-  DatumManager<T> createManager(Datum datum);
-}
-
-class _AdapterPairImpl<T extends DatumEntity> implements _AdapterPair<T> {
-  final LocalAdapter<T> local;
-  final RemoteAdapter<T> remote;
-  final DatumConflictResolver<T>? conflictResolver;
-  final DatumConfig<T>? config;
-  final List<DatumMiddleware<T>>? middlewares;
-  final List<DatumObserver<T>>? observers;
-
-  _AdapterPairImpl(
-    this.local,
-    this.remote, {
-    this.conflictResolver,
-    this.middlewares,
-    this.config,
-    this.observers,
-  });
-
-  @override
-  DatumManager<T> createManager(Datum datum) {
-    // The main Datum engine can pass down its config and shared services.
-    return DatumManager<T>(
-      localAdapter: local,
-      remoteAdapter: remote,
-      conflictResolver: conflictResolver,
-      localObservers: observers,
-      globalObservers: datum._globalObservers,
-      middlewares: middlewares,
-      datumConfig: config ?? datum.config.copyWith<T>(),
-      connectivity: datum._connectivityChecker,
-      logger: datum._logger,
-    );
+  /// Resets the singleton instance. For testing purposes only.
+  @visibleForTesting
+  static void resetForTesting() {
+    _instance = null;
   }
 }

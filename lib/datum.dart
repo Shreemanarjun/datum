@@ -39,6 +39,8 @@ export 'source/core/models/datum_operation.dart';
 export 'source/core/models/user_switch_models.dart';
 export 'source/core/models/datum_sync_metadata.dart';
 export 'source/core/models/excludable_entity.dart';
+export 'source/core/models/datum_registration.dart';
+export 'source/core/models/relational_datum_entity.dart';
 
 // Events
 export 'source/core/events/datum_event.dart';

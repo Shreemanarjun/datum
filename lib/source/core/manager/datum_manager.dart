@@ -2,13 +2,13 @@ import 'dart:async';
 
 import 'package:datum/source/adapter/local_adapter.dart';
 import 'package:datum/source/adapter/remote_adapter.dart';
+import 'package:datum/source/core/engine/datum_core.dart';
 import 'package:datum/source/config/datum_config.dart';
 import 'package:datum/source/core/engine/conflict_detector.dart';
 import 'package:datum/source/core/engine/datum_sync_engine.dart';
 import 'package:datum/source/core/engine/isolate_helper.dart';
 import 'package:datum/source/core/engine/queue_manager.dart';
 import 'package:datum/source/core/events/conflict_detected_event.dart';
-import 'package:datum/source/core/events/conflict_resolved_event.dart';
 import 'package:datum/source/core/events/data_change_event.dart';
 import 'package:datum/source/core/events/user_switched_event.dart';
 import 'package:datum/source/core/events/datum_event.dart';
@@ -22,6 +22,7 @@ import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:datum/source/core/models/datum_sync_result.dart';
 import 'package:datum/source/core/models/datum_sync_scope.dart';
 import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
 import 'package:datum/source/core/models/user_switch_models.dart';
 import 'package:datum/source/core/query/datum_query.dart';
 import 'package:datum/source/utils/connectivity_checker.dart';
@@ -134,6 +135,8 @@ class DatumManager<T extends DatumEntity> {
       statusSubject: _statusSubject,
       metadataSubject: _metadataSubject,
       isolateHelper: _isolateHelper,
+      localObservers: _localObservers,
+      globalObservers: _globalObservers,
     );
   }
 
@@ -284,10 +287,7 @@ class DatumManager<T extends DatumEntity> {
   void _processSyncEvents(List<DatumSyncEvent<T>> events) {
     for (final event in events) {
       if (_eventController.isClosed) return;
-      // Add to the public event stream for external listeners
       _eventController.add(event);
-      // Also notify observers directly
-      _notifyObservers(event);
     }
   }
 
@@ -528,6 +528,55 @@ class DatumManager<T extends DatumEntity> {
     return true;
   }
 
+  /// Fetches related entities for a given parent entity.
+  ///
+  /// - [parent]: The entity instance for which to fetch related data. This
+  ///   must be an instance of [RelationalDatumEntity].
+  /// - [relationName]: The name of the relation to fetch, as defined in the
+  ///   parent's `belongsTo` or `manyToMany` maps.
+  /// - [source]: The [DataSource] to fetch from (defaults to `local`).
+  ///
+  /// Returns a list of the related entities. Throws an [ArgumentError] if the
+  /// parent is not a [RelationalDatumEntity], or an [Exception] if the
+  /// relation name is not defined on the parent.
+  Future<List<R>> fetchRelated<R extends DatumEntity>(
+    T parent,
+    String relationName, {
+    DataSource source = DataSource.local,
+  }) async {
+    _ensureInitialized();
+
+    if (parent is! RelationalDatumEntity) {
+      throw ArgumentError(
+        'The parent entity must be a RelationalDatumEntity to fetch relations.',
+      );
+    }
+
+    final relation = parent.relations[relationName];
+    if (relation == null) {
+      throw Exception(
+        'Relation "$relationName" is not defined on entity type ${parent.runtimeType}.',
+      );
+    }
+
+    final relatedManager = Datum.manager<R>();
+
+    switch (source) {
+      case DataSource.local:
+        return localAdapter.fetchRelated(
+          parent,
+          relationName,
+          relatedManager.localAdapter,
+        );
+      case DataSource.remote:
+        return remoteAdapter.fetchRelated(
+          parent,
+          relationName,
+          relatedManager.remoteAdapter,
+        );
+    }
+  }
+
   void _ensureInitialized() {
     if (!_initialized) {
       throw StateError('DatumManager must be initialized before use.');
@@ -611,54 +660,6 @@ class DatumManager<T extends DatumEntity> {
       // the exception first and terminate before the event is received,
       // leading to a timeout.
       return Future.error(e.originalError, e.originalStackTrace);
-    }
-  }
-
-  void _notifyObservers(DatumSyncEvent<T> event) {
-    switch (event) {
-      case DatumSyncStartedEvent():
-        _logger.debug('Notifying observers of onSyncStart');
-        for (final observer in _localObservers) {
-          observer.onSyncStart();
-        }
-        for (final observer in _globalObservers) {
-          observer.onSyncStart();
-        }
-      case DatumSyncCompletedEvent():
-        final completedEvent = event;
-        _logger.debug('Notifying observers of onSyncEnd');
-        for (final observer in _localObservers) {
-          observer.onSyncEnd(completedEvent.result);
-        }
-        for (final observer in _globalObservers) {
-          observer.onSyncEnd(completedEvent.result);
-        }
-      case ConflictDetectedEvent<T>():
-        final conflictEvent = event;
-        _logger.debug(
-          'Notifying observers of onConflictDetected for ${conflictEvent.context.entityId}',
-        );
-        final local = conflictEvent.localData;
-        final remote = conflictEvent.remoteData;
-        if (local != null && remote != null) {
-          for (final observer in _localObservers) {
-            observer.onConflictDetected(local, remote, conflictEvent.context);
-          }
-          for (final observer in _globalObservers) {
-            observer.onConflictDetected(local, remote, conflictEvent.context);
-          }
-        }
-      case ConflictResolvedEvent<T>():
-        final resolvedEvent = event;
-        _logger.debug(
-          'Notifying observers of onConflictResolved for ${resolvedEvent.entityId}',
-        );
-        for (final observer in _localObservers) {
-          observer.onConflictResolved(resolvedEvent.resolution);
-        }
-        for (final observer in _globalObservers) {
-          observer.onConflictResolved(resolvedEvent.resolution);
-        }
     }
   }
 

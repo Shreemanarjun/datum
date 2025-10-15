@@ -1,7 +1,8 @@
+import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
 
 /// Represents the outcome of a synchronization operation.
-class DatumSyncResult {
+class DatumSyncResult<T extends DatumEntity> {
   /// The user ID for which the sync was performed.
   final String userId;
 
@@ -19,7 +20,7 @@ class DatumSyncResult {
 
   /// A list of operations that are still pending after the sync cycle.
   /// This includes operations that were not processed or failed with a retryable error.
-  final List<DatumSyncOperation> pendingOperations;
+  final List<DatumSyncOperation<T>> pendingOperations;
 
   /// A list of errors that occurred during the sync.
   final List<Object> errors;
@@ -49,7 +50,7 @@ class DatumSyncResult {
   });
 
   /// Creates a result for a sync operation that was skipped.
-  const DatumSyncResult.skipped(this.userId, int pendingCount)
+  DatumSyncResult.skipped(this.userId, int pendingCount) // Removed const
     : duration = Duration.zero,
       syncedCount = 0,
       failedCount = 0,
@@ -61,7 +62,7 @@ class DatumSyncResult {
       wasCancelled = false;
 
   /// Creates a result for a sync operation that was cancelled.
-  const DatumSyncResult.cancelled(this.userId, this.syncedCount)
+  DatumSyncResult.cancelled(this.userId, this.syncedCount) // Removed const
     : duration = Duration.zero,
       failedCount = 0,
       conflictsResolved = 0,

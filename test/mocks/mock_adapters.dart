@@ -41,7 +41,14 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
   @override
   Future<T?> read(String id, {String? userId}) async {
-    return _storage[userId]?[id];
+    if (userId != null) {
+      return _storage[userId]?[id];
+    }
+    // If no userId is provided, search across all users.
+    for (final userStorage in _storage.values) {
+      if (userStorage.containsKey(id)) return userStorage[id];
+    }
+    return null;
   }
 
   @override
@@ -439,6 +446,70 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
       _rawStorage.putIfAbsent(itemUserId, () => {})[itemId] = rawItem;
     }
   }
+
+  @override
+  Future<List<R>> fetchRelated<R extends DatumEntity>(
+    RelationalDatumEntity parent,
+    String relationName,
+    LocalAdapter<R> relatedAdapter,
+  ) async {
+    final relation = parent.relations[relationName];
+    if (relation == null) {
+      throw Exception(
+        'Relation "$relationName" not found on ${parent.runtimeType}.',
+      );
+    }
+
+    switch (relation) {
+      case BelongsTo():
+        final foreignKeyField = relation.foreignKey;
+        final parentMap = parent.toMap();
+        final foreignKeyValue = parentMap[foreignKeyField] as String?;
+
+        if (foreignKeyValue == null) {
+          return [];
+        }
+
+        // In a 'belongsTo' relationship, the foreign key on the parent
+        // points to the primary key of the related entity.
+        final relatedItem = await relatedAdapter.read(foreignKeyValue);
+        return relatedItem != null ? [relatedItem] : [];
+      case HasMany():
+        final foreignKeyField = relation.foreignKey;
+        final parentId = parent.id;
+        final query = DatumQuery(
+          filters: [Filter(foreignKeyField, FilterOperator.equals, parentId)],
+        );
+        return relatedAdapter.query(query);
+      case ManyToMany():
+        // 1. Get the manager for the pivot entity.
+        final pivotManager = Datum.managerByType(
+          relation.pivotEntity.runtimeType,
+        );
+        // 2. Query the pivot table to find all entries matching the parent's ID.
+        final pivotQuery = DatumQuery(
+          filters: [
+            Filter(relation.thisForeignKey, FilterOperator.equals, parent.id),
+          ],
+        );
+        final pivotEntries = await pivotManager.localAdapter.query(pivotQuery);
+
+        if (pivotEntries.isEmpty) {
+          return [];
+        }
+
+        // 3. Extract the IDs of the "other" side of the relationship.
+        final otherIds = pivotEntries
+            .map((e) => e.toMap()[relation.otherForeignKey] as String)
+            .toList();
+
+        // 4. Fetch the related entities using the extracted IDs.
+        return (await relatedAdapter.readByIds(
+          otherIds,
+          userId: parent.userId,
+        )).values.toList();
+    }
+  }
 }
 
 class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
@@ -476,7 +547,11 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
   @override
   Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) async {
     if (!isConnectedValue) throw Exception('No connection');
-    var items = _remoteStorage[userId]?.values.toList() ?? [];
+    var items =
+        (userId != null
+            ? _remoteStorage[userId]?.values.toList()
+            : _remoteStorage.values.expand((map) => map.values).toList()) ??
+        [];
     if (scope?.filters['minModifiedDate'] != null) {
       final minDate = DateTime.parse(
         scope!.filters['minModifiedDate'] as String,
@@ -489,7 +564,13 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
   @override
   Future<T?> read(String id, {String? userId}) async {
     if (!isConnectedValue) throw Exception('No connection');
-    return _remoteStorage[userId ?? '']?[id];
+    if (userId != null) {
+      return _remoteStorage[userId]?[id];
+    }
+    for (final userStorage in _remoteStorage.values) {
+      if (userStorage.containsKey(id)) return userStorage[id];
+    }
+    return null;
   }
 
   @override
@@ -590,7 +671,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
   Future<bool> isConnected() async => isConnectedValue;
 
   void addRemoteItem(String userId, T item) {
-    _remoteStorage.putIfAbsent(userId, () => {})[item.id] = item;
+    _remoteStorage.putIfAbsent(item.userId, () => {})[item.id] = item;
   }
 
   void setRemoteMetadata(String userId, DatumSyncMetadata metadata) {
@@ -600,6 +681,8 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
   @override
   Future<List<T>> query(DatumQuery query, {String? userId}) async {
     if (!isConnectedValue) throw NetworkException('No connection');
+    // Pass the userId to readAll. If it's null, readAll will correctly
+    // fetch from all users, which is the desired behavior for relational queries.
     final allItems = await readAll(userId: userId);
     return applyQuery(allItems, query);
   }
@@ -663,6 +746,67 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
         .asyncMap((_) => getFiltered());
 
     return Rx.concat([initialDataStream, updateStream]);
+  }
+
+  @override
+  Future<List<R>> fetchRelated<R extends DatumEntity>(
+    RelationalDatumEntity parent,
+    String relationName,
+    RemoteAdapter<R> relatedAdapter,
+  ) async {
+    final relation = parent.relations[relationName];
+    if (relation == null) {
+      throw Exception(
+        'Relation "$relationName" not found on ${parent.runtimeType}.',
+      );
+    }
+
+    switch (relation) {
+      case BelongsTo():
+        final foreignKeyField = relation.foreignKey;
+        final parentMap = parent.toMap();
+        final foreignKeyValue = parentMap[foreignKeyField] as String?;
+
+        if (foreignKeyValue == null) {
+          return [];
+        }
+
+        final relatedItem = await relatedAdapter.read(foreignKeyValue);
+        return relatedItem != null ? [relatedItem] : [];
+      case HasMany():
+        final foreignKeyField = relation.foreignKey;
+        final parentId = parent.id;
+        final query = DatumQuery(
+          filters: [Filter(foreignKeyField, FilterOperator.equals, parentId)],
+        );
+        return relatedAdapter.query(query);
+      case ManyToMany():
+        // 1. Get the manager for the pivot entity.
+        final pivotManager = Datum.managerByType(
+          relation.pivotEntity.runtimeType,
+        );
+        // 2. Query the pivot table to find all entries matching the parent's ID.
+        final pivotQuery = DatumQuery(
+          filters: [
+            Filter(relation.thisForeignKey, FilterOperator.equals, parent.id),
+          ],
+        );
+        final pivotEntries = await pivotManager.remoteAdapter.query(pivotQuery);
+
+        if (pivotEntries.isEmpty) {
+          return [];
+        }
+
+        // 3. Extract the IDs of the "other" side of the relationship.
+        final otherIds = pivotEntries
+            .map((e) => e.toMap()[relation.otherForeignKey] as String)
+            .toList();
+
+        // 4. Fetch the related entities using the extracted IDs.
+        return relatedAdapter.query(
+          DatumQuery(filters: [Filter('id', FilterOperator.isIn, otherIds)]),
+        );
+    }
   }
 }
 

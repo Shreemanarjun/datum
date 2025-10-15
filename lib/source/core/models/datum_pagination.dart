@@ -44,4 +44,13 @@ class PaginatedResult<T extends DatumEntity> {
     required this.hasMore,
     this.nextCursor,
   });
+
+  /// Creates an empty paginated result.
+  const PaginatedResult.empty()
+      : items = const [],
+        totalCount = 0,
+        currentPage = 1,
+        totalPages = 0,
+        hasMore = false,
+        nextCursor = null;
 }

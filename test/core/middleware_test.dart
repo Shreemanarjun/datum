@@ -68,7 +68,7 @@ void main() {
           syncedCount: 0,
           failedCount: 0,
           conflictsResolved: 0,
-          pendingOperations: [],
+          pendingOperations: <DatumSyncOperation<TestEntity>>[],
           duration: Duration.zero,
         ),
       );

@@ -21,6 +21,7 @@ import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/utils/connectivity_checker.dart';
 import 'package:datum/source/utils/datum_logger.dart';
+import 'package:datum/source/core/engine/datum_observer.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -38,6 +39,8 @@ class DatumSyncEngine<T extends DatumEntity> {
   final BehaviorSubject<DatumSyncStatusSnapshot> statusSubject;
   final BehaviorSubject<DatumSyncMetadata> metadataSubject;
   final IsolateHelper isolateHelper;
+  final List<DatumObserver<T>> localObservers;
+  final List<GlobalDatumObserver> globalObservers;
 
   String? _lastActiveUserId;
 
@@ -58,6 +61,8 @@ class DatumSyncEngine<T extends DatumEntity> {
     required this.statusSubject,
     required this.metadataSubject,
     required this.isolateHelper,
+    this.localObservers = const [],
+    this.globalObservers = const [],
   });
 
   /// Checks if the active user has changed and emits an event if so.
@@ -80,7 +85,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     _lastActiveUserId = newUserId;
   }
 
-  Future<(DatumSyncResult, List<DatumSyncEvent<T>>)> synchronize(
+  Future<(DatumSyncResult<T>, List<DatumSyncEvent<T>>)> synchronize(
     String userId, {
     bool force = false,
     DatumSyncOptions<T>? options,
@@ -91,7 +96,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     if (!await connectivityChecker.isConnected && !force) {
       logger.warn('Sync skipped for user $userId: No internet connection.');
       return (
-        DatumSyncResult.skipped(userId, snapshot.pendingOperations),
+        DatumSyncResult<T>.skipped(userId, snapshot.pendingOperations),
         <DatumSyncEvent<T>>[],
       );
     }
@@ -99,7 +104,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     if (snapshot.status == DatumSyncStatus.syncing) {
       logger.info('Sync already in progress for user $userId. Skipping.');
       return (
-        DatumSyncResult.skipped(userId, snapshot.pendingOperations),
+        DatumSyncResult<T>.skipped(userId, snapshot.pendingOperations),
         <DatumSyncEvent<T>>[],
       );
     }
@@ -121,6 +126,7 @@ class DatumSyncEngine<T extends DatumEntity> {
       pendingOperations: snapshot.pendingOperations,
     );
     generatedEvents.add(startEvent);
+    _notifyObservers(startEvent);
 
     try {
       final direction = options?.direction ?? config.defaultSyncDirection;
@@ -142,7 +148,7 @@ class DatumSyncEngine<T extends DatumEntity> {
       // The status subject would be closed in this case.
       if (statusSubject.isClosed) {
         return (
-          DatumSyncResult.cancelled(userId, statusSubject.value.syncedCount),
+          DatumSyncResult<T>.cancelled(userId, statusSubject.value.syncedCount),
           generatedEvents,
         );
       }
@@ -154,7 +160,7 @@ class DatumSyncEngine<T extends DatumEntity> {
         syncedCount: statusSubject.value.syncedCount,
         failedCount: statusSubject.value.failedOperations,
         conflictsResolved: statusSubject.value.conflictsResolved,
-        pendingOperations: finalPending.cast(),
+        pendingOperations: finalPending,
       );
 
       // Check if controllers are closed before adding events, as the manager
@@ -170,6 +176,7 @@ class DatumSyncEngine<T extends DatumEntity> {
           result: result,
         );
         generatedEvents.add(completedEvent);
+        _notifyObservers(completedEvent);
       }
       return (result, generatedEvents);
     } catch (e, stack) {
@@ -187,6 +194,7 @@ class DatumSyncEngine<T extends DatumEntity> {
           stackTrace: stack,
         );
         generatedEvents.add(errorEvent);
+        _notifyObservers(errorEvent);
       }
       // Instead of a simple `rethrow`, we wrap the error in a custom
       // exception. This allows us to transport the `generatedEvents`
@@ -227,6 +235,7 @@ class DatumSyncEngine<T extends DatumEntity> {
             total: total,
           );
           generatedEvents.add(progressEvent);
+          _notifyObservers(progressEvent);
         }
       },
     );
@@ -236,6 +245,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     DatumSyncOperation<T> operation, {
     required List<DatumSyncEvent<T>> generatedEvents,
   }) async {
+    _notifyPreOperationObservers(operation);
     logger.debug(
       'Processing operation: ${operation.type.name} for entity ${operation.entityId}',
     );
@@ -281,6 +291,7 @@ class DatumSyncEngine<T extends DatumEntity> {
             syncedCount: statusSubject.value.syncedCount + 1,
           ),
         );
+        _notifyPostOperationObservers(operation, success: true);
       }
     } on EntityNotFoundException catch (e, stackTrace) {
       // If a patch fails because the entity doesn't exist on the remote,
@@ -299,6 +310,7 @@ class DatumSyncEngine<T extends DatumEntity> {
           generatedEvents: generatedEvents,
         );
       }
+      _notifyPostOperationObservers(operation, success: false);
       logger.error('Operation ${operation.id} failed: $e', stackTrace);
       // If the operation was not an update that could be retried as a create,
       // we must rethrow the exception to let the sync process know that this
@@ -336,6 +348,7 @@ class DatumSyncEngine<T extends DatumEntity> {
             ),
           );
         }
+        _notifyPostOperationObservers(operation, success: false);
         statusSubject.add(
           statusSubject.value.copyWith(
             failedOperations: statusSubject.value.failedOperations + 1,
@@ -402,6 +415,7 @@ class DatumSyncEngine<T extends DatumEntity> {
         remoteData: remoteItem,
       );
       generatedEvents.add(conflictEvent);
+      _notifyObservers(conflictEvent);
 
       final resolver = options?.conflictResolver ?? conflictResolver;
       final resolution = await resolver.resolve(
@@ -433,6 +447,7 @@ class DatumSyncEngine<T extends DatumEntity> {
         resolution: resolution,
       );
       generatedEvents.add(resolvedEvent);
+      _notifyObservers(resolvedEvent);
       statusSubject.add(
         statusSubject.value.copyWith(
           conflictsResolved: statusSubject.value.conflictsResolved + 1,
@@ -441,6 +456,117 @@ class DatumSyncEngine<T extends DatumEntity> {
     }
 
     await _updateMetadata(userId);
+  }
+
+  void _notifyPreOperationObservers(DatumSyncOperation<T> operation) {
+    if (operation.data == null) return;
+    final item = operation.data!;
+    switch (operation.type) {
+      case DatumOperationType.create:
+        for (final observer in localObservers) {
+          observer.onCreateStart(item);
+        }
+        for (final observer in globalObservers) {
+          observer.onCreateStart(item);
+        }
+      case DatumOperationType.update:
+        for (final observer in localObservers) {
+          observer.onUpdateStart(item);
+        }
+        for (final observer in globalObservers) {
+          observer.onUpdateStart(item);
+        }
+      case DatumOperationType.delete:
+        for (final observer in localObservers) {
+          observer.onDeleteStart(item.id);
+        }
+        for (final observer in globalObservers) {
+          observer.onDeleteStart(item.id);
+        }
+    }
+  }
+
+  void _notifyPostOperationObservers(
+    DatumSyncOperation<T> operation, {
+    required bool success,
+  }) {
+    if (operation.data == null && operation.type != DatumOperationType.delete) {
+      return;
+    }
+    final item = operation.data;
+    switch (operation.type) {
+      case DatumOperationType.create:
+        if (item != null) {
+          for (final observer in localObservers) {
+            observer.onCreateEnd(item);
+          }
+          for (final observer in globalObservers) {
+            observer.onCreateEnd(item);
+          }
+        }
+      case DatumOperationType.update:
+        if (item != null) {
+          for (final observer in localObservers) {
+            observer.onUpdateEnd(item);
+          }
+          for (final observer in globalObservers) {
+            observer.onUpdateEnd(item);
+          }
+        }
+      case DatumOperationType.delete:
+        for (final observer in localObservers) {
+          observer.onDeleteEnd(operation.entityId, success: success);
+        }
+        for (final observer in globalObservers) {
+          observer.onDeleteEnd(operation.entityId, success: success);
+        }
+    }
+  }
+
+  void _notifyObservers(DatumSyncEvent<T> event) {
+    switch (event) {
+      case DatumSyncStartedEvent():
+        for (final observer in localObservers) {
+          observer.onSyncStart();
+        }
+        for (final observer in globalObservers) {
+          observer.onSyncStart();
+        }
+      case DatumSyncCompletedEvent():
+        for (final observer in localObservers) {
+          observer.onSyncEnd(event.result);
+        }
+        for (final observer in globalObservers) {
+          observer.onSyncEnd(event.result);
+        }
+      case ConflictDetectedEvent<T>():
+        final conflictEvent = event;
+        final local = conflictEvent.localData;
+        final remote = conflictEvent.remoteData;
+        if (local != null && remote != null) {
+          for (final observer in localObservers) {
+            observer.onConflictDetected(local, remote, conflictEvent.context);
+          }
+          for (final observer in globalObservers) {
+            observer.onConflictDetected(local, remote, conflictEvent.context);
+          }
+        }
+      case ConflictResolvedEvent<T>():
+        final resolvedEvent = event;
+        for (final observer in localObservers) {
+          observer.onConflictResolved(resolvedEvent.resolution);
+        }
+        for (final observer in globalObservers) {
+          // We need to cast the resolution to the generic DatumEntity type
+          // that the GlobalDatumObserver expects.
+          final genericResolution = resolvedEvent.resolution
+              .copyWithNewType<DatumEntity>();
+          observer.onConflictResolved(genericResolution);
+        }
+      case _:
+        // Other events like progress, conflict, etc.
+        break;
+    }
   }
 
   Future<void> _updateMetadata(String userId) async {

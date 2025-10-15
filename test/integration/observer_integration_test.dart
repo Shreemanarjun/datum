@@ -16,54 +16,48 @@ class MockDatumObserver<T extends DatumEntity> extends Mock
 class MockGlobalDatumObserver extends Mock implements GlobalDatumObserver {}
 
 void main() {
+  setUpAll(() {
+    registerFallbackValue(TestEntity.create('fb', 'fb', 'fb'));
+    registerFallbackValue(DataSource.local);
+    registerFallbackValue(
+      const DatumSyncMetadata(userId: 'fb', lastSyncTime: null, dataHash: 'fb'),
+    );
+    registerFallbackValue(
+      DatumSyncOperation<TestEntity>(
+        id: 'fb',
+        userId: 'fb',
+        entityId: 'fb',
+        type: DatumOperationType.create,
+        timestamp: DateTime(0),
+      ),
+    );
+    registerFallbackValue(StackTrace.empty);
+    registerFallbackValue(
+      DatumConflictContext(
+        userId: 'fb',
+        entityId: 'fb',
+        type: DatumConflictType.bothModified,
+        detectedAt: DateTime(0),
+      ),
+    );
+    registerFallbackValue(DatumConflictResolution<TestEntity>.abort('fb'));
+    registerFallbackValue(
+      const DatumSyncResult(
+        userId: 'fb',
+        syncedCount: 0,
+        failedCount: 0,
+        conflictsResolved: 0,
+        pendingOperations: <DatumSyncOperation<TestEntity>>[],
+        duration: Duration.zero,
+      ),
+    );
+  });
   group('DatumObserver Integration Tests', () {
     late DatumManager<TestEntity> manager;
     late MockedLocalAdapter<TestEntity> localAdapter;
     late MockedRemoteAdapter<TestEntity> remoteAdapter;
     late MockConnectivityChecker connectivityChecker;
     late MockDatumObserver<TestEntity> mockObserver;
-
-    setUpAll(() {
-      registerFallbackValue(TestEntity.create('fb', 'fb', 'fb'));
-      registerFallbackValue(DataSource.local);
-      registerFallbackValue(
-        const DatumSyncMetadata(
-          userId: 'fb',
-          lastSyncTime: null,
-          dataHash: 'fb',
-        ),
-      );
-      registerFallbackValue(
-        DatumSyncOperation<TestEntity>(
-          id: 'fb',
-          userId: 'fb',
-          entityId: 'fb',
-          type: DatumOperationType.create,
-          timestamp: DateTime(0),
-        ),
-      );
-      registerFallbackValue(StackTrace.empty);
-      registerFallbackValue(
-        DatumConflictContext(
-          userId: 'fb',
-          entityId: 'fb',
-          type: DatumConflictType.bothModified,
-          detectedAt: DateTime(0),
-        ),
-      );
-      registerFallbackValue(DatumConflictResolution<TestEntity>.abort('fb'));
-      registerFallbackValue(
-        const DatumSyncResult(
-          userId: 'fb',
-          syncedCount: 0,
-          failedCount: 0,
-          conflictsResolved: 0,
-          pendingOperations: [],
-          duration: Duration.zero,
-        ),
-      );
-    });
-
     setUp(() async {
       localAdapter = MockedLocalAdapter<TestEntity>();
       remoteAdapter = MockedRemoteAdapter<TestEntity>();

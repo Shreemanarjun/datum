@@ -1,6 +1,7 @@
 import 'package:datum/source/core/models/datum_change_detail.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_pagination.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
 import 'package:datum/source/core/query/datum_query.dart';
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
@@ -135,6 +136,21 @@ abstract class LocalAdapter<T extends DatumEntity> {
     List<Map<String, dynamic>> data, {
     String? userId,
   });
+
+  /// Fetches related entities based on the relationship definitions from the local source.
+  ///
+  /// This is an optional method that adapters can implement if their backend
+  /// supports efficient relational queries (e.g., via joins in SQL).
+  /// If not implemented, it will throw an [UnimplementedError].
+  Future<List<R>> fetchRelated<R extends DatumEntity>(
+    RelationalDatumEntity parent,
+    String relationName,
+    LocalAdapter<R> relatedAdapter,
+  ) {
+    throw UnimplementedError(
+      'fetchRelated is not implemented for this local adapter.',
+    );
+  }
 
   /// Executes a block of code within a single atomic transaction.
   Future<R> transaction<R>(Future<R> Function() action);

@@ -78,6 +78,19 @@ class DatumConflictResolution<T extends DatumEntity> {
         strategy: DatumResolutionStrategy.abort,
         message: reason,
       );
+
+  /// Creates a copy of the resolution with a different generic type.
+  /// This is useful for upcasting to `DatumConflictResolution<DatumEntity>`.
+  DatumConflictResolution<E> copyWithNewType<E extends DatumEntity>() {
+    // This is safe because T extends DatumEntity, and E also extends DatumEntity.
+    // The resolvedData is being upcast.
+    return DatumConflictResolution<E>(
+      strategy: strategy,
+      resolvedData: resolvedData as E?,
+      requiresUserInput: requiresUserInput,
+      message: message,
+    );
+  }
 }
 
 /// Base interface for components that resolve synchronization conflicts.

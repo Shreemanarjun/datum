@@ -59,7 +59,7 @@ void main() {
           syncedCount: 0,
           failedCount: 0,
           conflictsResolved: 0,
-          pendingOperations: [],
+          pendingOperations: <DatumSyncOperation<TestEntity>>[],
           duration: Duration.zero,
         ),
       );
@@ -612,20 +612,28 @@ void main() {
           timestamp: DateTime.now(),
           data: TestEntity.create('push-only-e1', 'user1', 'Push Only'),
         );
-        final remoteItem =
-            TestEntity.create('remote-only-e1', 'user1', 'Should not be pulled');
+        final remoteItem = TestEntity.create(
+          'remote-only-e1',
+          'user1',
+          'Should not be pulled',
+        );
 
         // Stub for push
-        when(() => localAdapter.getPendingOperations('user1'))
-            .thenAnswer((_) async => [localOp]);
+        when(
+          () => localAdapter.getPendingOperations('user1'),
+        ).thenAnswer((_) async => [localOp]);
         when(() => remoteAdapter.create(any())).thenAnswer((_) async {});
-        when(() => localAdapter.removePendingOperation(any()))
-            .thenAnswer((_) async {});
+        when(
+          () => localAdapter.removePendingOperation(any()),
+        ).thenAnswer((_) async {});
 
         // Stub for pull (to verify it's NOT called)
-        when(() => remoteAdapter.readAll(
+        when(
+          () => remoteAdapter.readAll(
             userId: 'user1',
-            scope: any(named: 'scope'))).thenAnswer((_) async => [remoteItem]);
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer((_) async => [remoteItem]);
 
         // 2. ACT
         final result = await manager.synchronize(
@@ -635,15 +643,24 @@ void main() {
 
         // 3. ASSERT
         expect(result.syncedCount, 1);
-        verify(() => remoteAdapter.create(any(
-                that: predicate<TestEntity>((e) => e.id == 'push-only-e1'))))
-            .called(1);
+        verify(
+          () => remoteAdapter.create(
+            any(that: predicate<TestEntity>((e) => e.id == 'push-only-e1')),
+          ),
+        ).called(1);
 
         // Verify pull was NOT performed
-        verifyNever(() => remoteAdapter.readAll(
-            userId: 'user1', scope: any(named: 'scope')));
-        verifyNever(() => localAdapter.create(any(
-            that: predicate<TestEntity>((e) => e.id == 'remote-only-e1'))));
+        verifyNever(
+          () => remoteAdapter.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        );
+        verifyNever(
+          () => localAdapter.create(
+            any(that: predicate<TestEntity>((e) => e.id == 'remote-only-e1')),
+          ),
+        );
       });
 
       test('pullOnly sync direction only pulls remote changes', () async {
@@ -654,19 +671,30 @@ void main() {
           entityId: 'pull-only-e1',
           type: DatumOperationType.create,
           timestamp: DateTime.now(),
-          data: TestEntity.create('pull-only-e1', 'user1', 'Should not be pushed'),
+          data: TestEntity.create(
+            'pull-only-e1',
+            'user1',
+            'Should not be pushed',
+          ),
         );
-        final remoteItem =
-            TestEntity.create('remote-pull-e1', 'user1', 'Should be pulled');
+        final remoteItem = TestEntity.create(
+          'remote-pull-e1',
+          'user1',
+          'Should be pulled',
+        );
 
         // Stub for push (to verify it's NOT called)
-        when(() => localAdapter.getPendingOperations('user1'))
-            .thenAnswer((_) async => [localOp]);
+        when(
+          () => localAdapter.getPendingOperations('user1'),
+        ).thenAnswer((_) async => [localOp]);
 
         // Stub for pull
-        when(() => remoteAdapter.readAll(
+        when(
+          () => remoteAdapter.readAll(
             userId: 'user1',
-            scope: any(named: 'scope'))).thenAnswer((_) async => [remoteItem]);
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer((_) async => [remoteItem]);
         when(() => localAdapter.create(any())).thenAnswer((_) async {});
 
         // 2. ACT
@@ -677,34 +705,57 @@ void main() {
 
         // 3. ASSERT
         // Verify pull was performed
-        verify(() => localAdapter.create(any(
-                that: predicate<TestEntity>((e) => e.id == 'remote-pull-e1'))))
-            .called(1);
+        verify(
+          () => localAdapter.create(
+            any(that: predicate<TestEntity>((e) => e.id == 'remote-pull-e1')),
+          ),
+        ).called(1);
 
         // Verify push was NOT performed
         verifyNever(() => remoteAdapter.create(any()));
       });
 
-      test('pullThenPush sync direction executes in the correct order', () async {
-        // 1. ARRANGE
-        when(() => localAdapter.getPendingOperations('user1')).thenAnswer((_) async => [
+      test(
+        'pullThenPush sync direction executes in the correct order',
+        () async {
+          // 1. ARRANGE
+          when(() => localAdapter.getPendingOperations('user1')).thenAnswer(
+            (_) async => [
               DatumSyncOperation<TestEntity>(
-                  id: 'op', userId: 'user1', entityId: 'e1', type: DatumOperationType.create, timestamp: DateTime.now(), data: TestEntity.create('e1', 'user1', 'Test'))
-            ]);
-        when(() => remoteAdapter.create(any())).thenAnswer((_) async {});
-        when(() => localAdapter.removePendingOperation(any())).thenAnswer((_) async {});
+                id: 'op',
+                userId: 'user1',
+                entityId: 'e1',
+                type: DatumOperationType.create,
+                timestamp: DateTime.now(),
+                data: TestEntity.create('e1', 'user1', 'Test'),
+              ),
+            ],
+          );
+          when(() => remoteAdapter.create(any())).thenAnswer((_) async {});
+          when(
+            () => localAdapter.removePendingOperation(any()),
+          ).thenAnswer((_) async {});
 
-        // 2. ACT
-        await manager.synchronize('user1', options: const DatumSyncOptions(direction: SyncDirection.pullThenPush));
+          // 2. ACT
+          await manager.synchronize(
+            'user1',
+            options: const DatumSyncOptions(
+              direction: SyncDirection.pullThenPush,
+            ),
+          );
 
-        // 3. ASSERT
-        verifyInOrder([
-          // Pull phase
-          () => remoteAdapter.readAll(userId: 'user1', scope: any(named: 'scope')),
-          // Push phase
-          () => remoteAdapter.create(any()),
-        ]);
-      });
+          // 3. ASSERT
+          verifyInOrder([
+            // Pull phase
+            () => remoteAdapter.readAll(
+              userId: 'user1',
+              scope: any(named: 'scope'),
+            ),
+            // Push phase
+            () => remoteAdapter.create(any()),
+          ]);
+        },
+      );
     });
   });
 }

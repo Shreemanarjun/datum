@@ -57,7 +57,7 @@ void main() {
         syncedCount: 8,
         failedCount: 2,
         conflictsResolved: 0,
-        pendingOperations: [],
+        pendingOperations: <DatumSyncOperation<TestEntity>>[],
         duration: Duration.zero,
       );
       final event = DatumSyncCompletedEvent(

@@ -1,5 +1,6 @@
 import 'package:datum/datum.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../mocks/test_entity.dart';
 
 void main() {
   group('DatumSyncResult', () {
@@ -11,7 +12,7 @@ void main() {
         syncedCount: 5,
         failedCount: 0,
         conflictsResolved: 1,
-        pendingOperations: const [],
+        pendingOperations: const <DatumSyncOperation<TestEntity>>[],
         duration: const Duration(seconds: 10),
       );
 
@@ -28,7 +29,7 @@ void main() {
     });
 
     test('skipped constructor creates a skipped result', () {
-      const result = DatumSyncResult.skipped(userId, 5);
+      final result = DatumSyncResult.skipped(userId, 5);
 
       expect(result.userId, userId);
       expect(result.wasSkipped, isTrue);
@@ -40,7 +41,7 @@ void main() {
     });
 
     test('cancelled constructor creates a cancelled result', () {
-      const result = DatumSyncResult.cancelled(userId, 3);
+      final result = DatumSyncResult.cancelled(userId, 3);
 
       expect(result.userId, userId);
       expect(result.wasCancelled, isTrue);

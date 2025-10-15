@@ -1,5 +1,6 @@
 import 'package:datum/source/core/models/datum_change_detail.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
 import 'package:datum/source/core/query/datum_query.dart';
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
 import 'package:datum/source/core/models/datum_sync_scope.dart';
@@ -72,6 +73,21 @@ abstract class RemoteAdapter<T extends DatumEntity> {
 
   /// Check if the remote data source is currently reachable.
   Future<bool> isConnected();
+
+  /// Fetches related entities based on the relationship definitions from the remote source.
+  ///
+  /// This is an optional method that adapters can implement if their backend
+  /// supports efficient relational queries. If not implemented, it will throw
+  /// an [UnimplementedError].
+  Future<List<R>> fetchRelated<R extends DatumEntity>(
+    RelationalDatumEntity parent,
+    String relationName,
+    RemoteAdapter<R> relatedAdapter,
+  ) {
+    throw UnimplementedError(
+      'fetchRelated is not implemented for this remote adapter.',
+    );
+  }
 
   /// Dispose of any resources used by the adapter (e.g., network connections).
   Future<void> dispose() async {}
