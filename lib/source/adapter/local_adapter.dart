@@ -152,6 +152,21 @@ abstract class LocalAdapter<T extends DatumEntity> {
     );
   }
 
+  /// Reactively watches related entities.
+  ///
+  /// This is an optional method that adapters can implement to provide
+  /// reactive streams for relational data. If not implemented, it will
+  /// throw an [UnimplementedError].
+  Stream<List<R>>? watchRelated<R extends DatumEntity>(
+    RelationalDatumEntity parent,
+    String relationName,
+    LocalAdapter<R> relatedAdapter,
+  ) {
+    throw UnimplementedError(
+      'watchRelated is not implemented for this local adapter.',
+    );
+  }
+
   /// Executes a block of code within a single atomic transaction.
   Future<R> transaction<R>(Future<R> Function() action);
 

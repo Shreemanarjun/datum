@@ -1,5 +1,7 @@
-import 'package:datum/datum.dart';
+// ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'package:flutter_test/flutter_test.dart';
+
+import 'package:datum/datum.dart';
 
 import '../mocks/mock_adapters.dart';
 import '../mocks/mock_connectivity_checker.dart';
@@ -104,20 +106,28 @@ class Post extends RelationalDatumEntity {
   };
 
   @override
-  Post copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) {
+  Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
+
+  @override
+  Post copyWith({
+    String? id,
+    String? userId,
+    String? title,
+    DateTime? modifiedAt,
+    DateTime? createdAt,
+    int? version,
+    bool? isDeleted,
+  }) {
     return Post(
-      id: id,
-      userId: userId,
-      title: title,
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      title: title ?? this.title,
       modifiedAt: modifiedAt ?? this.modifiedAt,
-      createdAt: createdAt,
+      createdAt: createdAt ?? this.createdAt,
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
     );
   }
-
-  @override
-  Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
 }
 
 /// A Tag entity for the many-to-many relationship.
@@ -308,42 +318,53 @@ void main() {
       Datum.resetForTesting();
     });
 
-    test('fetches "belongsTo" related entity successfully from local', () async {
-      // Arrange: Add both the user and the post to the local store.
-      await userManager.push(item: testUser, userId: testUser.id);
-      await postManager.push(item: testPost, userId: testUser.id);
+    test(
+      'fetches "belongsTo" related entity successfully from local',
+      () async {
+        // Arrange: Add both the user and the post to the local store.
+        await userManager.push(item: testUser, userId: testUser.id);
+        await postManager.push(item: testPost, userId: testUser.id);
 
-      // Act: Fetch the 'author' for the post.
-      final authors = await postManager.fetchRelated<User>(testPost, 'author');
+        // Act: Fetch the 'author' for the post.
+        final authors = await postManager.fetchRelated<User>(
+          testPost,
+          'author',
+        );
 
-      // Assert
-      expect(authors, isNotEmpty);
-      expect(authors.length, 1);
-      expect(authors.first.id, testUser.id);
-      expect(authors.first.name, 'John Doe');
-    });
+        // Assert
+        expect(authors, isNotEmpty);
+        expect(authors.length, 1);
+        expect(authors.first.id, testUser.id);
+        expect(authors.first.name, 'John Doe');
+      },
+    );
 
-    test('fetches "belongsTo" related entity successfully from remote',
-        () async {
-      // Arrange: Add the user and post to the remote mock adapters.
-      (userManager.remoteAdapter as MockRemoteAdapter).addRemoteItem(
-        testUser.id,
-        testUser,
-      );
-      (postManager.remoteAdapter as MockRemoteAdapter).addRemoteItem(
-        testUser.id,
-        testPost,
-      );
+    test(
+      'fetches "belongsTo" related entity successfully from remote',
+      () async {
+        // Arrange: Add the user and post to the remote mock adapters.
+        (userManager.remoteAdapter as MockRemoteAdapter).addRemoteItem(
+          testUser.id,
+          testUser,
+        );
+        (postManager.remoteAdapter as MockRemoteAdapter).addRemoteItem(
+          testUser.id,
+          testPost,
+        );
 
-      // Act: Fetch the 'author' for the post from the remote source.
-      final authors =
-          await postManager.fetchRelated<User>(testPost, 'author', source: DataSource.remote);
+        // Act: Fetch the 'author' for the post from the remote source.
+        final authors = await postManager.fetchRelated<User>(
+          testPost,
+          'author',
+          source: DataSource.remote,
+        );
 
-      // Assert
-      expect(authors, isNotEmpty);
-      expect(authors.length, 1);
-      expect(authors.first.id, testUser.id);
-    });
+        // Assert
+        expect(authors, isNotEmpty);
+        expect(authors.length, 1);
+        expect(authors.first.id, testUser.id);
+      },
+    );
 
     test(
       'fetches "manyToMany" related entities successfully from local',
@@ -366,31 +387,34 @@ void main() {
       },
     );
 
-    test('fetches "hasMany" related entities successfully from local', () async {
-      // Arrange: Create one user and two posts belonging to that user.
-      final post2 = Post(
-        id: 'post-2',
-        userId: 'user-1',
-        title: 'My Second Post',
-        modifiedAt: DateTime(2023, 2),
-        createdAt: DateTime(2023, 2),
-      );
-      await userManager.push(item: testUser, userId: testUser.id);
-      await postManager.push(item: testPost, userId: testUser.id);
-      await postManager.push(item: post2, userId: testUser.id);
+    test(
+      'fetches "hasMany" related entities successfully from local',
+      () async {
+        // Arrange: Create one user and two posts belonging to that user.
+        final post2 = Post(
+          id: 'post-2',
+          userId: 'user-1',
+          title: 'My Second Post',
+          modifiedAt: DateTime(2023, 2),
+          createdAt: DateTime(2023, 2),
+        );
+        await userManager.push(item: testUser, userId: testUser.id);
+        await postManager.push(item: testPost, userId: testUser.id);
+        await postManager.push(item: post2, userId: testUser.id);
 
-      // Act: Fetch the 'posts' for the user.
-      final posts = await userManager.fetchRelated<Post>(testUser, 'posts');
+        // Act: Fetch the 'posts' for the user.
+        final posts = await userManager.fetchRelated<Post>(testUser, 'posts');
 
-      // Assert
-      expect(posts, isNotEmpty);
-      expect(posts.length, 2);
-      expect(posts.map((p) => p.id), containsAll(['post-1', 'post-2']));
-      expect(
-        posts.map((p) => p.title),
-        containsAll(['My First Post', 'My Second Post']),
-      );
-    });
+        // Assert
+        expect(posts, isNotEmpty);
+        expect(posts.length, 2);
+        expect(posts.map((p) => p.id), containsAll(['post-1', 'post-2']));
+        expect(
+          posts.map((p) => p.title),
+          containsAll(['My First Post', 'My Second Post']),
+        );
+      },
+    );
 
     test(
       'fetches "hasMany" related entities successfully from remote',
@@ -462,6 +486,78 @@ void main() {
           containsAll(['Flutter', 'Dart']),
           reason: 'Should fetch both tags related to the post.',
         );
+      },
+    );
+
+    test(
+      'returns an empty list for "hasMany" when no related entities exist',
+      () async {
+        // Arrange: Add a user but no posts.
+        await userManager.push(item: testUser, userId: testUser.id);
+
+        // Act: Fetch the 'posts' for the user.
+        final posts = await userManager.fetchRelated<Post>(testUser, 'posts');
+
+        // Assert
+        expect(posts, isEmpty);
+      },
+    );
+
+    test(
+      'returns an empty list for "belongsTo" when foreign key is non-existent',
+      () async {
+        // Arrange: Add a post with a foreign key that doesn't match any user.
+        final postWithOrphanFk = testPost.copyWith(userId: 'non-existent-user');
+        await postManager.push(item: postWithOrphanFk, userId: testUser.id);
+
+        // Act: Fetch the 'author' for the post.
+        final authors = await postManager.fetchRelated<User>(
+          postWithOrphanFk,
+          'author',
+        );
+
+        // Assert
+        expect(authors, isEmpty);
+      },
+    );
+
+    test(
+      'returns an empty list for "manyToMany" when no pivot entries exist',
+      () async {
+        // Arrange: Add a post and tags, but no PostTag entries to link them.
+        await postManager.push(item: testPost, userId: testUser.id);
+        await tagManager.push(item: tag1, userId: testUser.id);
+        await tagManager.push(item: tag2, userId: testUser.id);
+
+        // Act: Fetch the 'tags' for the post.
+        final tags = await postManager.fetchRelated<Tag>(testPost, 'tags');
+
+        // Assert
+        expect(tags, isEmpty);
+      },
+    );
+
+    test(
+      'returns an empty list for "manyToMany" from remote when no pivot entries exist',
+      () async {
+        // Arrange: Add post and tags to remote, but no pivot entries.
+        (postManager.remoteAdapter as MockRemoteAdapter).addRemoteItem(
+          testUser.id,
+          testPost,
+        );
+        (tagManager.remoteAdapter as MockRemoteAdapter)
+          ..addRemoteItem(testUser.id, tag1)
+          ..addRemoteItem(testUser.id, tag2);
+
+        // Act: Fetch the 'tags' for the post from the remote source.
+        final tags = await postManager.fetchRelated<Tag>(
+          testPost,
+          'tags',
+          source: DataSource.remote,
+        );
+
+        // Assert
+        expect(tags, isEmpty);
       },
     );
   });

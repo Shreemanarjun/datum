@@ -272,7 +272,10 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
     final initialDataStream = Stream.fromFuture(read(id, userId: userId));
     final updateStream = stream
-        .where((event) => event.data.id == id && event.userId == (userId ?? ''))
+        .where(
+          (event) =>
+              event.data.id == id && (userId == null || event.userId == userId),
+        )
         .asyncMap((_) => read(id, userId: userId));
 
     return ConcatStream([initialDataStream, updateStream]);
@@ -508,6 +511,63 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
           otherIds,
           userId: parent.userId,
         )).values.toList();
+    }
+  }
+
+  @override
+  Stream<List<R>>? watchRelated<R extends DatumEntity>(
+    RelationalDatumEntity parent,
+    String relationName,
+    LocalAdapter<R> relatedAdapter,
+  ) {
+    final relation = parent.relations[relationName];
+    if (relation == null) {
+      throw Exception(
+        'Relation "$relationName" not found on ${parent.runtimeType}.',
+      );
+    }
+
+    switch (relation) {
+      case BelongsTo():
+        final foreignKeyField = relation.foreignKey;
+        final parentMap = parent.toMap();
+        final foreignKeyValue = parentMap[foreignKeyField] as String?;
+
+        if (foreignKeyValue == null) {
+          return Stream.value([]);
+        }
+        return relatedAdapter
+            .watchById(foreignKeyValue)
+            ?.map((item) => item != null ? [item] : []);
+      case HasMany():
+        final foreignKeyField = relation.foreignKey;
+        final parentId = parent.id;
+        final query = DatumQuery(
+          filters: [Filter(foreignKeyField, FilterOperator.equals, parentId)],
+        );
+        return relatedAdapter.watchQuery(query);
+      case ManyToMany():
+        final pivotManager = Datum.managerByType(
+          relation.pivotEntity.runtimeType,
+        );
+        final pivotQuery = DatumQuery(
+          filters: [
+            Filter(relation.thisForeignKey, FilterOperator.equals, parent.id),
+          ],
+        );
+
+        return pivotManager.localAdapter.watchQuery(pivotQuery)?.switchMap((
+          pivotEntries,
+        ) {
+          if (pivotEntries.isEmpty) return Stream.value([]);
+          final otherIds = pivotEntries
+              .map((e) => e.toMap()[relation.otherForeignKey] as String)
+              .toList();
+          final relatedQuery = DatumQuery(
+            filters: [Filter('id', FilterOperator.isIn, otherIds)],
+          );
+          return relatedAdapter.watchQuery(relatedQuery) ?? Stream.value([]);
+        });
     }
   }
 }

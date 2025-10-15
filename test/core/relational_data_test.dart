@@ -145,6 +145,17 @@ class _UnimplementedLocalAdapter<T extends DatumEntity>
     return super.fetchRelated(parent, relationName, relatedAdapter);
   }
 
+  @override
+  Stream<List<R>>? watchRelated<R extends DatumEntity>(
+    RelationalDatumEntity parent,
+    String relationName,
+    LocalAdapter<R> relatedAdapter,
+  ) {
+    // By inheriting from LocalAdapter directly and not implementing this,
+    // calling super will hit the base implementation that throws.
+    return super.watchRelated(parent, relationName, relatedAdapter);
+  }
+
   // --- Stub implementations for all other abstract methods ---
   @override
   Future<void> addPendingOperation(
@@ -392,6 +403,29 @@ void main() {
         );
       },
       // This test needs to run after the main setup has completed.
+    );
+
+    test(
+      'throws UnimplementedError if local adapter does not implement watchRelated',
+      () async {
+        // Arrange: Register a manager with an adapter that lacks the implementation.
+        await Datum.instance.register(
+          registration: DatumRegistration<Post>(
+            localAdapter: _UnimplementedLocalAdapter<Post>(),
+            remoteAdapter: MockRemoteAdapter<Post>(),
+          ),
+        );
+        final postManagerWithUnimplementedAdapter = Datum.manager<Post>();
+
+        // Act & Assert
+        expect(
+          () => postManagerWithUnimplementedAdapter.watchRelated<User>(
+            testPost,
+            'author',
+          ),
+          throwsA(isA<UnimplementedError>()),
+        );
+      },
     );
   });
 }

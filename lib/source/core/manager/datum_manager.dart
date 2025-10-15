@@ -577,6 +577,45 @@ class DatumManager<T extends DatumEntity> {
     }
   }
 
+  /// Reactively watches related entities for a given parent entity.
+  ///
+  /// This method provides a stream of related entities that automatically
+  /// updates when the underlying data changes.
+  ///
+  /// - [parent]: The entity instance for which to watch related data.
+  /// - [relationName]: The name of the relation to watch.
+  ///
+  /// Returns a `Stream<List<R>>` of the related entities, or `null` if the
+  /// adapter does not support reactive queries. Throws an error if the
+  /// relation is not defined.
+  Stream<List<R>>? watchRelated<R extends DatumEntity>(
+    T parent,
+    String relationName,
+  ) {
+    _ensureInitialized();
+
+    if (parent is! RelationalDatumEntity) {
+      throw ArgumentError(
+        'The parent entity must be a RelationalDatumEntity to watch relations.',
+      );
+    }
+
+    final relation = parent.relations[relationName];
+    if (relation == null) {
+      throw Exception(
+        'Relation "$relationName" is not defined on entity type ${parent.runtimeType}.',
+      );
+    }
+
+    final relatedManager = Datum.manager<R>();
+
+    return localAdapter.watchRelated(
+      parent,
+      relationName,
+      relatedManager.localAdapter,
+    );
+  }
+
   void _ensureInitialized() {
     if (!_initialized) {
       throw StateError('DatumManager must be initialized before use.');
