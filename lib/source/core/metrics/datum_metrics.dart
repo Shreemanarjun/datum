@@ -1,60 +1,94 @@
-/// Tracks a collection of metrics and statistics for sync operations.
+// ignore_for_file: public_member_api_docs, sort_constructors_first
+import 'package:flutter/foundation.dart';
+
+/// An immutable snapshot of the synchronization metrics for the entire Datum instance.
+@immutable
 class DatumMetrics {
-  /// Creates an instance of sync metrics, usually with initial zero values.
-  DatumMetrics({
+  /// The total number of synchronization cycles that have been started.
+  final int totalSyncOperations;
+
+  /// The number of synchronization cycles that completed without any failed operations.
+  final int successfulSyncs;
+
+  /// The number of synchronization cycles that failed or completed with at least one failed operation.
+  final int failedSyncs;
+
+  /// The total number of conflicts detected during pull operations.
+  final int conflictsDetected;
+
+  /// The number of conflicts that were resolved automatically by a resolver.
+  final int conflictsResolvedAutomatically;
+
+  /// The number of times the active user has been switched.
+  final int userSwitchCount;
+
+  /// A set of unique user IDs that have been active during the session.
+  final Set<String> activeUsers;
+
+  /// Creates a new instance of [DatumMetrics].
+  const DatumMetrics({
     this.totalSyncOperations = 0,
     this.successfulSyncs = 0,
     this.failedSyncs = 0,
-    this.averageSyncDuration = Duration.zero,
     this.conflictsDetected = 0,
     this.conflictsResolvedAutomatically = 0,
-    this.bytesUploaded = 0,
-    this.bytesDownloaded = 0,
-    Set<String>? activeUsers,
     this.userSwitchCount = 0,
-  }) : activeUsers = activeUsers ?? <String>{};
+    this.activeUsers = const {},
+  });
 
-  /// The total number of sync cycles initiated.
-  int totalSyncOperations;
+  /// Creates a copy of this [DatumMetrics] instance with the given fields replaced.
+  DatumMetrics copyWith({
+    int? totalSyncOperations,
+    int? successfulSyncs,
+    int? failedSyncs,
+    int? conflictsDetected,
+    int? conflictsResolvedAutomatically,
+    int? userSwitchCount,
+    Set<String>? activeUsers,
+  }) {
+    return DatumMetrics(
+      totalSyncOperations: totalSyncOperations ?? this.totalSyncOperations,
+      successfulSyncs: successfulSyncs ?? this.successfulSyncs,
+      failedSyncs: failedSyncs ?? this.failedSyncs,
+      conflictsDetected: conflictsDetected ?? this.conflictsDetected,
+      conflictsResolvedAutomatically:
+          conflictsResolvedAutomatically ?? this.conflictsResolvedAutomatically,
+      userSwitchCount: userSwitchCount ?? this.userSwitchCount,
+      activeUsers: activeUsers ?? this.activeUsers,
+    );
+  }
 
-  /// The number of sync cycles that completed without any errors.
-  int successfulSyncs;
+  @override
+  String toString() {
+    return 'DatumMetrics(totalSyncs: $totalSyncOperations, successful: $successfulSyncs, failed: $failedSyncs, conflicts: $conflictsDetected)';
+  }
 
-  /// The number of sync cycles that failed.
-  int failedSyncs;
+  @override
+  bool operator ==(covariant DatumMetrics other) {
+    if (identical(this, other)) return true;
 
-  /// The running average duration of a sync cycle.
-  Duration averageSyncDuration;
+    return other.totalSyncOperations == totalSyncOperations &&
+        other.successfulSyncs == successfulSyncs &&
+        other.failedSyncs == failedSyncs &&
+        other.conflictsDetected == conflictsDetected &&
+        other.conflictsResolvedAutomatically ==
+            conflictsResolvedAutomatically &&
+        other.userSwitchCount == userSwitchCount &&
+        setEquals(other.activeUsers, activeUsers);
+  }
 
-  /// The total number of data conflicts detected.
-  int conflictsDetected;
-
-  /// The number of conflicts that were resolved automatically by a resolver.
-  int conflictsResolvedAutomatically;
-
-  /// The total bytes uploaded to the remote data source.
-  int bytesUploaded;
-
-  /// The total bytes downloaded from the remote data source.
-  int bytesDownloaded;
-
-  /// A set of unique user IDs that have been active.
-  final Set<String> activeUsers;
-
-  /// The number of times the active user has been switched.
-  int userSwitchCount;
-
-  /// Converts the metrics object to a map for serialization or logging.
-  Map<String, dynamic> toMap() => {
-    'total_sync_operations': totalSyncOperations,
-    'successful_syncs': successfulSyncs,
-    'failed_syncs': failedSyncs,
-    'average_sync_duration_ms': averageSyncDuration.inMilliseconds,
-    'conflicts_detected': conflictsDetected,
-    'conflicts_resolved_automatically': conflictsResolvedAutomatically,
-    'bytes_uploaded': bytesUploaded,
-    'bytes_downloaded': bytesDownloaded,
-    'active_users_count': activeUsers.length,
-    'user_switch_count': userSwitchCount,
-  };
+  @override
+  int get hashCode {
+    // Use Object.hashAll on a sorted list of users for an order-independent hash.
+    final sortedUsers = activeUsers.toList()..sort();
+    return Object.hash(
+      totalSyncOperations,
+      successfulSyncs,
+      failedSyncs,
+      conflictsDetected,
+      conflictsResolvedAutomatically,
+      userSwitchCount,
+      Object.hashAll(sortedUsers),
+    );
+  }
 }

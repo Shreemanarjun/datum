@@ -9,6 +9,8 @@ export 'source/core/engine/datum_core.dart';
 export 'source/core/manager/datum_manager.dart';
 export 'source/core/engine/datum_observer.dart';
 export 'source/core/engine/queue_manager.dart';
+export 'source/core/health/datum_health.dart';
+export 'source/core/metrics/datum_metrics.dart';
 
 // Adapters (for users to implement)
 export 'source/adapter/local_adapter.dart';

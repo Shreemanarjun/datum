@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:datum/source/core/health/datum_health.dart';
 
 /// High-level states for the synchronization process.
 enum DatumSyncStatus {
@@ -57,6 +58,9 @@ class DatumSyncStatusSnapshot {
   /// Number of conflicts resolved in the current cycle.
   final int conflictsResolved;
 
+  /// The current health status of this specific sync manager.
+  final DatumHealth health;
+
   /// Whether there is unsynced data.
   bool get hasUnsyncedData => pendingOperations > 0;
 
@@ -76,6 +80,7 @@ class DatumSyncStatusSnapshot {
     this.errors = const [],
     this.syncedCount = 0,
     this.conflictsResolved = 0,
+    this.health = const DatumHealth(status: DatumSyncHealth.healthy),
   });
 
   /// Creates an initial snapshot for a user.
@@ -87,6 +92,7 @@ class DatumSyncStatusSnapshot {
       completedOperations: 0,
       failedOperations: 0,
       progress: 0,
+      health: const DatumHealth(status: DatumSyncHealth.healthy),
     );
   }
 
@@ -102,6 +108,7 @@ class DatumSyncStatusSnapshot {
     List<Object>? errors,
     int? syncedCount,
     int? conflictsResolved,
+    DatumHealth? health,
   }) {
     return DatumSyncStatusSnapshot(
       userId: userId,
@@ -115,6 +122,7 @@ class DatumSyncStatusSnapshot {
       errors: errors ?? this.errors,
       syncedCount: syncedCount ?? this.syncedCount,
       conflictsResolved: conflictsResolved ?? this.conflictsResolved,
+      health: health ?? this.health,
     );
   }
 }

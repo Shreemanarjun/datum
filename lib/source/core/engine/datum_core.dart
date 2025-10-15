@@ -22,9 +22,9 @@ class Datum {
   final Map<Type, AdapterPair> _adapterPairs = {};
   final ConnectivityChecker connectivityChecker;
   final List<GlobalDatumObserver> globalObservers = [];
+  final DatumLogger logger;
   final List<StreamSubscription<DatumSyncEvent<DatumEntity>>>
   _managerSubscriptions = [];
-  final DatumLogger logger;
 
   // Stream controllers for events and status
   final StreamController<DatumSyncEvent<DatumEntity>> _eventController =
@@ -37,6 +37,13 @@ class Datum {
       _statusSubject.stream.map((map) => map[userId]);
 
   final Map<String, DatumSyncStatusSnapshot> _snapshots = {};
+
+  // Stream controller for metrics
+  final BehaviorSubject<DatumMetrics> _metricsSubject = BehaviorSubject.seeded(
+    const DatumMetrics(),
+  );
+  Stream<DatumMetrics> get metrics => _metricsSubject.stream;
+  DatumMetrics get currentMetrics => _metricsSubject.value;
 
   Datum._({
     required this.config,
@@ -59,6 +66,7 @@ class Datum {
       logger: logger,
     );
     for (final reg in registrations) {
+      // ignore: unused_local_variable
       // Use <TT> to avoid shadowing the generic type from the capture method.
       reg.capture(
         <TT extends DatumEntity>() =>
@@ -66,6 +74,7 @@ class Datum {
       );
     }
     await datum._initializeManagers();
+    datum._listenToEventsForMetrics();
     return _instance = datum;
   }
 
@@ -122,6 +131,50 @@ class Datum {
     );
     _managerSubscriptions.add(subscription);
     await manager.initialize(); // This calls DatumManager.initialize()
+  }
+
+  void _listenToEventsForMetrics() {
+    events.listen((event) {
+      final current = _metricsSubject.value;
+      DatumMetrics next;
+
+      switch (event) {
+        case DatumSyncStartedEvent():
+          next = current.copyWith(
+            totalSyncOperations: current.totalSyncOperations + 1,
+            activeUsers: {...current.activeUsers, event.userId},
+          );
+        case DatumSyncCompletedEvent():
+          final newActiveUsers = {...current.activeUsers, event.userId};
+          if (event.result.failedCount == 0) {
+            next = current.copyWith(
+              successfulSyncs: current.successfulSyncs + 1,
+              conflictsDetected:
+                  current.conflictsDetected + event.result.conflictsResolved,
+              activeUsers: newActiveUsers,
+            );
+          } else {
+            next = current.copyWith(
+              failedSyncs: current.failedSyncs + 1,
+              conflictsDetected:
+                  current.conflictsDetected + event.result.conflictsResolved,
+              activeUsers: newActiveUsers,
+            );
+          }
+        case DatumSyncErrorEvent():
+          next = current.copyWith(failedSyncs: current.failedSyncs + 1);
+        case UserSwitchedEvent():
+          next = current.copyWith(userSwitchCount: current.userSwitchCount + 1);
+        case ConflictResolvedEvent():
+          next = current.copyWith(
+            conflictsResolvedAutomatically:
+                current.conflictsResolvedAutomatically + 1,
+          );
+        case _:
+          return; // No change, don't emit a new value.
+      }
+      _metricsSubject.add(next);
+    });
   }
 
   /// Provides access to the specific manager for an entity type.
@@ -235,9 +288,6 @@ class Datum {
         userId,
         (s) => s.copyWith(status: DatumSyncStatus.failed, errors: [e]),
       );
-      _eventController.add(
-        DatumSyncErrorEvent(userId: userId, error: e, stackTrace: stack),
-      );
       rethrow;
     }
   }
@@ -324,6 +374,8 @@ class Datum {
       ..._managerSubscriptions.map((s) => s.cancel()),
     ]);
     await _eventController.close();
+    // ignore: invalid_use_of_protected_member
+    await _metricsSubject.close();
     await _statusSubject.close();
   }
 

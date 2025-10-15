@@ -126,7 +126,16 @@ void main() {
       final result = await syncFuture;
 
       // Assert
-      expect(result.isSuccess, isTrue); // It didn't fail, it was just stopped.
+      expect(
+        result.wasCancelled,
+        isTrue,
+        reason: 'Sync should be marked as cancelled.',
+      );
+      expect(
+        result.isSuccess,
+        isFalse,
+        reason: 'A cancelled sync is not a successful one.',
+      );
       expect(result.syncedCount, lessThan(10));
     });
 

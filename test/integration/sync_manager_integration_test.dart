@@ -220,7 +220,7 @@ void main() {
       final result = await manager.synchronize('user1');
 
       // Assert
-      expect(result.isSuccess, isTrue, reason: result.errors.toString());
+      expect(result.isSuccess, isTrue, reason: result.error?.toString());
       expect(result.conflictsResolved, 1);
 
       // Verify remote version was saved locally

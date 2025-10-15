@@ -42,7 +42,7 @@ class DatumSyncStatus<T extends DatumEntity> {
   final double? progress;
 
   /// The current health status of this specific sync manager.
-  final DatumHealthCheck health;
+  final DatumHealth health;
 
   /// A convenience getter to check for unsynced data.
   bool get hasUnsyncedData => pendingOperations > 0;
@@ -53,25 +53,4 @@ class DatumSyncStatus<T extends DatumEntity> {
   /// The time elapsed since the last sync attempt.
   Duration? get timeSinceLastSync =>
       lastSyncTime != null ? DateTime.now().difference(lastSyncTime!) : null;
-}
-
-/// Represents the specific health status of a synchronization process.
-enum DatumSyncHealth {
-  /// The manager is operating normally with no issues.
-  healthy,
-
-  /// A sync cycle is currently in progress.
-  syncing,
-
-  /// There are local changes waiting to be pushed to the remote.
-  pending,
-
-  /// The manager is experiencing non-critical issues, like network flakiness.
-  degraded,
-
-  /// The manager cannot connect to the remote data source.
-  offline,
-
-  /// The manager has encountered critical errors and cannot sync.
-  error,
 }

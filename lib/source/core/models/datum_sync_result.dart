@@ -1,89 +1,91 @@
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:flutter/foundation.dart';
 
-/// Represents the outcome of a synchronization operation.
+/// Represents the outcome of a synchronization cycle.
+@immutable
 class DatumSyncResult<T extends DatumEntity> {
   /// The user ID for which the sync was performed.
   final String userId;
 
-  /// The total time taken for the sync operation.
+  /// The total duration of the sync cycle.
   final Duration duration;
 
-  /// The number of local operations successfully pushed to the remote.
+  /// The number of operations that were successfully synced.
   final int syncedCount;
 
-  /// The number of operations that failed permanently.
+  /// The number of operations that failed to sync.
   final int failedCount;
 
   /// The number of conflicts that were detected and resolved.
   final int conflictsResolved;
 
   /// A list of operations that are still pending after the sync cycle.
-  /// This includes operations that were not processed or failed with a retryable error.
   final List<DatumSyncOperation<T>> pendingOperations;
 
-  /// A list of errors that occurred during the sync.
-  final List<Object> errors;
-
-  /// Whether the sync operation was successful (no permanent failures).
-  /// Note: A sync can be successful even if there are pending operations (e.g., due to retryable network errors).
-  final bool isSuccess;
-
-  /// Whether the sync operation was skipped (e.g., due to being offline or another sync in progress).
+  /// Whether the sync was skipped (e.g., due to being offline or another sync in progress).
   final bool wasSkipped;
 
-  /// Whether the sync operation was cancelled mid-process (e.g., by disposing the manager).
+  /// Whether the sync was cancelled (e.g., due to the manager being disposed).
   final bool wasCancelled;
 
-  /// Creates a [DatumSyncResult].
+  /// The error that caused the sync to fail, if any.
+  final Object? error;
+
+  /// Creates a new [DatumSyncResult].
   const DatumSyncResult({
     required this.userId,
+    required this.duration,
     required this.syncedCount,
     required this.failedCount,
     required this.conflictsResolved,
     required this.pendingOperations,
-    required this.duration,
-    this.errors = const [],
-    this.isSuccess = true,
     this.wasSkipped = false,
     this.wasCancelled = false,
+    this.error,
   });
 
-  /// Creates a result for a sync operation that was skipped.
-  DatumSyncResult.skipped(this.userId, int pendingCount) // Removed const
+  /// Creates a result for a sync cycle that was skipped.
+  const DatumSyncResult.skipped(this.userId, int pendingCount)
     : duration = Duration.zero,
       syncedCount = 0,
       failedCount = 0,
       conflictsResolved = 0,
       pendingOperations = const [],
-      errors = const [],
-      isSuccess = true,
       wasSkipped = true,
-      wasCancelled = false;
+      wasCancelled = false,
+      error = null;
 
-  /// Creates a result for a sync operation that was cancelled.
-  DatumSyncResult.cancelled(this.userId, this.syncedCount) // Removed const
+  /// Creates a result for a sync cycle that was cancelled.
+  const DatumSyncResult.cancelled(this.userId, this.syncedCount)
     : duration = Duration.zero,
       failedCount = 0,
       conflictsResolved = 0,
       pendingOperations = const [],
-      errors = const [],
-      isSuccess = true,
       wasSkipped = false,
-      wasCancelled = true;
+      wasCancelled = true,
+      error = null;
+
+  /// Creates a result for a sync cycle that failed with an error.
+  const DatumSyncResult.fromError(this.userId, this.error)
+    : duration = Duration.zero,
+      syncedCount = 0,
+      failedCount = 1,
+      conflictsResolved = 0,
+      pendingOperations = const [],
+      wasSkipped = false,
+      wasCancelled = false;
+
+  /// Whether the sync completed successfully without any failures.
+  bool get isSuccess =>
+      !wasSkipped && !wasCancelled && failedCount == 0 && error == null;
 
   @override
   String toString() {
-    return 'DatumSyncResult('
-        'userId: $userId, '
-        'duration: $duration, '
-        'synced: $syncedCount, '
-        'failed: $failedCount, '
-        'conflicts: $conflictsResolved, '
-        'pending: ${pendingOperations.length}, '
-        'success: $isSuccess, '
-        'skipped: $wasSkipped, '
-        'cancelled: $wasCancelled'
-        ')';
+    if (wasSkipped) return 'DatumSyncResult(userId: $userId, status: skipped)';
+    if (wasCancelled) {
+      return 'DatumSyncResult(userId: $userId, status: cancelled)';
+    }
+    return 'DatumSyncResult(userId: $userId, synced: $syncedCount, failed: $failedCount, conflicts: $conflictsResolved, duration: $duration)';
   }
 }

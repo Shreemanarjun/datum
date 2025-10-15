@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:datum/source/core/health/datum_health.dart';
 import 'package:datum/source/adapter/local_adapter.dart';
 import 'package:datum/source/adapter/remote_adapter.dart';
 import 'package:datum/source/config/datum_config.dart';
@@ -96,6 +97,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     if (!await connectivityChecker.isConnected && !force) {
       logger.warn('Sync skipped for user $userId: No internet connection.');
       return (
+        // No health change, just skipped.
         DatumSyncResult<T>.skipped(userId, snapshot.pendingOperations),
         <DatumSyncEvent<T>>[],
       );
@@ -117,6 +119,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     statusSubject.add(
       DatumSyncStatusSnapshot.initial(userId).copyWith(
         status: DatumSyncStatus.syncing,
+        health: const DatumHealth(status: DatumSyncHealth.syncing),
         // Carry over pending operations count for the start event.
         pendingOperations: (await queueManager.getPending(userId)).length,
       ),
@@ -167,7 +170,10 @@ class DatumSyncEngine<T extends DatumEntity> {
       // might have been disposed during the sync operation.
       if (!statusSubject.isClosed) {
         statusSubject.add(
-          statusSubject.value.copyWith(status: DatumSyncStatus.idle),
+          statusSubject.value.copyWith(
+            status: DatumSyncStatus.idle,
+            health: const DatumHealth(status: DatumSyncHealth.healthy),
+          ),
         );
       }
       if (!eventController.isClosed) {
@@ -185,6 +191,7 @@ class DatumSyncEngine<T extends DatumEntity> {
         statusSubject.add(
           statusSubject.value.copyWith(
             status: DatumSyncStatus.failed,
+            health: const DatumHealth(status: DatumSyncHealth.error),
             errors: [e],
           ),
         );
@@ -562,6 +569,16 @@ class DatumSyncEngine<T extends DatumEntity> {
           final genericResolution = resolvedEvent.resolution
               .copyWithNewType<DatumEntity>();
           observer.onConflictResolved(genericResolution);
+        }
+      case DatumSyncErrorEvent<T>():
+        // Although there's no specific `onSyncError` in the observer,
+        // we can treat it as a form of `onSyncEnd` to signal completion.
+        final errorResult = DatumSyncResult<T>.fromError(
+          event.userId,
+          event.error,
+        );
+        for (final observer in localObservers) {
+          observer.onSyncEnd(errorResult);
         }
       case _:
         // Other events like progress, conflict, etc.

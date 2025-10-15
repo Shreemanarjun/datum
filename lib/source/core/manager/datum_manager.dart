@@ -12,6 +12,7 @@ import 'package:datum/source/core/events/conflict_detected_event.dart';
 import 'package:datum/source/core/events/data_change_event.dart';
 import 'package:datum/source/core/events/user_switched_event.dart';
 import 'package:datum/source/core/events/datum_event.dart';
+import 'package:datum/source/core/health/datum_health.dart' show DatumHealth;
 import 'package:datum/source/core/models/datum_change_detail.dart';
 import 'package:datum/source/core/models/datum_exception.dart';
 import 'package:datum/source/core/models/datum_operation.dart';
@@ -88,6 +89,9 @@ class DatumManager<T extends DatumEntity> {
   Stream<DatumSyncErrorEvent<T>> get onSyncError =>
       eventStream.whereType<DatumSyncErrorEvent<T>>();
 
+  /// A stream of the manager's current health status.
+  Stream<DatumHealth> get health => _statusSubject.stream.map((s) => s.health);
+
   DatumManager({
     required this.localAdapter,
     required this.remoteAdapter,
@@ -98,7 +102,7 @@ class DatumManager<T extends DatumEntity> {
     List<DatumObserver<T>>? localObservers,
     List<DatumMiddleware<T>>? middlewares,
     List<GlobalDatumObserver>? globalObservers,
-  }) : _config = datumConfig ?? DatumConfig<T>.defaultConfig(),
+  }) : _config = datumConfig ?? const DatumConfig(),
        _connectivity = connectivity ?? ConnectivityChecker(),
        _statusSubject = BehaviorSubject.seeded(
          DatumSyncStatusSnapshot.initial(''),
@@ -106,12 +110,13 @@ class DatumManager<T extends DatumEntity> {
        _logger =
            logger ??
            DatumLogger(
-             enabled: (datumConfig ?? DatumConfig<T>()).enableLogging,
+             enabled: (datumConfig ?? const DatumConfig()).enableLogging,
            ),
        _conflictResolver = conflictResolver ?? LastWriteWinsResolver<T>() {
     _localObservers.addAll(localObservers ?? []);
     _globalObservers.addAll(globalObservers ?? []);
     _middlewares.addAll(middlewares ?? []);
+
     _initializeInternalComponents();
   }
 
@@ -702,6 +707,102 @@ class DatumManager<T extends DatumEntity> {
     }
   }
 
+  /// Switches the active user with configurable handling of unsynced data.
+  ///
+  /// **Strategies:**
+  /// - [UserSwitchStrategy.syncThenSwitch]: Sync old user before switching
+  /// - [UserSwitchStrategy.clearAndFetch]: Clear new user's local data
+  /// - [UserSwitchStrategy.promptIfUnsyncedData]: Fail if old user has
+  ///   pending ops
+  /// - [UserSwitchStrategy.keepLocal]: Switch without modifications
+  ///
+  /// Returns [DatumUserSwitchResult] indicating success or failure with details.
+  Future<DatumUserSwitchResult> switchUser({
+    required String? oldUserId,
+    required String newUserId,
+    UserSwitchStrategy? strategy,
+  }) async {
+    _ensureInitialized();
+
+    if (newUserId.isEmpty) {
+      throw ArgumentError.value(newUserId, 'newUserId', 'Must not be empty');
+    }
+
+    final resolvedStrategy = strategy ?? _config.defaultUserSwitchStrategy;
+    _notifyObservers(
+      (o) => o.onUserSwitchStart(oldUserId, newUserId, resolvedStrategy),
+    );
+    final hadUnsynced = await _hasUnsyncedData(oldUserId);
+
+    try {
+      // Execute the strategy. This will throw on failure for certain strategies.
+      await _executeUserSwitchStrategy(
+        resolvedStrategy,
+        oldUserId,
+        newUserId,
+        hadUnsynced,
+      );
+
+      // If the strategy succeeds, proceed with success-related logic.
+      _emitUserSwitchedEvent(oldUserId, newUserId, hadUnsynced);
+      _logger.info('User switched from $oldUserId to $newUserId');
+
+      // Return the success result.
+      final result = DatumUserSwitchResult.success(
+        previousUserId: oldUserId,
+        newUserId: newUserId,
+        unsyncedOperationsHandled: hadUnsynced ? 1 : 0,
+      );
+      _notifyObservers((o) => o.onUserSwitchEnd(result));
+      return result;
+    } on UserSwitchException catch (e) {
+      // Handle specific user switch failures (e.g., promptIfUnsyncedData).
+      _logger.warn('User switch rejected: ${e.message}');
+      final result = DatumUserSwitchResult.failure(
+        previousUserId: oldUserId,
+        newUserId: newUserId,
+        errorMessage: e.message,
+      );
+      _notifyObservers((o) => o.onUserSwitchEnd(result));
+      return result;
+    } on Object catch (e, stack) {
+      // Handle any other unexpected errors during the switch.
+      _logger.error('User switch failed', stack);
+      final result = DatumUserSwitchResult.failure(
+        previousUserId: oldUserId,
+        newUserId: newUserId,
+        errorMessage: 'User switch failed: $e',
+      );
+      _notifyObservers((o) => o.onUserSwitchEnd(result));
+      return result;
+    }
+  }
+
+  Future<void> _executeUserSwitchStrategy(
+    UserSwitchStrategy strategy,
+    String? oldUserId,
+    String newUserId,
+    bool hadUnsynced,
+  ) async {
+    switch (strategy) {
+      case UserSwitchStrategy.syncThenSwitch:
+        if (oldUserId != null && hadUnsynced) await synchronize(oldUserId);
+      case UserSwitchStrategy.clearAndFetch:
+        await localAdapter.clearUserData(newUserId);
+        await synchronize(newUserId);
+      case UserSwitchStrategy.promptIfUnsyncedData:
+        if (hadUnsynced) {
+          throw UserSwitchException(
+            oldUserId,
+            newUserId,
+            'Unsynced data exists.',
+          );
+        }
+      case UserSwitchStrategy.keepLocal:
+      // Do nothing, just switch.
+    }
+  }
+
   /// Starts automatic periodic synchronization for the specified user.
   ///
   /// Uses [interval] if provided, otherwise uses [DatumConfig.autoSyncInterval].
@@ -780,6 +881,32 @@ class DatumManager<T extends DatumEntity> {
       transformed = await middleware.transformAfterFetch(transformed);
     }
     return transformed;
+  }
+
+  void _emitUserSwitchedEvent(
+    String? oldUserId,
+    String newUserId,
+    bool hadUnsynced,
+  ) {
+    if (oldUserId == null || oldUserId == newUserId) return;
+    _eventController.add(
+      UserSwitchedEvent<T>(
+        previousUserId: oldUserId,
+        newUserId: newUserId,
+        hadUnsyncedData: hadUnsynced,
+      ),
+    );
+  }
+
+  Future<bool> _hasUnsyncedData(String? userId) async {
+    if (userId == null || userId.isEmpty) return false;
+    return (await getPendingCount(userId)) > 0;
+  }
+
+  void _notifyObservers(void Function(DatumObserver<T> observer) action) {
+    for (final observer in _localObservers) {
+      action(observer);
+    }
   }
 
   DatumSyncOperation<T> _createOperation({
