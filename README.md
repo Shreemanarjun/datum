@@ -492,10 +492,6 @@ flowchart TD
 
 ---
 
-✅ This version uses **GitHub-compatible Mermaid syntax**—you can paste it directly into your README.md and GitHub will render the flowchart.
-
----
-
 If you want, I can **also create a minimal “cheat sheet table” with short code snippets for all 4 strategies** so users can quickly copy-paste them.
 
 Do you want me to do that next?
