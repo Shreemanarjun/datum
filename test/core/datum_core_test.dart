@@ -1,0 +1,728 @@
+import 'dart:async';
+
+import 'package:datum/datum.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import '../integration/observer_integration_test.dart'
+    show MockedLocalAdapter, MockedRemoteAdapter;
+import '../mocks/mock_connectivity_checker.dart';
+import '../mocks/test_entity.dart';
+
+// A second entity type for testing multi-manager scenarios.
+class AnotherTestEntity extends DatumEntity {
+  AnotherTestEntity({
+    required this.id,
+    required this.userId,
+    required this.modifiedAt,
+    required this.createdAt,
+    required this.version,
+    this.isDeleted = false,
+  });
+
+  @override
+  final DateTime createdAt;
+  @override
+  final String id;
+  @override
+  final bool isDeleted;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final String userId;
+  @override
+  final int version;
+
+  @override
+  DatumEntity copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) {
+    return this;
+  }
+
+  @override
+  Map<String, dynamic>? diff(DatumEntity oldVersion) {
+    return null;
+  }
+
+  @override
+  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) {
+    return {'id': id, 'userId': userId};
+  }
+}
+
+class MockGlobalObserver extends Mock implements GlobalDatumObserver {}
+
+class MockLogger extends Mock implements DatumLogger {}
+
+void main() {
+  group('Datum Core', () {
+    late Datum datum;
+    late MockedLocalAdapter<TestEntity> localAdapter1;
+    late MockedRemoteAdapter<TestEntity> remoteAdapter1;
+    late MockedLocalAdapter<AnotherTestEntity> localAdapter2;
+    late MockedRemoteAdapter<AnotherTestEntity> remoteAdapter2;
+    late MockConnectivityChecker connectivityChecker;
+    late MockGlobalObserver globalObserver;
+
+    setUpAll(() {
+      registerFallbackValue(TestEntity.create('fb', 'fb', 'fb'));
+      registerFallbackValue(
+        const DatumSyncResult(
+          userId: 'fb',
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+          duration: Duration.zero,
+        ),
+      );
+      registerFallbackValue(
+        AnotherTestEntity(
+          id: 'fb',
+          userId: 'fb',
+          modifiedAt: DateTime(0),
+          createdAt: DateTime(0),
+          version: 0,
+        ),
+      );
+      registerFallbackValue(
+        DatumSyncOperation<TestEntity>(
+          id: 'fb-op',
+          userId: 'fb',
+          entityId: 'fb-entity',
+          type: DatumOperationType.create,
+          timestamp: DateTime(0),
+          data: TestEntity.create('fb', 'fb', 'fb'),
+        ),
+      );
+      registerFallbackValue(
+        DatumSyncOperation<AnotherTestEntity>(
+          id: 'fb-op-another',
+          userId: 'fb',
+          entityId: 'fb-another-entity',
+          type: DatumOperationType.create,
+          timestamp: DateTime(0),
+          data: AnotherTestEntity(
+            id: 'fb',
+            userId: 'fb',
+            modifiedAt: DateTime(0),
+            createdAt: DateTime(0),
+            version: 0,
+          ),
+        ),
+      );
+      registerFallbackValue(
+        const DatumSyncMetadata(
+          userId: 'fallback-user',
+          dataHash: 'fallback-hash',
+        ),
+      );
+    });
+
+    setUp(() {
+      localAdapter1 = MockedLocalAdapter<TestEntity>();
+      remoteAdapter1 = MockedRemoteAdapter<TestEntity>();
+      localAdapter2 = MockedLocalAdapter<AnotherTestEntity>();
+      remoteAdapter2 = MockedRemoteAdapter<AnotherTestEntity>();
+      connectivityChecker = MockConnectivityChecker();
+      globalObserver = MockGlobalObserver();
+
+      // Stub default behaviors for all adapters
+      _stubAdapterBehaviors(localAdapter1, remoteAdapter1);
+      _stubAdapterBehaviors(localAdapter2, remoteAdapter2);
+      when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
+
+      datum = Datum(
+        config: const DatumConfig(enableLogging: false),
+        connectivityChecker: connectivityChecker,
+      );
+    });
+
+    tearDown(() async {
+      await datum.dispose();
+    });
+
+    test('register stores adapter pairs correctly', () async {
+      // Act
+      datum.register<TestEntity>(
+        localAdapter: localAdapter1,
+        remoteAdapter: remoteAdapter1,
+      );
+      datum.register<AnotherTestEntity>(
+        localAdapter: localAdapter2,
+        remoteAdapter: remoteAdapter2,
+      );
+
+      // This is an indirect test. We'll verify by initializing and checking managers.
+      await datum.initialize();
+
+      // Assert
+      expect(() => datum.manager<TestEntity>(), returnsNormally);
+      expect(() => datum.manager<AnotherTestEntity>(), returnsNormally);
+    });
+
+    test(
+      'initialize creates and initializes managers for registered types',
+      () async {
+        // Arrange
+        datum.register<TestEntity>(
+          localAdapter: localAdapter1,
+          remoteAdapter: remoteAdapter1,
+        );
+
+        // Act
+        await datum.initialize();
+
+        // Assert
+        verify(() => localAdapter1.initialize()).called(1);
+        verify(() => remoteAdapter1.initialize()).called(1);
+        expect(() => datum.manager<TestEntity>(), returnsNormally);
+      },
+    );
+
+    test('manager<T> throws StateError for unregistered type', () {
+      expect(() => datum.manager<TestEntity>(), throwsA(isA<StateError>()));
+    });
+
+    test('uses default DatumLogger if none is provided', () async {
+      // Arrange: Create a Datum instance with logging disabled in the config,
+      // but do NOT provide a logger instance. This forces it to use the
+      // fallback constructor: `DatumLogger(enabled: config.enableLogging)`.
+      final datumWithDefaultLogger = Datum(
+        config: const DatumConfig(enableLogging: false),
+        connectivityChecker: connectivityChecker,
+      );
+      datumWithDefaultLogger.register<TestEntity>(
+        localAdapter: localAdapter1,
+        remoteAdapter: remoteAdapter1,
+      );
+      await datumWithDefaultLogger.initialize();
+
+      // To verify that the *internal* logger is being used (and is disabled),
+      // we can't inspect it directly. Instead, we can create a separate mock
+      // logger and confirm it's never used.
+      final separateMockLogger = MockLogger();
+      when(() => separateMockLogger.info(any())).thenAnswer((_) {});
+
+      // Act: Perform an action that would normally log an info message.
+      // We make the first sync slow to ensure the second one is skipped.
+      final completer = Completer<List<TestEntity>>();
+      when(
+        () => remoteAdapter1.readAll(
+          userId: 'user1',
+          scope: any(named: 'scope'),
+        ),
+      ).thenAnswer((_) => completer.future);
+
+      unawaited(datumWithDefaultLogger.synchronize('user1'));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await datumWithDefaultLogger.synchronize('user1');
+
+      // Assert: The separate mock logger should never have been called,
+      // proving the internal (disabled) logger was used.
+      verifyNever(() => separateMockLogger.info(any()));
+    });
+
+    test('CRUD methods delegate to the correct manager', () async {
+      // Arrange
+      datum.register<TestEntity>(
+        localAdapter: localAdapter1,
+        remoteAdapter: remoteAdapter1,
+      );
+      await datum.initialize();
+
+      final entity = TestEntity.create('e1', 'u1', 'Test');
+
+      // Act & Assert for create
+      await datum.create<TestEntity>(entity);
+      verify(() => localAdapter1.create(entity)).called(1);
+
+      clearInteractions(localAdapter1);
+      // Act & Assert for read
+      when(
+        () => localAdapter1.read('e1', userId: 'u1'),
+      ).thenAnswer((_) async => entity);
+      final result = await datum.read<TestEntity>('e1', userId: 'u1');
+      expect(result, entity);
+      verify(() => localAdapter1.read('e1', userId: 'u1')).called(1);
+
+      // Act & Assert for delete
+      when(
+        () => localAdapter1.read('e1', userId: 'u1'),
+      ).thenAnswer((_) async => entity);
+      await datum.delete<TestEntity>(id: 'e1', userId: 'u1');
+      verify(() => localAdapter1.delete('e1', userId: 'u1')).called(1);
+    });
+    test(
+      'readAll and update methods delegate to the correct manager',
+      () async {
+        // Arrange
+        datum.register<TestEntity>(
+          localAdapter: localAdapter1,
+          remoteAdapter: remoteAdapter1,
+        );
+        await datum.initialize();
+        final entity = TestEntity.create('e1', 'u1', 'Test');
+        when(
+          () => localAdapter1.readAll(userId: 'u1'),
+        ).thenAnswer((_) async => [entity]);
+        await datum.readAll<TestEntity>(userId: 'u1');
+        verify(() => localAdapter1.readAll(userId: 'u1')).called(1);
+
+        // Arrange for update
+        final updatedEntity = entity.copyWith(name: 'Updated');
+        when(
+          () => localAdapter1.read(entity.id, userId: 'u1'),
+        ).thenAnswer((_) async => entity);
+        when(
+          () => localAdapter1.patch(
+            id: any(named: 'id'),
+            delta: any(named: 'delta'),
+            userId: any(named: 'userId'),
+          ),
+        ).thenAnswer((_) async => updatedEntity);
+        await datum.update<TestEntity>(updatedEntity);
+        verify(
+          () => localAdapter1.patch(
+            id: 'e1',
+            delta: any(named: 'delta'),
+            userId: 'u1',
+          ),
+        ).called(1);
+      },
+    );
+
+    test('global observer is passed to managers and receives events', () async {
+      // Arrange
+      datum.addObserver(globalObserver);
+      datum.register<TestEntity>(
+        localAdapter: localAdapter1,
+        remoteAdapter: remoteAdapter1,
+      );
+      await datum.initialize();
+
+      // Act
+      await datum.synchronize('user1');
+
+      // Assert
+      verify(() => globalObserver.onSyncStart()).called(1);
+      await Future.delayed(Duration.zero);
+      verify(() => globalObserver.onSyncEnd(any())).called(1);
+    });
+
+    test('global synchronize orchestrates push and pull phases', () async {
+      // Arrange
+      datum.register<TestEntity>(
+        localAdapter: localAdapter1,
+        remoteAdapter: remoteAdapter1,
+      );
+      datum.register<AnotherTestEntity>(
+        localAdapter: localAdapter2,
+        remoteAdapter: remoteAdapter2,
+      );
+      await datum.initialize();
+
+      // Stub pending ops for TestEntity
+      when(() => localAdapter1.getPendingOperations('user1')).thenAnswer(
+        (_) async => [
+          DatumSyncOperation<TestEntity>(
+            id: 'op1',
+            userId: 'user1',
+            entityId: 'e1',
+            type: DatumOperationType.create,
+            timestamp: DateTime.now(),
+            data: TestEntity.create('e1', 'user1', 'Test'),
+          ),
+        ],
+      );
+      // Stub remote data for AnotherTestEntity
+      when(
+        () => remoteAdapter2.readAll(
+          userId: 'user1',
+          scope: any(named: 'scope'),
+        ),
+      ).thenAnswer(
+        (_) async => [
+          AnotherTestEntity(
+            id: 'ae1',
+            userId: 'user1',
+            modifiedAt: DateTime.now(),
+            createdAt: DateTime.now(),
+            version: 1,
+          ),
+        ],
+      );
+
+      // Act
+      await datum.synchronize('user1');
+
+      // Assert
+      // Push phase for TestEntity manager
+      await Future.delayed(Duration.zero);
+      verify(() => remoteAdapter1.create(any())).called(1);
+
+      // Pull phase for AnotherTestEntity manager
+      verify(
+        () => remoteAdapter2.readAll(
+          userId: 'user1',
+          scope: any(named: 'scope'),
+        ),
+      ).called(1);
+      verify(() => localAdapter2.create(any())).called(1);
+    });
+
+    test('events stream emits events from synchronization', () async {
+      // Arrange
+      datum.register<TestEntity>(
+        localAdapter: localAdapter1,
+        remoteAdapter: remoteAdapter1,
+      );
+      await datum.initialize();
+
+      // Stub a pending operation to ensure progress events are generated
+      when(() => localAdapter1.getPendingOperations('user1')).thenAnswer(
+        (_) async => [
+          DatumSyncOperation<TestEntity>(
+            id: 'op1',
+            userId: 'user1',
+            entityId: 'e1',
+            type: DatumOperationType.create,
+            timestamp: DateTime.now(),
+            data: TestEntity.create('e1', 'user1', 'Test'),
+          ),
+        ],
+      );
+
+      // Act & Assert
+      final eventFuture = expectLater(
+        datum.events,
+        emitsInOrder([
+          isA<DatumSyncStartedEvent>(),
+          isA<DatumSyncProgressEvent>(), // Event from the manager's engine
+          isA<DatumSyncCompletedEvent>(),
+        ]),
+      );
+
+      await datum.synchronize('user1');
+      await eventFuture;
+      await Future.delayed(Duration.zero);
+    });
+
+    test(
+      'synchronize skips if another sync is already in progress for the same user',
+      () async {
+        // Arrange
+        datum.register<TestEntity>(
+          localAdapter: localAdapter1,
+          remoteAdapter: remoteAdapter1,
+        );
+        await datum.initialize();
+
+        final syncCompleter = Completer<List<TestEntity>>();
+        // Make the underlying manager's sync call slow
+        when(
+          () => remoteAdapter1.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer((_) => syncCompleter.future);
+
+        // Act
+        // Start the first sync, but don't await it
+        final firstSyncFuture = datum.synchronize('user1');
+        // Give it a moment to start and set the status to 'syncing'
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        // Start the second sync while the first is blocked
+        final secondSyncResult = await datum.synchronize('user1');
+
+        // Assert
+        expect(secondSyncResult.wasSkipped, isTrue);
+
+        // Clean up by completing the first sync
+        syncCompleter.complete([]);
+        await firstSyncFuture;
+      },
+    );
+
+    group('global synchronize with different directions', () {
+      setUp(() async {
+        datum.register<TestEntity>(
+          localAdapter: localAdapter1,
+          remoteAdapter: remoteAdapter1,
+        );
+        datum.register<AnotherTestEntity>(
+          localAdapter: localAdapter2,
+          remoteAdapter: remoteAdapter2,
+        );
+        await datum.initialize();
+
+        // Stub pending ops for TestEntity (for push phase)
+        when(() => localAdapter1.getPendingOperations('user1')).thenAnswer(
+          (_) async => [
+            DatumSyncOperation<TestEntity>(
+              id: 'op1',
+              userId: 'user1',
+              entityId: 'e1',
+              type: DatumOperationType.create,
+              timestamp: DateTime.now(),
+              data: TestEntity.create('e1', 'user1', 'Test'),
+            ),
+          ],
+        );
+
+        // Stub remote data for AnotherTestEntity (for pull phase)
+        when(
+          () => remoteAdapter2.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer(
+          (_) async => [
+            AnotherTestEntity(
+              id: 'ae1',
+              userId: 'user1',
+              modifiedAt: DateTime.now(),
+              createdAt: DateTime.now(),
+              version: 1,
+            ),
+          ],
+        );
+      });
+
+      test('pushThenPull executes push then pull', () async {
+        // Act
+        await datum.synchronize(
+          'user1',
+          options: const DatumSyncOptions(
+            direction: SyncDirection.pushThenPull,
+          ),
+        );
+
+        // Assert
+        verifyInOrder([
+          () => remoteAdapter1.create(any()), // Push
+          () => remoteAdapter2.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ), // Pull
+        ]);
+        await Future.delayed(Duration.zero);
+      });
+
+      test('pullThenPush executes pull then push', () async {
+        // Act
+        await datum.synchronize(
+          'user1',
+          options: const DatumSyncOptions(
+            direction: SyncDirection.pullThenPush,
+          ),
+        );
+
+        // Assert
+        verifyInOrder([
+          () => remoteAdapter2.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ), // Pull
+          () => remoteAdapter1.create(any()), // Push
+        ]);
+        await Future.delayed(Duration.zero);
+      });
+
+      test('pushOnly executes only push', () async {
+        // Act
+        await datum.synchronize(
+          'user1',
+          options: const DatumSyncOptions(direction: SyncDirection.pushOnly),
+        );
+
+        // Assert
+        verify(() => remoteAdapter1.create(any())).called(1);
+        verifyNever(
+          () => remoteAdapter2.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        );
+        await Future.delayed(Duration.zero);
+      });
+
+      test('pullOnly executes only pull', () async {
+        // Act
+        await datum.synchronize(
+          'user1',
+          options: const DatumSyncOptions(direction: SyncDirection.pullOnly),
+        );
+
+        // Assert
+        verifyNever(() => remoteAdapter1.create(any()));
+        verify(
+          () => remoteAdapter2.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).called(1);
+        await Future.delayed(Duration.zero);
+      });
+    });
+
+    group('Error and Edge Cases', () {
+      test('synchronize skips remote calls when offline', () async {
+        // Arrange
+        datum.register<TestEntity>(
+          localAdapter: localAdapter1,
+          remoteAdapter: remoteAdapter1,
+        );
+        await datum.initialize();
+        when(
+          () => connectivityChecker.isConnected,
+        ).thenAnswer((_) async => false);
+
+        // Act
+        final result = await datum.synchronize('user1');
+
+        // Assert
+        // The manager's internal check should skip, so no remote calls are made.
+        verifyNever(() => remoteAdapter1.readAll(userId: any(named: 'userId')));
+        verifyNever(() => remoteAdapter1.create(any()));
+
+        // The global result should reflect that the underlying syncs were skipped.
+        expect(result.syncedCount, 0);
+      });
+
+      test('synchronize propagates error from a failing manager', () async {
+        // Arrange
+        final exception = Exception('Remote is down!');
+        datum.register<TestEntity>(
+          localAdapter: localAdapter1,
+          remoteAdapter: remoteAdapter1,
+        );
+        await datum.initialize();
+
+        // Stub a pending operation to trigger a push
+        when(() => localAdapter1.getPendingOperations('user1')).thenAnswer(
+          (_) async => [
+            DatumSyncOperation<TestEntity>(
+              id: 'op1',
+              userId: 'user1',
+              entityId: 'e1',
+              type: DatumOperationType.create,
+              timestamp: DateTime.now(),
+              data: TestEntity.create('e1', 'user1', 'Test'),
+            ),
+          ],
+        );
+        // Make the remote adapter throw an error
+        when(() => remoteAdapter1.create(any())).thenThrow(exception);
+
+        // Act & Assert
+        final syncFuture = datum.synchronize('user1');
+        await expectLater(syncFuture, throwsA(exception));
+
+        // Verify an error event was broadcast
+        expect(
+          datum.events,
+          emits(
+            isA<DatumSyncErrorEvent>().having(
+              (e) => e.error,
+              'error',
+              exception,
+            ),
+          ),
+        );
+      });
+
+      test('dispose correctly cleans up managers and subscriptions', () async {
+        // Arrange
+        datum.register<TestEntity>(
+          localAdapter: localAdapter1,
+          remoteAdapter: remoteAdapter1,
+        );
+        await datum.initialize();
+
+        // Act
+        await datum.dispose();
+
+        // Assert
+        // Verify that dispose was called on the underlying manager
+        verify(() => localAdapter1.dispose()).called(1);
+        // A closed stream will complete immediately.
+        await expectLater(datum.events, emitsDone);
+      });
+    });
+
+    test('statusForUser stream emits status updates', () async {
+      // Arrange
+      datum.register<TestEntity>(
+        localAdapter: localAdapter1,
+        remoteAdapter: remoteAdapter1,
+      );
+      await datum.initialize();
+
+      // Act & Assert
+      final statusFuture = expectLater(
+        datum.statusForUser('user1').where((event) => event != null),
+        emitsInOrder([
+          isA<DatumSyncStatusSnapshot>().having(
+            (s) => s.status,
+            'status',
+            DatumSyncStatus.syncing,
+          ),
+          isA<DatumSyncStatusSnapshot>().having(
+            (s) => s.status,
+            'status',
+            DatumSyncStatus.completed,
+          ),
+        ]),
+      );
+
+      await datum.synchronize('user1');
+      await statusFuture;
+    });
+  });
+}
+
+void _stubAdapterBehaviors<T extends DatumEntity>(
+  MockedLocalAdapter<T> localAdapter,
+  MockedRemoteAdapter<T> remoteAdapter,
+) {
+  when(() => localAdapter.initialize()).thenAnswer((_) async {});
+  when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
+  when(() => localAdapter.dispose()).thenAnswer((_) async {});
+  when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
+  when(() => localAdapter.getStoredSchemaVersion()).thenAnswer((_) async => 0);
+  when(
+    () => localAdapter.getPendingOperations(any()),
+  ).thenAnswer((_) async => []);
+  when(
+    () => localAdapter.removePendingOperation(any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.addPendingOperation(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.read(any(), userId: any(named: 'userId')),
+  ).thenAnswer((_) async => null);
+  when(
+    () => localAdapter.delete(any(), userId: any(named: 'userId')),
+  ).thenAnswer((_) async => true);
+  when(() => localAdapter.create(any())).thenAnswer((_) async {});
+  when(() => remoteAdapter.create(any())).thenAnswer((_) async {});
+  when(() => remoteAdapter.update(any())).thenAnswer((_) async {});
+  when(
+    () => remoteAdapter.readAll(
+      userId: any(named: 'userId'),
+      scope: any(named: 'scope'),
+    ),
+  ).thenAnswer((_) async => []);
+  when(
+    () => localAdapter.readByIds(any(), userId: any(named: 'userId')),
+  ).thenAnswer((_) async => {});
+  when(
+    () => localAdapter.readAll(userId: any(named: 'userId')),
+  ).thenAnswer((_) async => []);
+  when(
+    () => localAdapter.updateSyncMetadata(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => remoteAdapter.updateSyncMetadata(any(), any()),
+  ).thenAnswer((_) async {});
+}

@@ -1,0 +1,470 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:datum/datum.dart';
+import '../mocks/mock_connectivity_checker.dart';
+import '../mocks/test_entity.dart';
+
+class MockedLocalAdapter<T extends DatumEntity> extends Mock
+    implements LocalAdapter<T> {}
+
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock
+    implements RemoteAdapter<T> {}
+
+void main() {
+  group('DatumManager Integration Tests', () {
+    late DatumManager<TestEntity> manager;
+    late MockedLocalAdapter<TestEntity> localAdapter;
+    late MockedRemoteAdapter<TestEntity> remoteAdapter;
+    late MockConnectivityChecker connectivityChecker;
+
+    setUpAll(() {
+      registerFallbackValue(
+        TestEntity(
+          id: 'fb',
+          userId: 'fb',
+          name: 'fb',
+          value: 0,
+          modifiedAt: DateTime(0),
+          createdAt: DateTime(0),
+          version: 0,
+        ),
+      );
+      registerFallbackValue(<String, dynamic>{});
+      registerFallbackValue(
+        DatumSyncOperation<TestEntity>(
+          id: 'fb',
+          userId: 'fb',
+          entityId: 'fb',
+          type: DatumOperationType.create,
+          timestamp: DateTime(0),
+        ),
+      );
+      registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
+      registerFallbackValue(DatumQueryBuilder<TestEntity>().build());
+    });
+
+    setUp(() async {
+      localAdapter = MockedLocalAdapter<TestEntity>();
+      remoteAdapter = MockedRemoteAdapter<TestEntity>();
+      connectivityChecker = MockConnectivityChecker();
+
+      _stubDefaultBehaviors(localAdapter, remoteAdapter, connectivityChecker);
+
+      manager = DatumManager<TestEntity>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+        conflictResolver: LastWriteWinsResolver<TestEntity>(),
+        datumConfig: const DatumConfig(), // Use default config
+        connectivity: connectivityChecker,
+      );
+
+      await manager.initialize();
+    });
+
+    tearDown(() async {
+      await manager.dispose();
+    });
+
+    test('saves entity locally and enqueues sync operation', () async {
+      // Arrange
+      final entity = TestEntity.create('entity1', 'user1', 'Test Item');
+
+      // Assert: Verify event was emitted. This must be set up before the action.
+      expect(
+        manager.onDataChange,
+        emits(
+          isA<DataChangeEvent<TestEntity>>()
+              .having((e) => e.changeType, 'changeType', ChangeType.created)
+              .having((e) => e.source, 'source', DataSource.local)
+              .having((e) => e.data.id, 'data.id', 'entity1'),
+        ),
+      );
+
+      // Stub the getPendingOperations to reflect the state after the push.
+      // Act
+      await manager.push(item: entity, userId: 'user1');
+
+      when(() => localAdapter.getPendingOperations('user1')).thenAnswer(
+        (_) async => [
+          DatumSyncOperation<TestEntity>(
+            id: 'op-create',
+            userId: 'user1',
+            entityId: entity.id,
+            type: DatumOperationType.create,
+            timestamp: DateTime.now(),
+            data: entity,
+          ),
+        ],
+      );
+
+      // Assert
+      verify(() => localAdapter.create(entity)).called(1);
+      verify(
+        () => localAdapter.addPendingOperation(
+          'user1',
+          any(
+            that: isA<DatumSyncOperation<TestEntity>>()
+                .having((op) => op.entityId, 'entityId', 'entity1')
+                .having((op) => op.type, 'type', DatumOperationType.create),
+          ),
+        ),
+      ).called(1);
+
+      // Verify operation count
+      final pendingCount = await manager.getPendingCount('user1');
+      expect(pendingCount, 1);
+    });
+
+    test('syncs pending operations to remote', () async {
+      // Arrange
+      final entity = TestEntity.create('entity1', 'user1', 'Test Item');
+      final op = DatumSyncOperation<TestEntity>(
+        id: 'op-sync',
+        userId: 'user1',
+        entityId: entity.id,
+        type: DatumOperationType.create,
+        timestamp: DateTime.now(),
+        data: entity,
+      );
+      final pendingOps = [op]; // A stateful list for this test
+
+      // Stub getPendingOperations to return our stateful list
+      when(
+        () => localAdapter.getPendingOperations('user1'),
+      ).thenAnswer((_) async => pendingOps);
+      // Stub removePendingOperation to modify our stateful list
+      when(
+        () => localAdapter.removePendingOperation('op-sync'),
+      ).thenAnswer((_) async => pendingOps.remove(op));
+      when(() => remoteAdapter.create(any())).thenAnswer((_) async {});
+
+      // Act
+      final result = await manager.synchronize('user1');
+
+      // Assert
+      expect(result.isSuccess, isTrue);
+      expect(result.syncedCount, 1);
+      expect(result.failedCount, 0);
+
+      // Verify remote state
+      verify(() => remoteAdapter.create(entity)).called(1);
+      verify(() => localAdapter.removePendingOperation('op-sync')).called(1);
+      verify(() => remoteAdapter.updateSyncMetadata(any(), 'user1')).called(1);
+
+      // Verify local queue is empty
+      final pendingCount = await manager.getPendingCount('user1');
+      expect(pendingCount, 0);
+    });
+
+    test('pulls remote items during sync', () async {
+      // Arrange
+      final remoteEntity = TestEntity.create('entity2', 'user1', 'Remote Item');
+      when(
+        () => remoteAdapter.readAll(
+          userId: 'user1',
+          scope: any(named: 'scope'),
+        ),
+      ).thenAnswer((_) async => [remoteEntity]);
+      when(
+        () => localAdapter.readByIds(any(), userId: 'user1'),
+      ).thenAnswer((_) async => {});
+      when(() => localAdapter.create(any())).thenAnswer((_) async {});
+
+      // Act
+      final result = await manager.synchronize('user1');
+
+      // Assert
+      expect(result.isSuccess, isTrue);
+      verify(() => localAdapter.create(remoteEntity)).called(1);
+
+      // To verify the result, we need to stub the final readAll
+      when(
+        () => localAdapter.readAll(userId: 'user1'),
+      ).thenAnswer((_) async => [remoteEntity]);
+      final localItems = await manager.readAll(userId: 'user1');
+      expect(localItems, hasLength(1));
+      expect(localItems.first.name, 'Remote Item');
+    });
+
+    test('resolves conflicts using last-write-wins', () async {
+      // Arrange
+      final baseTime = DateTime.now();
+      final localEntity = TestEntity(
+        id: 'entity1',
+        userId: 'user1',
+        name: 'Local Version',
+        value: 1,
+        modifiedAt: baseTime,
+        createdAt: baseTime,
+        version: 1,
+      );
+      final remoteEntity = localEntity.copyWith(
+        name: 'Remote Version',
+        modifiedAt: baseTime.add(const Duration(seconds: 10)),
+        version: 2,
+      );
+
+      // Setup conflict scenario
+      when(
+        () => remoteAdapter.readAll(
+          userId: 'user1',
+          scope: any(named: 'scope'),
+        ),
+      ).thenAnswer((_) async => [remoteEntity]);
+      when(
+        () => localAdapter.readByIds(['entity1'], userId: 'user1'),
+      ).thenAnswer((_) async => {'entity1': localEntity});
+      when(() => localAdapter.update(any())).thenAnswer((_) async {});
+
+      // Act
+      final result = await manager.synchronize('user1');
+
+      // Assert
+      expect(result.isSuccess, isTrue, reason: result.errors.toString());
+      expect(result.conflictsResolved, 1);
+
+      // Verify remote version was saved locally
+      verify(() => localAdapter.update(remoteEntity)).called(1);
+      // To verify the result, we need to stub the final readAll
+      when(
+        () => localAdapter.readAll(userId: 'user1'),
+      ).thenAnswer((_) async => [remoteEntity]);
+      final localItems = await manager.readAll(userId: 'user1');
+      expect(localItems.first.name, 'Remote Version');
+    });
+
+    test('deletes entity locally and remotely', () async {
+      // Arrange
+      final entity = TestEntity.create('entity1', 'user1', 'Test Item');
+      // Simulate that the entity already exists locally before the delete action.
+      when(
+        () => localAdapter.read('entity1', userId: 'user1'),
+      ).thenAnswer((_) async => entity);
+
+      // Act
+      await manager.delete(id: 'entity1', userId: 'user1');
+      when(() => localAdapter.getPendingOperations('user1')).thenAnswer(
+        (_) async => [
+          DatumSyncOperation<TestEntity>(
+            id: 'op-delete',
+            userId: 'user1',
+            entityId: entity.id,
+            type: DatumOperationType.delete,
+            timestamp: DateTime.now(),
+          ),
+        ],
+      );
+      when(
+        () => remoteAdapter.delete(any(), userId: 'user1'),
+      ).thenAnswer((_) async {});
+      await manager.synchronize('user1');
+
+      // Assert
+      when(
+        () => localAdapter.readAll(userId: 'user1'),
+      ).thenAnswer((_) async => []);
+      expect(await manager.readAll(userId: 'user1'), isEmpty);
+      verify(() => remoteAdapter.delete('entity1', userId: 'user1')).called(1);
+    });
+
+    test('handles network errors gracefully', () async {
+      // Arrange
+      final entity = TestEntity.create('entity1', 'user1', 'Test Item');
+      await manager.push(item: entity, userId: 'user1');
+      when(() => localAdapter.getPendingOperations('user1')).thenAnswer(
+        (_) async => [
+          DatumSyncOperation<TestEntity>(
+            id: 'op-network-error',
+            userId: 'user1',
+            entityId: entity.id,
+            type: DatumOperationType.create,
+            timestamp: DateTime.now(),
+            data: entity,
+          ),
+        ],
+      );
+
+      // Go offline
+      when(
+        () => connectivityChecker.isConnected,
+      ).thenAnswer((_) async => false);
+
+      // Act
+      final result = await manager.synchronize('user1');
+
+      // Assert
+      expect(result.wasSkipped, isTrue);
+      final pendingCount = await manager.getPendingCount('user1');
+      expect(pendingCount, 1);
+      verifyNever(() => remoteAdapter.create(any()));
+    });
+
+    test('retrieves entity by id', () async {
+      // Arrange
+      final entity = TestEntity.create('entity1', 'user1', 'Test Item');
+      await manager.push(item: entity, userId: 'user1');
+      when(
+        () => localAdapter.read('entity1', userId: 'user1'),
+      ).thenAnswer((_) async => entity);
+
+      // Act
+      final retrieved = await manager.read('entity1', userId: 'user1');
+
+      // Assert
+      expect(retrieved, isNotNull);
+      expect(retrieved!.name, 'Test Item');
+    });
+
+    test('returns null when entity does not exist', () async {
+      when(
+        () => localAdapter.read('nonexistent', userId: 'user1'),
+      ).thenAnswer((_) async => null);
+      // Act
+      final retrieved = await manager.read('nonexistent', userId: 'user1');
+
+      // Assert
+      expect(retrieved, isNull);
+    });
+
+    group('query', () {
+      final user1Entities = [
+        TestEntity.create('e1', 'user1', 'Apple').copyWith(value: 10),
+        TestEntity.create('e2', 'user1', 'Banana').copyWith(value: 20),
+        TestEntity.create('e3', 'user1', 'Avocado').copyWith(value: 30),
+      ];
+
+      test('can query local adapter with a where clause', () async {
+        // Arrange
+        when(() => localAdapter.query(any(), userId: 'user1')).thenAnswer((
+          inv,
+        ) async {
+          // Simulate the adapter's query logic
+          return user1Entities.where((e) => e.name.startsWith('A')).toList();
+        });
+
+        final query = DatumQueryBuilder<TestEntity>()
+            .where('name', startsWith: 'A')
+            .build();
+
+        // Act
+        final results = await manager.query(
+          query,
+          source: DataSource.local,
+          userId: 'user1',
+        );
+
+        // Assert
+        expect(results, hasLength(2));
+        expect(results.map((e) => e.name), containsAll(['Apple', 'Avocado']));
+        verify(() => localAdapter.query(query, userId: 'user1')).called(1);
+      });
+
+      test('can query remote adapter with sorting and limit', () async {
+        // Arrange
+        when(() => remoteAdapter.query(any(), userId: 'user1')).thenAnswer((
+          inv,
+        ) async {
+          // Simulate the adapter's query logic
+          final sorted = List<TestEntity>.from(user1Entities)
+            ..sort((a, b) => b.value.compareTo(a.value)); // Descending
+          return sorted.take(2).toList();
+        });
+
+        final query = DatumQueryBuilder<TestEntity>()
+            .orderBy('value', descending: true)
+            .limit(2)
+            .build();
+
+        // Act
+        final results = await manager.query(
+          query,
+          source: DataSource.remote,
+          userId: 'user1',
+        );
+
+        // Assert
+        expect(results, hasLength(2));
+        // The results should be the two items with the highest values.
+        expect(results[0].name, 'Avocado'); // value: 30
+        expect(results[1].name, 'Banana'); // value: 20
+        verify(() => remoteAdapter.query(query, userId: 'user1')).called(1);
+      });
+    });
+  });
+}
+
+/// Helper function to apply all default stubs to a set of mocks.
+void _stubDefaultBehaviors(
+  MockedLocalAdapter<TestEntity> localAdapter,
+  MockedRemoteAdapter<TestEntity> remoteAdapter,
+  MockConnectivityChecker connectivityChecker,
+) {
+  // Connectivity
+  when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
+
+  // Initialization
+  when(() => localAdapter.initialize()).thenAnswer((_) async {});
+  when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
+  when(() => localAdapter.getStoredSchemaVersion()).thenAnswer((_) async => 0);
+  when(
+    () => localAdapter.changeStream(),
+  ).thenAnswer((_) => const Stream<DatumChangeDetail<TestEntity>>.empty());
+  when(
+    () => remoteAdapter.changeStream,
+  ).thenAnswer((_) => const Stream<DatumChangeDetail<TestEntity>>.empty());
+
+  // Disposal
+  when(() => localAdapter.dispose()).thenAnswer((_) async {});
+  when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
+
+  // Core Local Operations
+  when(() => localAdapter.create(any())).thenAnswer((_) async {});
+  when(() => localAdapter.update(any())).thenAnswer((_) async {});
+  when(
+    () => localAdapter.read(any(), userId: any(named: 'userId')),
+  ).thenAnswer((_) async => null);
+  when(
+    () => localAdapter.readByIds(any(), userId: any(named: 'userId')),
+  ).thenAnswer((_) async => {});
+  when(
+    () => localAdapter.readAll(userId: any(named: 'userId')),
+  ).thenAnswer((_) async => []);
+  when(
+    () => localAdapter.delete(any(), userId: any(named: 'userId')),
+  ).thenAnswer((_) async => true);
+
+  // Querying
+  when(
+    () => localAdapter.query(any(), userId: any(named: 'userId')),
+  ).thenAnswer((_) async => []);
+  when(
+    () => remoteAdapter.query(any(), userId: any(named: 'userId')),
+  ).thenAnswer((_) async => []);
+
+  // Core Remote Operations
+  when(
+    () => remoteAdapter.readAll(
+      userId: any(named: 'userId'),
+      scope: any(named: 'scope'),
+    ),
+  ).thenAnswer((_) async => []);
+
+  // Sync-related Operations
+  when(
+    () => localAdapter.getPendingOperations(any()),
+  ).thenAnswer((_) async => []);
+  when(
+    () => localAdapter.addPendingOperation(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.removePendingOperation(any()),
+  ).thenAnswer((_) async {});
+
+  // Metadata
+  when(
+    () => localAdapter.updateSyncMetadata(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => remoteAdapter.updateSyncMetadata(any(), any()),
+  ).thenAnswer((_) async {});
+}

@@ -1,0 +1,768 @@
+import 'dart:async';
+
+import 'package:datum/source/adapter/local_adapter.dart';
+import 'package:datum/source/adapter/remote_adapter.dart';
+import 'package:datum/source/config/datum_config.dart';
+import 'package:datum/source/core/engine/conflict_detector.dart';
+import 'package:datum/source/core/engine/datum_sync_engine.dart';
+import 'package:datum/source/core/engine/isolate_helper.dart';
+import 'package:datum/source/core/engine/queue_manager.dart';
+import 'package:datum/source/core/events/conflict_detected_event.dart';
+import 'package:datum/source/core/events/conflict_resolved_event.dart';
+import 'package:datum/source/core/events/data_change_event.dart';
+import 'package:datum/source/core/events/user_switched_event.dart';
+import 'package:datum/source/core/events/datum_event.dart';
+import 'package:datum/source/core/models/datum_change_detail.dart';
+import 'package:datum/source/core/models/datum_exception.dart';
+import 'package:datum/source/core/models/datum_operation.dart';
+import 'package:datum/source/core/models/datum_pagination.dart';
+import 'package:datum/source/core/models/datum_sync_metadata.dart';
+import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/core/models/datum_sync_options.dart';
+import 'package:datum/source/core/models/datum_sync_result.dart';
+import 'package:datum/source/core/models/datum_sync_scope.dart';
+import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
+import 'package:datum/source/core/models/user_switch_models.dart';
+import 'package:datum/source/core/query/datum_query.dart';
+import 'package:datum/source/utils/connectivity_checker.dart';
+import 'package:datum/source/utils/datum_logger.dart';
+import 'package:datum/source/core/engine/datum_observer.dart';
+import 'package:datum/source/core/middleware/datum_middleware.dart';
+import 'package:datum/source/core/migration/migration_executor.dart';
+
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/resolver/conflict_resolution.dart';
+import 'package:datum/source/core/resolver/last_write_wins_resolver.dart';
+import 'package:rxdart/rxdart.dart';
+import 'package:uuid/uuid.dart';
+
+class DatumManager<T extends DatumEntity> {
+  final LocalAdapter<T> localAdapter;
+  final RemoteAdapter<T> remoteAdapter;
+
+  bool _initialized = false;
+  bool _disposed = false;
+
+  // Core dependencies
+  final DatumConflictResolver<T> _conflictResolver;
+  final DatumConfig<T> _config;
+  final ConnectivityChecker _connectivity;
+  final DatumLogger _logger;
+  final List<DatumObserver<T>> _localObservers = [];
+  final List<GlobalDatumObserver> _globalObservers = [];
+  final List<DatumMiddleware<T>> _middlewares = [];
+
+  // Internal state management
+  final StreamController<DatumSyncEvent<T>> _eventController =
+      StreamController.broadcast();
+  final BehaviorSubject<DatumSyncStatusSnapshot> _statusSubject;
+  final BehaviorSubject<DatumSyncMetadata> _metadataSubject = BehaviorSubject();
+  final Map<String, Timer> _autoSyncTimers = {};
+
+  late final QueueManager<T> _queueManager;
+  late final IsolateHelper _isolateHelper;
+  late final DatumConflictDetector<T> _conflictDetector;
+  late final DatumSyncEngine<T> _syncEngine;
+
+  /// Exposes the queue manager for central orchestration.
+  QueueManager<T> get queueManager => _queueManager;
+
+  StreamSubscription<DatumChangeDetail<T>>? _localChangeSubscription;
+  StreamSubscription<DatumChangeDetail<T>>? _remoteChangeSubscription;
+
+  /// Public event streams
+  Stream<DatumSyncEvent<T>> get eventStream => _eventController.stream;
+  Stream<DataChangeEvent<T>> get onDataChange =>
+      eventStream.whereType<DataChangeEvent<T>>();
+  Stream<DatumSyncStartedEvent<T>> get onSyncStarted =>
+      eventStream.whereType<DatumSyncStartedEvent<T>>();
+  Stream<DatumSyncProgressEvent<T>> get onSyncProgress =>
+      eventStream.whereType<DatumSyncProgressEvent<T>>();
+  Stream<DatumSyncCompletedEvent<T>> get onSyncCompleted =>
+      eventStream.whereType<DatumSyncCompletedEvent<T>>();
+  Stream<ConflictDetectedEvent<T>> get onConflict =>
+      eventStream.whereType<ConflictDetectedEvent<T>>();
+  Stream<UserSwitchedEvent<T>> get onUserSwitched =>
+      eventStream.whereType<UserSwitchedEvent<T>>();
+  Stream<DatumSyncErrorEvent<T>> get onSyncError =>
+      eventStream.whereType<DatumSyncErrorEvent<T>>();
+
+  DatumManager({
+    required this.localAdapter,
+    required this.remoteAdapter,
+    DatumConflictResolver<T>? conflictResolver,
+    DatumConfig<T>? datumConfig,
+    ConnectivityChecker? connectivity,
+    DatumLogger? logger,
+    List<DatumObserver<T>>? localObservers,
+    List<DatumMiddleware<T>>? middlewares,
+    List<GlobalDatumObserver>? globalObservers,
+  }) : _config = datumConfig ?? DatumConfig<T>.defaultConfig(),
+       _connectivity = connectivity ?? ConnectivityChecker(),
+       _statusSubject = BehaviorSubject.seeded(
+         DatumSyncStatusSnapshot.initial(''),
+       ),
+       _logger =
+           logger ??
+           DatumLogger(
+             enabled: (datumConfig ?? DatumConfig<T>()).enableLogging,
+           ),
+       _conflictResolver = conflictResolver ?? LastWriteWinsResolver<T>() {
+    _localObservers.addAll(localObservers ?? []);
+    _globalObservers.addAll(globalObservers ?? []);
+    _middlewares.addAll(middlewares ?? []);
+    _initializeInternalComponents();
+  }
+
+  void _initializeInternalComponents() {
+    _conflictDetector = DatumConflictDetector<T>();
+    _isolateHelper = IsolateHelper();
+    _queueManager = QueueManager<T>(
+      localAdapter: localAdapter,
+      logger: _logger,
+    );
+    _syncEngine = DatumSyncEngine<T>(
+      localAdapter: localAdapter,
+      remoteAdapter: remoteAdapter,
+      conflictResolver: _conflictResolver,
+      queueManager: _queueManager,
+      conflictDetector: _conflictDetector,
+      logger: _logger,
+      config: _config,
+      connectivityChecker: _connectivity,
+      eventController: _eventController,
+      statusSubject: _statusSubject,
+      metadataSubject: _metadataSubject,
+      isolateHelper: _isolateHelper,
+    );
+  }
+
+  /// Initializes the manager and its adapters. Must be called before any other methods.
+  Future<void> initialize() async {
+    if (_initialized) return;
+    if (_disposed) throw StateError('Cannot initialize a disposed manager.');
+
+    await localAdapter.initialize();
+    await _runSchemaMigrations();
+    await _isolateHelper.initialize();
+    await remoteAdapter.initialize();
+
+    _initialized = true;
+    _logger.info('DatumManager for $T initialized.');
+
+    // Start auto-sync after the manager is fully initialized.
+    await _setupAutoSyncIfEnabled();
+
+    // Subscribe to external changes
+    _subscribeToChangeStreams();
+
+    // Subscribe to internal events to notify observers
+    // _listenToEvents(); // This is now handled synchronously in synchronize()
+  }
+
+  Future<void> _runSchemaMigrations() async {
+    // ... (rest of the method is unchanged)
+    final executor = MigrationExecutor(
+      localAdapter: localAdapter,
+      migrations: _config.migrations,
+      targetVersion: _config.schemaVersion,
+      logger: _logger,
+    );
+    try {
+      if (await executor.needsMigration()) {
+        await executor.execute();
+      }
+    } on Object catch (e, stack) {
+      _logger.error('Schema migration failed: $e', stack);
+      if (_config.onMigrationError != null) {
+        await _config.onMigrationError!(e, stack);
+      } else {
+        rethrow;
+      }
+    }
+  }
+
+  Future<void> _setupAutoSyncIfEnabled() async {
+    if (!_config.autoStartSync) return;
+
+    _logger.debug('Auto-start sync enabled, discovering users');
+    if (_config.initialUserId != null) {
+      final userId = _config.initialUserId!;
+      if (userId.isNotEmpty) {
+        _logger.info('Auto-sync starting for initial user: $userId');
+        // Perform an initial sync, but don't block initialization if it fails.
+        unawaited(
+          synchronize(
+            userId,
+          ).catchError((_) => DatumSyncResult.skipped(userId, 0)),
+        );
+        startAutoSync(userId);
+      }
+    } else {
+      final userIds = await localAdapter.getAllUserIds();
+      _logger.info(
+        'Auto-sync starting for ${userIds.length} discovered users.',
+      );
+
+      // Sequentially perform an initial sync for all discovered users.
+      for (final userId in userIds) {
+        if (userId.isNotEmpty) {
+          // We await here to prevent race conditions on the shared sync engine.
+          try {
+            await synchronize(userId);
+          } catch (e, stack) {
+            _logger.error(
+              'Initial auto-sync for user $userId failed: $e',
+              stack,
+            );
+          }
+        }
+      }
+      // Now, start the periodic timers for all users.
+      for (final userId in userIds) {
+        if (userId.isNotEmpty) startAutoSync(userId);
+      }
+      _logger.info(
+        'Periodic auto-sync timers started for ${userIds.length} discovered users.',
+      );
+    }
+  }
+
+  void _subscribeToChangeStreams() {
+    // Subscribe to local changes
+    _localChangeSubscription = localAdapter.changeStream()?.listen(
+      (change) => _handleExternalChange(change, DataSource.local),
+      onError: (e, s) => _logger.error('Error in local change stream', s),
+    );
+
+    // Subscribe to remote changes
+    _remoteChangeSubscription = remoteAdapter.changeStream?.listen(
+      (change) => _handleExternalChange(change, DataSource.remote),
+      onError: (e, s) => _logger.error('Error in remote change stream', s),
+    );
+  }
+
+  /// Handles changes originating from outside the manager's direct control.
+  Future<void> _handleExternalChange(
+    DatumChangeDetail<T> change,
+    DataSource source,
+  ) async {
+    if (_disposed) return;
+
+    _logger.info(
+      'Received external change from $source: ${change.type.name} for ${change.entityId}',
+    );
+
+    // Basic check to prevent simple loops: if the change comes from remote,
+    // we save it locally but prevent it from being re-queued for remote sync.
+    // A more robust implementation would use a temporary cache of processed
+    // change IDs to prevent processing duplicates.
+    try {
+      if (change.type == DatumOperationType.delete) {
+        await delete(
+          id: change.entityId,
+          userId: change.userId,
+          source: source,
+        );
+      } else if (change.data != null) {
+        // If change is from remote, just save locally.
+        // If from local, it's an external change, so queue it for remote.
+        await push(
+          item: change.data!,
+          userId: change.userId,
+          source: source, // Let push handle the logic
+        );
+      }
+    } on Object catch (e, stack) {
+      _logger.error(
+        'Failed to process external change from $source: $e',
+        stack,
+      );
+    }
+  }
+
+  void _processSyncEvents(List<DatumSyncEvent<T>> events) {
+    for (final event in events) {
+      if (_eventController.isClosed) return;
+      // Add to the public event stream for external listeners
+      _eventController.add(event);
+      // Also notify observers directly
+      _notifyObservers(event);
+    }
+  }
+
+  Future<T> push({
+    required T item,
+    required String userId,
+    DataSource source = DataSource.local,
+    bool forceRemoteSync = false,
+  }) async {
+    _ensureInitialized();
+    // Check for user switch before proceeding.
+    await _syncEngine.checkForUserSwitch(userId);
+
+    final existing = await localAdapter.read(item.id, userId: userId);
+    final isCreate = existing == null;
+
+    final transformed = await _applyPreSaveTransforms(item);
+
+    Map<String, dynamic>? delta;
+    if (!isCreate) {
+      delta = transformed.diff(existing);
+      if (delta == null) {
+        _logger.debug(
+          'No changes detected for entity ${item.id}, skipping save.',
+        );
+        return transformed;
+      }
+    }
+
+    if (isCreate) {
+      _logger.debug('Notifying observers of onCreateStart for ${item.id}');
+      for (final observer in _localObservers) {
+        observer.onCreateStart(transformed);
+      }
+      for (final observer in _globalObservers) {
+        observer.onCreateStart(transformed);
+      }
+      await localAdapter.create(transformed);
+    } else if (delta != null) {
+      // If a delta is available, perform a more efficient patch.
+      _logger.debug('Notifying observers of onUpdateStart for ${item.id}');
+      for (final observer in _localObservers) {
+        observer.onUpdateStart(transformed);
+      }
+      for (final observer in _globalObservers) {
+        observer.onUpdateStart(transformed);
+      }
+      await localAdapter.patch(
+        id: transformed.id,
+        delta: delta,
+        userId: userId,
+      );
+    } else {
+      // Fallback to a full update if no delta is calculated.
+      _logger.debug('Notifying observers of onUpdateStart for ${item.id}');
+      for (final observer in _localObservers) {
+        observer.onUpdateStart(transformed);
+      }
+      for (final observer in _globalObservers) {
+        observer.onUpdateStart(transformed);
+      }
+      await localAdapter.update(transformed);
+    }
+
+    if (source == DataSource.local || forceRemoteSync) {
+      final operation = _createOperation(
+        userId: userId,
+        type: isCreate ? DatumOperationType.create : DatumOperationType.update,
+        entityId: transformed.id,
+        data: transformed,
+        delta: delta,
+      );
+      await _queueManager.enqueue(operation);
+    }
+
+    _eventController.add(
+      DataChangeEvent<T>(
+        userId: userId,
+        data: transformed,
+        changeType: isCreate ? ChangeType.created : ChangeType.updated,
+        source: source,
+      ),
+    );
+
+    if (isCreate) {
+      _logger.debug('Notifying observers of onCreateEnd for ${item.id}');
+      for (final observer in _localObservers) {
+        observer.onCreateEnd(transformed);
+      }
+      for (final observer in _globalObservers) {
+        observer.onCreateEnd(transformed);
+      }
+    } else {
+      _logger.debug('Notifying observers of onUpdateEnd for ${item.id}');
+      for (final observer in _localObservers) {
+        observer.onUpdateEnd(transformed);
+      }
+      for (final observer in _globalObservers) {
+        observer.onUpdateEnd(transformed);
+      }
+    }
+    return transformed;
+  }
+
+  /// Reads a single entity by its ID from the primary local adapter.
+  Future<T?> read(String id, {String? userId}) async {
+    _ensureInitialized();
+    final entity = await localAdapter.read(id, userId: userId);
+    if (entity == null) return null;
+    return _applyPostFetchTransforms(entity);
+  }
+
+  /// Reads all entities from the primary local adapter.
+  Future<List<T>> readAll({String? userId}) async {
+    _ensureInitialized();
+    final entities = await localAdapter.readAll(userId: userId);
+    return Future.wait(entities.map(_applyPostFetchTransforms));
+  }
+
+  /// Watches all entities from the local adapter, emitting a new list on any change.
+  /// Returns null if the adapter does not support reactive queries.
+  Stream<List<T>>? watchAll({String? userId}) {
+    _ensureInitialized();
+    return localAdapter
+        .watchAll(userId: userId)
+        ?.asyncMap((list) => Future.wait(list.map(_applyPostFetchTransforms)));
+  }
+
+  /// Watches a single entity by its ID, emitting the item on change or null if deleted.
+  /// Returns null if the adapter does not support reactive queries.
+  Stream<T?>? watchById(String id, String? userId) {
+    _ensureInitialized();
+    return localAdapter.watchById(id, userId: userId)?.asyncMap((item) {
+      if (item == null) return null;
+      return _applyPostFetchTransforms(item);
+    });
+  }
+
+  /// Watches a paginated list of items.
+  /// Returns null if the adapter does not support reactive queries.
+  Stream<PaginatedResult<T>>? watchAllPaginated(
+    PaginationConfig config, {
+    String? userId,
+  }) {
+    _ensureInitialized();
+    return localAdapter.watchAllPaginated(config, userId: userId);
+  }
+
+  /// Watches a subset of items matching a query.
+  /// Returns null if the adapter does not support reactive queries.
+  Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) {
+    _ensureInitialized();
+    return localAdapter
+        .watchQuery(query, userId: userId)
+        ?.asyncMap((list) => Future.wait(list.map(_applyPostFetchTransforms)));
+  }
+
+  /// Executes a one-time query against the specified data source.
+  ///
+  /// This provides a powerful way to fetch filtered and sorted data directly
+  /// from either the local or remote adapter without relying on reactive streams.
+  Future<List<T>> query(
+    DatumQuery query, {
+    required DataSource source,
+    String? userId,
+  }) async {
+    _ensureInitialized();
+    final adapter =
+        (source == DataSource.local ? localAdapter : remoteAdapter) as dynamic;
+    final entities = await adapter.query(query, userId: userId) as List<T>;
+    return Future.wait(entities.map(_applyPostFetchTransforms));
+  }
+
+  /// Deletes an entity by its ID from all local and remote adapters.
+  Future<bool> delete({
+    required String id,
+    required String userId,
+    DataSource source = DataSource.local,
+    bool forceRemoteSync = false,
+  }) async {
+    _ensureInitialized();
+    // Check for user switch before proceeding.
+    await _syncEngine.checkForUserSwitch(userId);
+
+    final existing = await localAdapter.read(id, userId: userId);
+    if (existing == null) {
+      _logger.debug(
+        'Entity $id does not exist for user $userId, skipping delete',
+      );
+      return false;
+    }
+
+    _logger.debug('Notifying observers of onDeleteStart for $id');
+    for (final observer in _localObservers) {
+      observer.onDeleteStart(id);
+    }
+    for (final observer in _globalObservers) {
+      observer.onDeleteStart(id);
+    }
+    final deleted = await localAdapter.delete(id, userId: userId);
+    if (!deleted) {
+      _logger.warn('Local adapter failed to delete entity $id');
+      // Notify observers of the failure before returning.
+      for (final observer in _localObservers) {
+        observer.onDeleteEnd(id, success: false);
+      }
+      for (final observer in _globalObservers) {
+        observer.onDeleteEnd(id, success: false);
+      }
+      return false;
+    }
+
+    _logger.debug('Notifying observers of onDeleteEnd for $id');
+    for (final observer in _localObservers) {
+      observer.onDeleteEnd(id, success: true);
+    }
+    for (final observer in _globalObservers) {
+      observer.onDeleteEnd(id, success: true);
+    }
+    if (source == DataSource.local || forceRemoteSync) {
+      final operation = _createOperation(
+        userId: userId,
+        type: DatumOperationType.delete,
+        entityId: id,
+      );
+      await _queueManager.enqueue(operation);
+    }
+
+    _eventController.add(
+      DataChangeEvent<T>(
+        userId: userId,
+        data: existing,
+        changeType: ChangeType.deleted,
+        source: source,
+      ),
+    );
+
+    return true;
+  }
+
+  void _ensureInitialized() {
+    if (!_initialized) {
+      throw StateError('DatumManager must be initialized before use.');
+    }
+    if (_disposed) {
+      throw StateError('Cannot operate on a disposed manager.');
+    }
+  }
+
+  Future<DatumSyncResult> synchronize(
+    String userId, {
+    DatumSyncOptions? options,
+    DatumSyncScope? scope,
+  }) async {
+    _ensureInitialized();
+
+    // Handle user switching logic before proceeding with synchronization.
+    if (_syncEngine.lastActiveUserId != null &&
+        _syncEngine.lastActiveUserId != userId) {
+      if (_config.defaultUserSwitchStrategy ==
+          UserSwitchStrategy.promptIfUnsyncedData) {
+        final oldUserOps = await _queueManager.getPending(
+          _syncEngine.lastActiveUserId!,
+        );
+        if (oldUserOps.isNotEmpty) {
+          throw UserSwitchException(
+            _syncEngine.lastActiveUserId,
+            userId,
+            'Cannot switch user while unsynced data exists for the previous user.',
+          );
+        }
+      }
+      // Other strategies like syncThenSwitch or clearAndFetch would be handled here.
+    }
+
+    try {
+      // Convert options to the correct type if needed.
+      // This handles cases where options might be passed with a different generic type from Datum.
+      final typedOptions = options != null
+          ? DatumSyncOptions<T>(
+              includeDeletes: options.includeDeletes,
+              resolveConflicts: options.resolveConflicts,
+              forceFullSync: options.forceFullSync,
+              overrideBatchSize: options.overrideBatchSize,
+              timeout: options.timeout,
+              direction: options.direction,
+              conflictResolver:
+                  options.conflictResolver is DatumConflictResolver<T>
+                  ? options.conflictResolver as DatumConflictResolver<T>
+                  : null,
+            )
+          : null;
+
+      // If the direction is pushOnly and there are no pending operations,
+      // we can skip the sync entirely for this manager.
+      if (typedOptions?.direction == SyncDirection.pushOnly &&
+          await getPendingCount(userId) == 0) {
+        return DatumSyncResult.skipped(userId, 0);
+      }
+
+      final (result, events) = await _syncEngine.synchronize(
+        userId,
+        options: typedOptions,
+        scope: scope,
+      );
+      _processSyncEvents(events);
+      return result;
+    } on SyncExceptionWithEvents<T> catch (e) {
+      // This block handles a special case where the sync engine fails but
+      // needs to communicate events (like DatumSyncErrorEvent) back to the
+      // manager before the top-level Future completes with an error.
+      _processSyncEvents(e.events);
+
+      // CRITICAL: Re-throw the original error asynchronously.
+      // Using `return Future.error` instead of a synchronous `throw` is
+      // essential to prevent a race condition in tests. It ensures that the
+      // event stream has a chance to deliver the `DatumSyncErrorEvent`
+      // (processed in the line above) to its listeners *before* the Future
+      // returned by `synchronize()` completes with an error. Without this,
+      // a test awaiting both the event and the thrown exception might see
+      // the exception first and terminate before the event is received,
+      // leading to a timeout.
+      return Future.error(e.originalError, e.originalStackTrace);
+    }
+  }
+
+  void _notifyObservers(DatumSyncEvent<T> event) {
+    switch (event) {
+      case DatumSyncStartedEvent():
+        _logger.debug('Notifying observers of onSyncStart');
+        for (final observer in _localObservers) {
+          observer.onSyncStart();
+        }
+        for (final observer in _globalObservers) {
+          observer.onSyncStart();
+        }
+      case DatumSyncCompletedEvent():
+        final completedEvent = event;
+        _logger.debug('Notifying observers of onSyncEnd');
+        for (final observer in _localObservers) {
+          observer.onSyncEnd(completedEvent.result);
+        }
+        for (final observer in _globalObservers) {
+          observer.onSyncEnd(completedEvent.result);
+        }
+      case ConflictDetectedEvent<T>():
+        final conflictEvent = event;
+        _logger.debug(
+          'Notifying observers of onConflictDetected for ${conflictEvent.context.entityId}',
+        );
+        final local = conflictEvent.localData;
+        final remote = conflictEvent.remoteData;
+        if (local != null && remote != null) {
+          for (final observer in _localObservers) {
+            observer.onConflictDetected(local, remote, conflictEvent.context);
+          }
+          for (final observer in _globalObservers) {
+            observer.onConflictDetected(local, remote, conflictEvent.context);
+          }
+        }
+      case ConflictResolvedEvent<T>():
+        final resolvedEvent = event;
+        _logger.debug(
+          'Notifying observers of onConflictResolved for ${resolvedEvent.entityId}',
+        );
+        for (final observer in _localObservers) {
+          observer.onConflictResolved(resolvedEvent.resolution);
+        }
+        for (final observer in _globalObservers) {
+          observer.onConflictResolved(resolvedEvent.resolution);
+        }
+    }
+  }
+
+  /// Starts automatic periodic synchronization for the specified user.
+  ///
+  /// Uses [interval] if provided, otherwise uses [DatumConfig.autoSyncInterval].
+  /// Automatically stops any existing auto-sync for the same user.
+  void startAutoSync(String userId, {Duration? interval}) {
+    _ensureInitialized();
+
+    if (userId.isEmpty) {
+      return;
+    }
+
+    stopAutoSync(userId: userId);
+
+    final syncInterval = interval ?? _config.autoSyncInterval;
+    _autoSyncTimers[userId] = Timer.periodic(syncInterval, (_) {
+      // Use an async block to allow try-catch without affecting the timer's
+      // void callback signature.
+      unawaited(() async {
+        try {
+          await synchronize(userId);
+        } catch (e, stack) {
+          _logger.error('Auto-sync for user $userId failed: $e', stack);
+        }
+      }());
+    });
+
+    _logger.info(
+      'Auto-sync started for user $userId (interval: $syncInterval)',
+    );
+  }
+
+  /// Stops automatic synchronization for one or all users.
+  void stopAutoSync({String? userId}) {
+    if (userId != null) {
+      final timer = _autoSyncTimers.remove(userId);
+      timer?.cancel();
+      if (timer != null) {
+        _logger.info('Auto-sync stopped for user: $userId');
+      }
+      return;
+    }
+
+    for (final timer in _autoSyncTimers.values) {
+      timer.cancel();
+    }
+    _autoSyncTimers.clear();
+  }
+
+  /// Releases all resources held by the manager and its adapters.
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    await _localChangeSubscription?.cancel();
+    await _remoteChangeSubscription?.cancel();
+    await _eventController.close();
+    await _statusSubject.close();
+    await _metadataSubject.close();
+    await _queueManager.dispose();
+    stopAutoSync();
+    _isolateHelper.dispose();
+    await localAdapter.dispose();
+    await remoteAdapter.dispose();
+  }
+
+  Future<T> _applyPreSaveTransforms(T entity) async {
+    var transformed = entity;
+    for (final middleware in _middlewares) {
+      transformed = await middleware.transformBeforeSave(transformed);
+    }
+    return transformed;
+  }
+
+  Future<T> _applyPostFetchTransforms(T entity) async {
+    var transformed = entity;
+    for (final middleware in _middlewares) {
+      transformed = await middleware.transformAfterFetch(transformed);
+    }
+    return transformed;
+  }
+
+  DatumSyncOperation<T> _createOperation({
+    required String userId,
+    required DatumOperationType type,
+    required String entityId,
+    T? data,
+    Map<String, dynamic>? delta,
+  }) {
+    return DatumSyncOperation<T>(
+      id: const Uuid().v4(),
+      userId: userId,
+      type: type,
+      data: data,
+      delta: delta,
+      entityId: entityId,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  /// Returns the number of pending synchronization operations for the user.
+  Future<int> getPendingCount(String userId) async {
+    _ensureInitialized();
+    return _queueManager.getPendingCount(userId);
+  }
+}

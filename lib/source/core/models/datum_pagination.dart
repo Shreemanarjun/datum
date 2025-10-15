@@ -1,0 +1,47 @@
+import 'package:datum/source/core/models/datum_entity.dart';
+
+/// Configuration for paginated queries.
+class PaginationConfig {
+  /// Number of items per page.
+  final int pageSize;
+
+  /// Current page number (for offset-based pagination).
+  final int? currentPage;
+
+  /// Cursor for cursor-based pagination.
+  final String? cursor;
+
+  /// Creates pagination configuration.
+  const PaginationConfig({this.pageSize = 50, this.currentPage, this.cursor});
+}
+
+/// Result of a paginated query.
+class PaginatedResult<T extends DatumEntity> {
+  /// Items in the current page.
+  final List<T> items;
+
+  /// Total number of items across all pages.
+  final int totalCount;
+
+  /// Current page number.
+  final int currentPage;
+
+  /// Total number of pages.
+  final int totalPages;
+
+  /// Cursor for the next page (cursor-based pagination).
+  final String? nextCursor;
+
+  /// Whether there are more items available.
+  final bool hasMore;
+
+  /// Creates a paginated result.
+  const PaginatedResult({
+    required this.items,
+    required this.totalCount,
+    required this.currentPage,
+    required this.totalPages,
+    required this.hasMore,
+    this.nextCursor,
+  });
+}

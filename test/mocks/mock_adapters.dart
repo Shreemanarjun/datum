@@ -1,0 +1,821 @@
+import 'dart:async';
+import 'dart:math';
+
+import 'package:datum/datum.dart';
+import 'package:rxdart/rxdart.dart';
+
+class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
+  MockLocalAdapter({this.fromJson});
+
+  final Map<String, Map<String, T>> _storage = {};
+  final Map<String, Map<String, Map<String, dynamic>>> _rawStorage = {};
+  final Map<String, List<DatumSyncOperation<T>>> _pendingOps = {};
+  final Map<String, DatumSyncMetadata?> _metadata = {}; // ignore: unused_field
+  final _changeController = StreamController<DatumChangeDetail<T>>.broadcast();
+  int _schemaVersion = 0;
+
+  /// When true, prevents push/patch/delete from emitting changes.
+  bool silent = false;
+
+  /// A function to deserialize JSON into an entity of type T.
+  final T Function(Map<String, dynamic>)? fromJson;
+
+  /// An external stream to drive reactive queries, typically from DatumManager.
+  Stream<DataChangeEvent<T>>? externalChangeStream;
+
+  @override
+  String get name => 'MockLocalAdapter';
+
+  @override
+  Future<void> initialize() async {
+    // No-op for mock
+  }
+
+  @override
+  Future<List<T>> readAll({String? userId}) async {
+    if (userId != null) {
+      return _storage[userId]?.values.toList() ?? [];
+    }
+    return _storage.values.expand((map) => map.values).toList();
+  }
+
+  @override
+  Future<T?> read(String id, {String? userId}) async {
+    return _storage[userId]?[id];
+  }
+
+  @override
+  Future<Map<String, T>> readByIds(
+    List<String> ids, {
+    required String userId,
+  }) async {
+    final userStorage = _storage[userId];
+    if (userStorage == null) return {};
+
+    final results = <String, T>{};
+    for (final id in ids) {
+      if (userStorage.containsKey(id)) results[id] = userStorage[id]!;
+    }
+    return results;
+  }
+
+  @override
+  Future<void> create(T entity) async {
+    _storage.putIfAbsent(entity.userId, () => {})[entity.id] = entity;
+    if (!silent) {
+      _changeController.add(
+        DatumChangeDetail(
+          entityId: entity.id,
+          userId: entity.userId,
+          type: DatumOperationType.create,
+          timestamp: DateTime.now(),
+          data: entity,
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> update(T entity) async {
+    _storage.putIfAbsent(entity.userId, () => {})[entity.id] = entity;
+    if (!silent) {
+      _changeController.add(
+        DatumChangeDetail(
+          entityId: entity.id,
+          userId: entity.userId,
+          type: DatumOperationType.update,
+          timestamp: DateTime.now(),
+          data: entity,
+        ),
+      );
+    }
+  }
+
+  /// A custom method for tests that combines create/update logic.
+  Future<void> push(T item) async {
+    _storage.putIfAbsent(item.userId, () => {})[item.id] = item;
+    if (!silent) {
+      _changeController.add(
+        DatumChangeDetail(
+          entityId: item.id,
+          userId: item.userId,
+          type: DatumOperationType.update,
+          timestamp: DateTime.now(),
+          data: item,
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<T> patch({
+    required String id,
+    required Map<String, dynamic> delta,
+    String? userId,
+  }) async {
+    if (fromJson == null) {
+      throw StateError('MockLocalAdapter needs fromJson to handle patch.');
+    }
+    final existing = _storage[userId ?? '']?[id];
+    if (existing == null) {
+      throw Exception('Entity with id $id not found for user ${userId ?? ''}.');
+    }
+
+    final json = existing.toMap()..addAll(delta);
+    final patchedItem = fromJson!(json);
+    _storage.putIfAbsent(userId ?? '', () => {})[id] = patchedItem;
+
+    if (!silent) {
+      _changeController.add(
+        DatumChangeDetail(
+          entityId: id,
+          userId: userId ?? '',
+          type: DatumOperationType.update,
+          timestamp: DateTime.now(),
+          data: patchedItem,
+        ),
+      );
+    }
+    return patchedItem;
+  }
+
+  @override
+  Future<bool> delete(String id, {String? userId}) async {
+    final item = _storage[userId ?? '']?.remove(id);
+    if (item != null) {
+      if (!silent) {
+        _changeController.add(
+          DatumChangeDetail(
+            entityId: id,
+            userId: userId ?? '',
+            type: DatumOperationType.delete,
+            timestamp: DateTime.now(),
+          ),
+        );
+      }
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  Future<List<DatumSyncOperation<T>>> getPendingOperations(
+    String userId,
+  ) async {
+    return List.from(_pendingOps[userId] ?? []);
+  }
+
+  /// Synchronously gets pending operations for a user. For testing only.
+  List<DatumSyncOperation<T>> getPending(String userId) {
+    return _pendingOps[userId] ?? [];
+  }
+
+  @override
+  Future<void> addPendingOperation(
+    String userId,
+    DatumSyncOperation<T> operation,
+  ) async {
+    final userOps = _pendingOps.putIfAbsent(userId, () => []);
+    // Handle updates for retry logic by replacing if exists, otherwise add.
+    final existingIndex = userOps.indexWhere((op) => op.id == operation.id);
+    if (existingIndex != -1) {
+      userOps[existingIndex] = operation;
+    } else {
+      userOps.add(operation);
+    }
+  }
+
+  @override
+  Future<void> removePendingOperation(String operationId) async {
+    for (final ops in _pendingOps.values) {
+      ops.removeWhere((op) => op.id == operationId);
+    }
+  }
+
+  @override
+  Future<void> clearUserData(String userId) async {
+    _storage.remove(userId);
+    _pendingOps.remove(userId);
+    _metadata.remove(userId);
+  }
+
+  @override
+  Future<void> clear() async {
+    _storage.clear();
+    _pendingOps.clear();
+    _metadata.clear();
+    _rawStorage.clear();
+  }
+
+  @override
+  Future<DatumSyncMetadata?> getSyncMetadata(String userId) async {
+    return _metadata[userId];
+  }
+
+  @override
+  Future<void> updateSyncMetadata(
+    DatumSyncMetadata metadata,
+    String userId,
+  ) async {
+    _metadata[userId] = metadata;
+  }
+
+  @override
+  Future<void> dispose() async {
+    // In a test environment, we often want the data to persist across
+    // manager instances. We only close the stream controller to prevent leaks.
+    // The clear() method can be called manually in tests if needed. Add a check
+    // to prevent closing an already closed controller.
+    if (!_changeController.isClosed) await _changeController.close();
+  }
+
+  /// Helper to simulate an external change for testing.
+  void emitChange(DatumChangeDetail<T> change) {
+    _changeController.add(change);
+  }
+
+  @override
+  Stream<DatumChangeDetail<T>>? changeStream() {
+    return _changeController.stream;
+  }
+
+  @override
+  Stream<int>? schemaVersionStream() {
+    return null;
+  }
+
+  @override
+  Stream<List<T>>? watchAll({String? userId}) {
+    // Use the external stream if provided, otherwise fall back to the internal one.
+    final stream = externalChangeStream;
+    if (stream == null) return null;
+
+    final initialDataStream = Stream.fromFuture(readAll(userId: userId));
+    final updateStream = stream
+        .where((event) => userId == null || event.userId == userId)
+        .asyncMap((_) => readAll(userId: userId));
+
+    return Rx.concat([initialDataStream, updateStream]);
+  }
+
+  @override
+  Stream<T?>? watchById(String id, {String? userId}) {
+    final stream = externalChangeStream;
+    if (stream == null) return null;
+
+    final initialDataStream = Stream.fromFuture(read(id, userId: userId));
+    final updateStream = stream
+        .where((event) => event.data.id == id && event.userId == (userId ?? ''))
+        .asyncMap((_) => read(id, userId: userId));
+
+    return ConcatStream([initialDataStream, updateStream]);
+  }
+
+  @override
+  Future<PaginatedResult<T>> readAllPaginated(
+    PaginationConfig config, {
+    String? userId,
+  }) async {
+    final allItems = await readAll(userId: userId);
+    final totalCount = allItems.length;
+    final totalPages = (totalCount / config.pageSize).ceil();
+    final currentPage = config.currentPage ?? 1;
+
+    final startIndex = (currentPage - 1) * config.pageSize;
+    if (startIndex >= totalCount) {
+      return PaginatedResult(
+        items: [],
+        totalCount: totalCount,
+        currentPage: currentPage,
+        totalPages: totalPages,
+        hasMore: false,
+      );
+    }
+
+    final endIndex = (startIndex + config.pageSize > totalCount)
+        ? totalCount
+        : startIndex + config.pageSize;
+    final pageItems = allItems.sublist(startIndex, endIndex);
+
+    return PaginatedResult(
+      items: pageItems,
+      totalCount: totalCount,
+      currentPage: currentPage,
+      totalPages: totalPages,
+      hasMore: currentPage < totalPages,
+    );
+  }
+
+  @override
+  Stream<PaginatedResult<T>>? watchAllPaginated(
+    PaginationConfig config, {
+    String? userId, // ignore: avoid_unused_constructor_parameters
+  }) {
+    final stream = externalChangeStream;
+    if (stream == null) return null;
+
+    final initialDataStream = Stream.fromFuture(
+      readAllPaginated(config, userId: userId),
+    );
+    final updateStream = stream
+        .where((event) => userId == null || event.userId == userId)
+        .asyncMap((_) => readAllPaginated(config, userId: userId));
+
+    return Rx.concat([initialDataStream, updateStream]);
+  }
+
+  @override
+  Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) {
+    final stream = externalChangeStream;
+    if (stream == null) return null;
+
+    // Helper to apply query
+    Future<List<T>> getFiltered() async {
+      return applyQuery(await readAll(userId: userId), query);
+    }
+
+    final initialDataStream = Stream.fromFuture(getFiltered());
+    final updateStream = stream
+        .where((event) => userId == null || event.userId == userId)
+        .asyncMap((_) => getFiltered());
+
+    return Rx.concat([initialDataStream, updateStream]);
+  }
+
+  @override
+  Future<List<T>> query(DatumQuery query, {String? userId}) async {
+    // Simulate querying by fetching all and then applying the query logic.
+    final allItems = await readAll(userId: userId);
+    return applyQuery(allItems, query);
+  }
+
+  @override
+  Stream<int>? watchCount({DatumQuery? query, String? userId}) {
+    final sourceStream = query != null
+        ? watchQuery(query, userId: userId)
+        : watchAll(userId: userId);
+
+    return sourceStream?.map((list) => list.length);
+  }
+
+  @override
+  Stream<T?>? watchFirst({DatumQuery? query, String? userId}) {
+    final sourceStream = query != null
+        ? watchQuery(query, userId: userId)
+        : watchAll(userId: userId);
+
+    return sourceStream?.map((list) => list.isNotEmpty ? list.first : null);
+  }
+
+  @override
+  Future<R> transaction<R>(Future<R> Function() action) async {
+    // This is a simplified mock transaction. It doesn't provide true rollback
+    // for the in-memory map, but it allows testing the flow.
+    // A real implementation (e.g., with semaphores or temporary state)
+    // would be more complex.
+    final backupStorage = _storage.map<String, Map<String, T>>(
+      (key, value) => MapEntry(key, Map<String, T>.from(value)),
+    );
+    try {
+      return await action();
+    } catch (e) {
+      // Restore from backup on error
+      _storage
+        ..clear()
+        ..addAll(backupStorage);
+      rethrow;
+    }
+  }
+
+  /// Helper to directly add an item to the mock storage for test setup.
+  void addLocalItem(String userId, T item) {
+    _storage.putIfAbsent(userId, () => {})[item.id] = item;
+  }
+
+  @override
+  Future<List<String>> getAllUserIds() async {
+    return _storage.keys.toList();
+  }
+
+  @override
+  Future<int> getStoredSchemaVersion() async {
+    return _schemaVersion;
+  }
+
+  @override
+  Future<void> setStoredSchemaVersion(int version) async {
+    _schemaVersion = version;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getAllRawData({String? userId}) async {
+    // Prioritize raw storage if it has data, otherwise use regular storage.
+    if (_rawStorage.isNotEmpty) {
+      if (userId != null) {
+        return _rawStorage[userId]?.values.toList() ?? [];
+      }
+      return _rawStorage.values.expand((map) => map.values).toList();
+    }
+    final items = await readAll(userId: userId);
+    return items.map((item) => item.toMap()).toList();
+  }
+
+  @override
+  Future<void> overwriteAllRawData(
+    List<Map<String, dynamic>> data, {
+    String? userId,
+  }) async {
+    if (userId != null && userId.isNotEmpty) {
+      _rawStorage[userId]?.clear();
+    } else {
+      _rawStorage.clear();
+    }
+
+    // For migration tests, store the raw data directly to avoid re-serialization
+    // that could interfere with test assertions.
+    for (final rawItem in data) {
+      final itemUserId = rawItem['userId'] as String? ?? '';
+      final itemId = rawItem['id'] as String? ?? '';
+      _rawStorage.putIfAbsent(itemUserId, () => {})[itemId] = rawItem;
+    }
+  }
+}
+
+class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
+  MockRemoteAdapter({this.fromJson});
+
+  final Map<String, Map<String, T>> _remoteStorage = {};
+  final Map<String, DatumSyncMetadata> _remoteMetadata = {};
+  bool isConnectedValue = true;
+  Duration _processingDelay = Duration.zero;
+  final _changeController = StreamController<DatumChangeDetail<T>>.broadcast();
+  final List<String> _failedIds = [];
+
+  /// When true, prevents push/patch/delete from emitting changes.
+  bool silent = false;
+
+  /// A function to deserialize JSON into an entity of type T.
+  final T Function(Map<String, dynamic>)? fromJson;
+
+  @override
+  String get name => 'MockRemoteAdapter';
+
+  @override
+  Future<void> initialize() async {
+    // No-op for mock
+  }
+
+  void setFailedIds(List<String> ids) => _failedIds
+    ..clear()
+    ..addAll(ids);
+
+  void setProcessingDelay(Duration delay) {
+    _processingDelay = delay;
+  }
+
+  @override
+  Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) async {
+    if (!isConnectedValue) throw Exception('No connection');
+    var items = _remoteStorage[userId]?.values.toList() ?? [];
+    if (scope?.filters['minModifiedDate'] != null) {
+      final minDate = DateTime.parse(
+        scope!.filters['minModifiedDate'] as String,
+      );
+      items = items.where((item) => item.modifiedAt.isAfter(minDate)).toList();
+    }
+    return items;
+  }
+
+  @override
+  Future<T?> read(String id, {String? userId}) async {
+    if (!isConnectedValue) throw Exception('No connection');
+    return _remoteStorage[userId ?? '']?[id];
+  }
+
+  @override
+  Future<void> create(T entity) async {
+    await _push(entity);
+  }
+
+  @override
+  Future<void> update(T entity) async {
+    await _push(entity);
+  }
+
+  Future<void> _push(T item) async {
+    if (!isConnectedValue) {
+      throw NetworkException('No connection', isRetryable: true);
+    }
+    await Future<void>.delayed(_processingDelay);
+    if (_failedIds.contains(item.id)) {
+      throw NetworkException('Simulated push failure for ${item.id}');
+    }
+    _remoteStorage.putIfAbsent(item.userId, () => {})[item.id] = item;
+    if (!silent) {
+      _changeController.add(
+        DatumChangeDetail(
+          entityId: item.id,
+          userId: item.userId,
+          type: DatumOperationType.update,
+          timestamp: DateTime.now(),
+          data: item,
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<T> patch({
+    required String id,
+    required Map<String, dynamic> delta,
+    String? userId,
+  }) async {
+    if (!isConnectedValue) throw NetworkException('No connection');
+    await Future<void>.delayed(_processingDelay);
+    if (_failedIds.contains(id)) {
+      throw NetworkException('Simulated patch failure for $id');
+    }
+    if (fromJson == null) {
+      throw StateError(
+        'MockRemoteAdapter needs a fromJson constructor to handle patch.',
+      );
+    }
+
+    final existing = _remoteStorage[userId ?? '']?[id];
+    if (existing == null) {
+      throw Exception('Entity not found for patching in mock remote adapter.');
+    }
+
+    final json = existing.toMap()..addAll(delta);
+    final patchedItem = fromJson!(json);
+    _remoteStorage.putIfAbsent(userId ?? '', () => {})[id] = patchedItem;
+    return patchedItem;
+  }
+
+  @override
+  Future<void> delete(String id, {String? userId}) async {
+    if (!isConnectedValue) throw NetworkException('No connection');
+    await Future<void>.delayed(_processingDelay);
+    final item = _remoteStorage[userId ?? '']?.remove(id);
+    if (item != null) {
+      if (!silent) {
+        _changeController.add(
+          DatumChangeDetail(
+            entityId: id,
+            userId: userId ?? '',
+            type: DatumOperationType.delete,
+            timestamp: DateTime.now(),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Future<DatumSyncMetadata?> getSyncMetadata(String userId) async {
+    return _remoteMetadata[userId];
+  }
+
+  @override
+  Future<void> updateSyncMetadata(
+    DatumSyncMetadata metadata,
+    String userId,
+  ) async {
+    _remoteMetadata[userId] = metadata;
+  }
+
+  DatumSyncMetadata? metadataFor(String userId) => _remoteMetadata[userId];
+
+  @override
+  Future<bool> isConnected() async => isConnectedValue;
+
+  void addRemoteItem(String userId, T item) {
+    _remoteStorage.putIfAbsent(userId, () => {})[item.id] = item;
+  }
+
+  void setRemoteMetadata(String userId, DatumSyncMetadata metadata) {
+    _remoteMetadata[userId] = metadata;
+  }
+
+  @override
+  Future<List<T>> query(DatumQuery query, {String? userId}) async {
+    if (!isConnectedValue) throw NetworkException('No connection');
+    final allItems = await readAll(userId: userId);
+    return applyQuery(allItems, query);
+  }
+
+  @override
+  Stream<DatumChangeDetail<T>>? get changeStream => _changeController.stream;
+
+  /// Helper to simulate an external change for testing.
+  void emitChange(DatumChangeDetail<T> change) {
+    _changeController.add(change);
+  }
+
+  /// Closes the stream controller. Call this in test tearDown.
+  @override
+  Future<void> dispose() async {
+    // In a test environment, we often want the data and streams to persist
+    // across manager instances. The stream will be closed by the test's
+    // tearDown block if a new mock is created for each test.
+  }
+
+  @override
+  Stream<List<T>>? watchAll({String? userId, DatumSyncScope? scope}) {
+    final initialDataStream = Stream.fromFuture(
+      readAll(userId: userId, scope: scope),
+    );
+    final updateStream = changeStream!
+        .where((event) => userId == null || event.userId == userId)
+        .asyncMap((_) => readAll(userId: userId, scope: scope));
+
+    return Rx.concat([initialDataStream, updateStream]);
+  }
+
+  @override
+  Stream<T?>? watchById(String id, {String? userId}) {
+    final initialDataStream = Stream.fromFuture(read(id, userId: userId));
+    final updateStream = changeStream!
+        .where(
+          (event) => event.userId == (userId ?? '') && event.entityId == id,
+        )
+        .asyncMap((_) => read(id, userId: userId));
+
+    return Rx.concat([initialDataStream, updateStream]);
+  }
+
+  @override
+  Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) {
+    // This mock remote adapter doesn't have a local query engine,
+    // so we'll apply the query logic after fetching all items.
+    // This simulates how a simple REST API adapter might work with client-side filtering.
+    Future<List<T>> getFiltered() async {
+      final allItems = await readAll(userId: userId);
+      // We can use the query logic from the MockLocalAdapter for this.
+      // In a real remote adapter (e.g., Firestore), this logic would be
+      // translated into a server-side query.
+      return applyQuery(allItems, query);
+    }
+
+    final initialDataStream = Stream.fromFuture(getFiltered());
+    final updateStream = changeStream!
+        .where((event) => userId == null || event.userId == userId)
+        .asyncMap((_) => getFiltered());
+
+    return Rx.concat([initialDataStream, updateStream]);
+  }
+}
+
+/// A helper function to apply query filters and sorting to a list of items.
+List<T> applyQuery<T extends DatumEntity>(List<T> items, DatumQuery query) {
+  var filteredItems = items.where((item) {
+    final json = item.toMap();
+    if (query.logicalOperator == LogicalOperator.and) {
+      return query.filters.every((filter) => _matches(json, filter));
+    } else {
+      return query.filters.any((filter) => _matches(json, filter));
+    }
+  }).toList();
+
+  if (query.sorting.isNotEmpty) {
+    filteredItems.sort((a, b) {
+      for (final sort in query.sorting) {
+        final valA = a.toMap()[sort.field];
+        final valB = b.toMap()[sort.field];
+
+        if (valA == null && valB == null) continue;
+        if (valA == null) {
+          return sort.nullSortOrder == NullSortOrder.first ? -1 : 1;
+        }
+        if (valB == null) {
+          return sort.nullSortOrder == NullSortOrder.first ? 1 : -1;
+        }
+
+        if (valA is Comparable && valB is Comparable) {
+          final comparison = valA.compareTo(valB);
+          if (comparison != 0) {
+            return sort.descending ? -comparison : comparison;
+          }
+        }
+      }
+      return 0;
+    });
+  }
+
+  if (query.offset != null) {
+    filteredItems = filteredItems.skip(query.offset!).toList();
+  }
+  if (query.limit != null) {
+    filteredItems = filteredItems.take(query.limit!).toList();
+  }
+
+  return filteredItems;
+}
+
+bool _matches(Map<String, dynamic> json, FilterCondition condition) {
+  if (condition is Filter) {
+    final value = json[condition.field];
+    if (value == null &&
+        condition.operator != FilterOperator.isNull &&
+        condition.operator != FilterOperator.isNotNull) {
+      return false;
+    }
+
+    switch (condition.operator) {
+      case FilterOperator.equals:
+        return value == condition.value;
+      case FilterOperator.notEquals:
+        return value != condition.value;
+      case FilterOperator.greaterThan:
+        return value is Comparable && value.compareTo(condition.value) > 0;
+      case FilterOperator.greaterThanOrEqual:
+        return value is Comparable && value.compareTo(condition.value) >= 0;
+      case FilterOperator.lessThan:
+        return value is Comparable && value.compareTo(condition.value) < 0;
+      case FilterOperator.lessThanOrEqual:
+        return value is Comparable && value.compareTo(condition.value) <= 0;
+      case FilterOperator.contains:
+        return value is String && value.contains(condition.value as String);
+      case FilterOperator.isIn:
+        return condition.value is List &&
+            (condition.value as List).contains(value);
+      case FilterOperator.isNotIn:
+        return condition.value is List &&
+            !(condition.value as List).contains(value);
+      case FilterOperator.isNull:
+        return value == null;
+      case FilterOperator.isNotNull:
+        return value != null;
+      case FilterOperator.containsIgnoreCase:
+        return value is String &&
+            condition.value is String &&
+            value.toLowerCase().contains(
+              (condition.value as String).toLowerCase(),
+            );
+      case FilterOperator.startsWith:
+        return value is String &&
+            condition.value is String &&
+            value.startsWith(condition.value as String);
+      case FilterOperator.endsWith:
+        return value is String &&
+            condition.value is String &&
+            value.endsWith(condition.value as String);
+      case FilterOperator.arrayContains:
+        return value is List && value.contains(condition.value);
+      case FilterOperator.arrayContainsAny:
+        if (value is! List || condition.value is! List) return false;
+        final valueSet = value.toSet();
+        return (condition.value as List).any(valueSet.contains);
+      case FilterOperator.matches:
+        return value is String &&
+            condition.value is String &&
+            RegExp(condition.value as String).hasMatch(value);
+      case FilterOperator.withinDistance:
+        if (value is! Map || condition.value is! Map) return false;
+        final point = value as Map<String, dynamic>;
+        final params = condition.value as Map<String, dynamic>;
+        final center = params['center'] as Map<String, double>?;
+        final radius = params['radius'] as double?;
+        if (point['latitude'] == null ||
+            point['longitude'] == null ||
+            center == null ||
+            radius == null) {
+          return false;
+        }
+        final distance = _haversineDistance(
+          point['latitude'] as double,
+          point['longitude'] as double,
+          center['latitude']!,
+          center['longitude']!,
+        );
+        return distance <= radius;
+      case FilterOperator.between:
+        if (value is! Comparable || condition.value is! List) return false;
+        final bounds = condition.value as List;
+        if (bounds.length != 2) return false;
+        return value.compareTo(bounds[0]) >= 0 &&
+            value.compareTo(bounds[1]) <= 0;
+    }
+  } else if (condition is CompositeFilter) {
+    if (condition.operator == LogicalOperator.and) {
+      return condition.conditions.every((c) => _matches(json, c));
+    } else {
+      return condition.conditions.any((c) => _matches(json, c));
+    }
+  }
+  return false;
+}
+
+double _haversineDistance(double lat1, double lon1, double lat2, double lon2) {
+  const r = 6371e3; // Earth's radius in metres
+  final phi1 = lat1 * pi / 180;
+  final phi2 = lat2 * pi / 180;
+  final deltaPhi = (lat2 - lat1) * pi / 180;
+  final deltaLambda = (lon2 - lon1) * pi / 180;
+
+  final a =
+      sin(deltaPhi / 2) * sin(deltaPhi / 2) +
+      cos(phi1) * cos(phi2) * sin(deltaLambda / 2) * sin(deltaLambda / 2);
+  final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  return r * c;
+}
