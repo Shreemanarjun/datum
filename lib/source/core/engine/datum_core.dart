@@ -17,6 +17,11 @@ class Datum {
     return _instance!;
   }
 
+  /// Returns the singleton instance if it has been initialized, otherwise null.
+  /// For testing purposes.
+  @visibleForTesting
+  static Datum? get instanceOrNull => _instance;
+
   final DatumConfig config;
   final Map<Type, DatumManager<DatumEntity>> _managers = {};
   final Map<Type, AdapterPair> _adapterPairs = {};

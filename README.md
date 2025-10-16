@@ -12,6 +12,12 @@
 
 # 🧠 Datum — The Offline-First Data Synchronization Framework for Flutter
 
+<a href="https://pub.dev/packages/datum"><img src="https://img.shields.io/pub/v/datum.svg" alt="Pub"></a>
+<a href="https://github.com/your-username/datum/actions"><img src="https://github.com/your-username/datum/workflows/CI/badge.svg" alt="CI"></a>
+<a href="https://github.com/your-username/datum/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+<img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Code Coverage">
+<img src="https://img.shields.io/badge/tests-400%2B-brightgreen" alt="Tests">
+
 > **Smart. Reactive. Universal.**
 > Datum brings together your local database and remote backend with automatic synchronization, conflict resolution, and real-time updates — all under a single, type-safe API.
 

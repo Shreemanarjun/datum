@@ -26,7 +26,10 @@ class TestLogger extends DatumLogger {
   }
 }
 
-void main() {
+/// A mock middleware for testing data transformations.
+class MockMiddleware extends Mock implements DatumMiddleware<TestEntity> {}
+
+void main() async {
   group('DatumManager', () {
     late DatumManager<TestEntity> manager;
     late MockLocalAdapter<TestEntity> localAdapter;
@@ -62,6 +65,7 @@ void main() {
     });
 
     setUp(() async {
+      // Reset mocks for each test to ensure isolation.
       localAdapter = MockLocalAdapter<TestEntity>();
       remoteAdapter = MockRemoteAdapter<TestEntity>();
       connectivityChecker = MockConnectivityChecker();
@@ -121,6 +125,12 @@ void main() {
       when(() => localAdapter.create(any())).thenAnswer((_) async {});
       when(() => localAdapter.update(any())).thenAnswer((_) async {});
       when(() => localAdapter.dispose()).thenAnswer((_) async {});
+      when(
+        () => localAdapter.read(any(), userId: any(named: 'userId')),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.addPendingOperation(any(), any()),
+      ).thenAnswer((_) async {});
       when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
 
       manager = DatumManager<TestEntity>(
@@ -130,17 +140,195 @@ void main() {
         logger: TestLogger(),
         datumConfig: const DatumConfig(), // Default config
       );
-
-      await manager.initialize();
     });
 
+    group('Initialization', () {
+      test('initializes adapters and starts auto-sync if configured', () async {
+        // Arrange
+        // This test needs a custom manager, so we create it here.
+        when(
+          () => localAdapter.getAllUserIds(),
+        ).thenAnswer((_) async => ['user1']);
+
+        // Create a new manager instance for this specific test.
+        final autoSyncManager = DatumManager<TestEntity>(
+          localAdapter: localAdapter,
+          remoteAdapter: remoteAdapter,
+          connectivity: connectivityChecker,
+          logger: TestLogger(),
+          datumConfig: const DatumConfig(
+            autoStartSync: true,
+            initialUserId: 'user1',
+          ),
+        );
+
+        // Act
+        await autoSyncManager.initialize();
+
+        // Assert
+        verify(() => localAdapter.initialize()).called(1);
+        verify(() => remoteAdapter.initialize()).called(1);
+
+        // Allow time for the unawaited synchronize call in initialize to start.
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        // Verify that an initial sync (pull phase) was triggered for the initial user.
+        verify(
+          () => remoteAdapter.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).called(1);
+
+        await autoSyncManager.dispose();
+      });
+    });
+
+    group('Lifecycle and State', () {
+      test('dispose cancels timers and closes streams', () async {
+        // Arrange
+        await manager.initialize(); // Initialize the default manager
+        manager.startAutoSync(
+          userId,
+        ); // Start a timer to ensure it gets cancelled.
+
+        // Act
+        await manager.dispose();
+
+        // Assert
+        verify(() => localAdapter.dispose()).called(1);
+        verify(() => remoteAdapter.dispose()).called(1);
+
+        // A closed stream should emit a "done" event and then complete.
+        await expectLater(manager.onDataChange, emitsDone);
+      });
+
+      test('throws StateError if used after being disposed', () async {
+        // Arrange
+        await manager.initialize();
+        await manager.dispose();
+
+        // Act & Assert
+        expect(() => manager.read('id'), throwsStateError);
+        expect(() => manager.synchronize(userId), throwsStateError);
+      });
+    });
+
+    group('Middleware', () {
+      late MockMiddleware middleware;
+
+      // This group needs a special setup with middleware.
+      setUp(() async {
+        await manager.dispose(); // Dispose the default manager
+
+        middleware = MockMiddleware();
+        when(() => middleware.transformAfterFetch(any())).thenAnswer((
+          inv,
+        ) async {
+          return inv.positionalArguments.first as TestEntity;
+        });
+
+        manager = DatumManager<TestEntity>(
+          localAdapter: localAdapter,
+          remoteAdapter: remoteAdapter,
+          connectivity: connectivityChecker,
+          logger: TestLogger(),
+          datumConfig: const DatumConfig(),
+          middlewares: [middleware],
+        );
+
+        await manager.initialize();
+      });
+
+      test('applies transformBeforeSave on push', () async {
+        await manager.initialize();
+        // Arrange
+        final originalEntity = TestEntity.create('e1', userId, 'Original');
+        final transformedEntity = originalEntity.copyWith(name: 'Transformed');
+
+        when(
+          () => middleware.transformBeforeSave(originalEntity),
+        ).thenAnswer((_) async => transformedEntity);
+        when(
+          () => localAdapter.create(transformedEntity),
+        ).thenAnswer((_) async {});
+        // Stub the read call that push() makes internally
+        when(
+          () => localAdapter.read(originalEntity.id, userId: userId),
+        ).thenAnswer((_) async {
+          return null;
+        });
+        when(
+          () => localAdapter.addPendingOperation(any(), any()),
+        ).thenAnswer((_) async {});
+
+        // Act
+        await manager.push(item: originalEntity, userId: userId);
+
+        // Assert
+        verify(() => middleware.transformBeforeSave(originalEntity)).called(1);
+        verify(() => localAdapter.create(transformedEntity)).called(1);
+      });
+
+      test('applies transformAfterFetch on read', () async {
+        await manager.initialize();
+        // Arrange
+        final storedEntity = TestEntity.create('e1', userId, 'Stored');
+        final transformedEntity = storedEntity.copyWith(
+          name: 'Transformed After Fetch',
+        );
+
+        when(
+          () => localAdapter.read('e1', userId: userId),
+        ).thenAnswer((_) async => storedEntity);
+        when(
+          () => middleware.transformAfterFetch(storedEntity),
+        ).thenAnswer((_) async => transformedEntity);
+
+        // Act
+        final result = await manager.read('e1', userId: userId);
+
+        // Assert
+        verify(() => middleware.transformAfterFetch(storedEntity)).called(1);
+        expect(result, isNotNull);
+        expect(result!.name, 'Transformed After Fetch');
+      });
+    });
+
+    group('Push Operation Error Handling', () {
+      test('does not queue operation if local create fails', () async {
+        await manager.initialize();
+        // Arrange
+        final entity = TestEntity.create('e1', userId, 'Test');
+        final exception = Exception('Local DB write failed');
+        when(() => localAdapter.create(any())).thenThrow(exception);
+
+        // Act & Assert
+        await expectLater(
+          () => manager.push(item: entity, userId: userId),
+          throwsA(exception),
+        );
+
+        // Verify that because the local save failed, no operation was queued.
+        verifyNever(() => localAdapter.addPendingOperation(any(), any()));
+        final pendingCount = await manager.getPendingCount(userId);
+        expect(pendingCount, 0);
+      });
+    });
+
+    // tearDown is now at the end of the group to apply to all tests.
     tearDown(() async {
+      // This is crucial for isolating tests that create their own Datum instances.
+      if (Datum.instanceOrNull != null) {
+        await Datum.instance.dispose();
+      }
       await manager.dispose();
     });
 
     group('onSyncProgress', () {
       test('emits progress events during sync', () async {
         // Arrange
+        await manager.initialize();
         final op1 = DatumSyncOperation<TestEntity>(
           id: 'op1',
           userId: userId,
@@ -203,6 +391,7 @@ void main() {
 
     group('watchSyncStatus', () {
       test('emits initial idle status and then syncing status', () async {
+        await manager.initialize();
         // Arrange stubs for the sync() call
         when(
           () => remoteAdapter.readAll(
@@ -242,6 +431,7 @@ void main() {
 
       test('emits detailed status updates during sync', () async {
         // Arrange
+        await manager.initialize();
         final op1 = DatumSyncOperation<TestEntity>(
           id: 'op1',
           userId: userId,
@@ -298,6 +488,7 @@ void main() {
 
       test('does not emit for other users', () async {
         // Arrange
+        await manager.initialize();
         when(
           () => remoteAdapter.readAll(
             userId: any(named: 'userId'),
@@ -551,6 +742,7 @@ void main() {
       // The core idea is to check if a sync triggers a pull when metadata mismatches.
 
       test('is triggered if local metadata is null', () async {
+        await manager.initialize();
         // Arrange
         when(
           () => localAdapter.getSyncMetadata(userId),
@@ -572,6 +764,7 @@ void main() {
       });
 
       test('is NOT triggered if remote metadata is null', () async {
+        await manager.initialize();
         // Arrange
         when(
           () => localAdapter.getSyncMetadata(userId),
@@ -591,6 +784,7 @@ void main() {
       });
 
       test('is triggered on global dataHash mismatch', () async {
+        await manager.initialize();
         // Arrange
         final remoteMetadata = localMetadata.copyWith(dataHash: 'hash456');
         when(
@@ -613,6 +807,7 @@ void main() {
       });
 
       test('is triggered on entity-specific hash mismatch', () async {
+        await manager.initialize();
         // Arrange
         final remoteMetadata = localMetadata.copyWith(
           entityCounts: {
@@ -642,6 +837,7 @@ void main() {
       });
 
       test('is triggered if local metadata is missing an entity', () async {
+        await manager.initialize();
         // Arrange
         final localMetadataMissingEntity = DatumSyncMetadata(
           userId: userId,
@@ -673,6 +869,7 @@ void main() {
 
     group('Automatic Full Re-sync', () {
       test('performs a full re-sync when needsFullResync is true', () async {
+        await manager.initialize();
         // Arrange: Setup a scenario where a full re-sync is needed.
         // For example, a mismatch in the global data hash.
         final localMetadata = DatumSyncMetadata(
@@ -738,6 +935,7 @@ void main() {
     group('Event Streams', () {
       group('onDataChange', () {
         test('emits DataChangeEvent on push (create)', () async {
+          await manager.initialize();
           // Arrange
           final entity = TestEntity.create('e1', userId, 'New Item');
           when(
@@ -763,6 +961,7 @@ void main() {
         });
 
         test('emits DataChangeEvent on push (update)', () async {
+          await manager.initialize();
           // Arrange
           final existingEntity = TestEntity.create('e1', userId, 'Old Item');
           final updatedEntity = existingEntity.copyWith(name: 'Updated Item');
@@ -795,6 +994,7 @@ void main() {
         });
 
         test('emits DataChangeEvent on delete', () async {
+          await manager.initialize();
           // Arrange
           final entity = TestEntity.create('e1', userId, 'To be deleted');
           when(
@@ -825,6 +1025,7 @@ void main() {
         test(
           'emits start and completed events for a successful sync',
           () async {
+            await manager.initialize();
             // Arrange
             when(
               () => localAdapter.getPendingOperations(userId),
@@ -864,6 +1065,7 @@ void main() {
 
       group('onConflict', () {
         test('emits ConflictDetectedEvent when a conflict occurs', () async {
+          await manager.initialize();
           // Arrange
           final remoteItem = TestEntity.create(
             'e1',
@@ -920,6 +1122,7 @@ void main() {
 
       group('onUserSwitched', () {
         test('emits UserSwitchedEvent on successful user switch', () async {
+          await manager.initialize();
           when(
             () => localAdapter.getPendingOperations(any()),
           ).thenAnswer((_) async => []);
@@ -970,6 +1173,7 @@ void main() {
         test(
           'concurrent push calls are correctly queued and synced to remote',
           () async {
+            await manager.initialize();
             // Arrange
             final entities = List.generate(
               // Using a smaller number for faster tests
@@ -1025,6 +1229,7 @@ void main() {
         );
 
         test('handles concurrent pushSync calls correctly', () async {
+          await manager.initialize();
           // Arrange
           final entities = List.generate(
             5,
@@ -1079,6 +1284,7 @@ void main() {
         });
 
         test('handles concurrent deleteSync calls correctly', () async {
+          await manager.initialize();
           // Arrange
           final entities = List.generate(
             5,
@@ -1152,6 +1358,7 @@ void main() {
       });
 
       test('calling methods after dispose throws StateError', () async {
+        await manager.initialize();
         // Arrange
         await manager.dispose();
 
@@ -1164,6 +1371,7 @@ void main() {
       });
 
       test('synchronize returns skipped result when offline', () async {
+        await manager.initialize();
         // Arrange
         when(
           () => connectivityChecker.isConnected,
@@ -1185,6 +1393,7 @@ void main() {
       test(
         'synchronize throws and emits error event on remote failure',
         () async {
+          await manager.initialize();
           // Arrange
           final exception = Exception('Remote push failed');
           final op = DatumSyncOperation<TestEntity>(
@@ -1219,6 +1428,7 @@ void main() {
       test(
         'delete returns false and does not queue if item does not exist',
         () async {
+          await manager.initialize();
           // Arrange
           when(
             () => localAdapter.read('non-existent', userId: userId),
@@ -1237,6 +1447,7 @@ void main() {
       );
 
       test('push does not save or queue if item has not changed', () async {
+        await manager.initialize();
         // Arrange
         final entity = TestEntity.create('e1', userId, 'Unchanged Item');
         // Simulate that the exact same entity already exists locally.
@@ -1269,6 +1480,7 @@ void main() {
 
     group('Public Properties', () {
       test('queueManager getter exposes the internal queue manager', () async {
+        await manager.initialize();
         // Arrange
         final operation = DatumSyncOperation<TestEntity>(
           id: 'op-test',
@@ -1278,8 +1490,9 @@ void main() {
           timestamp: DateTime.now(),
         );
         // Stub the method that will be called by the queue manager.
-        when(() => localAdapter.addPendingOperation(any(), any()))
-            .thenAnswer((_) async {});
+        when(
+          () => localAdapter.addPendingOperation(any(), any()),
+        ).thenAnswer((_) async {});
 
         // Act: Get the queue manager from the manager.
         final exposedQueueManager = manager.queueManager;
@@ -1289,7 +1502,9 @@ void main() {
 
         // Further Assert: Use the exposed manager and verify it's functional.
         await exposedQueueManager.enqueue(operation);
-        verify(() => localAdapter.addPendingOperation(userId, operation)).called(1);
+        verify(
+          () => localAdapter.addPendingOperation(userId, operation),
+        ).called(1);
       });
     });
 
@@ -1297,6 +1512,7 @@ void main() {
       test(
         'onSyncStarted, onSyncProgress, and onSyncCompleted emit correctly',
         () async {
+          await manager.initialize();
           // Arrange
           final op1 = DatumSyncOperation<TestEntity>(
             id: 'op1',
