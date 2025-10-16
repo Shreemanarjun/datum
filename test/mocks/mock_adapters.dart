@@ -3,7 +3,6 @@ import 'dart:math';
 
 import 'package:datum/datum.dart';
 import 'package:rxdart/rxdart.dart' show MergeStream, Rx, SwitchMapExtension;
-import 'package:synchronized/synchronized.dart';
 
 class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   MockLocalAdapter({this.fromJson, this.relatedAdapters});
@@ -12,9 +11,6 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   final Map<String, Map<String, Map<String, dynamic>>> _rawStorage = {};
   final Map<String, List<DatumSyncOperation<T>>> _pendingOps = {};
   final _changeController = StreamController<DatumChangeDetail<T>>.broadcast();
-
-  /// A lock to ensure that transactions are atomic.
-  final _transactionLock = Lock();
 
   int _schemaVersion = 0;
 
@@ -272,7 +268,8 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     final updateStream = stream
         .where(
           (event) =>
-              event.data?.id == id && (userId == null || event.userId == userId),
+              event.data?.id == id &&
+              (userId == null || event.userId == userId),
         )
         .asyncMap((_) => read(id, userId: userId));
 
@@ -391,24 +388,22 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   ///    restoring the data from the backup.
   @override
   Future<R> transaction<R>(Future<R> Function() action) async {
-    return _transactionLock.synchronized(() async {
-      // This is a simplified mock transaction. It doesn't provide true rollback
-      // for the in-memory map, but it allows testing the flow.
-      // A real implementation (e.g., with semaphores or temporary state)
-      // would be more complex.
-      final backupStorage = _storage.map<String, Map<String, T>>(
-        (key, value) => MapEntry(key, Map<String, T>.from(value)),
-      );
-      try {
-        return await action();
-      } catch (e) {
-        // Restore from backup on error
-        _storage
-          ..clear()
-          ..addAll(backupStorage);
-        rethrow;
-      }
-    });
+    // This is a simplified mock transaction. It doesn't provide true rollback
+    // for the in-memory map, but it allows testing the flow.
+    // A real implementation (e.g., with semaphores or temporary state)
+    // would be more complex.
+    final backupStorage = _storage.map<String, Map<String, T>>(
+      (key, value) => MapEntry(key, Map<String, T>.from(value)),
+    );
+    try {
+      return await action();
+    } catch (e) {
+      // Restore from backup on error
+      _storage
+        ..clear()
+        ..addAll(backupStorage);
+      rethrow;
+    }
   }
 
   /// Helper to directly add an item to the mock storage for test setup.
