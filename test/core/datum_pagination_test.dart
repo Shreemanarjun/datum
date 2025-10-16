@@ -19,6 +19,13 @@ void main() {
       expect(config.cursor, isNull);
     });
 
+    test('constructor sets cursor correctly', () {
+      const config = PaginationConfig(pageSize: 30, cursor: 'next-page-token');
+      expect(config.pageSize, 30);
+      expect(config.currentPage, isNull);
+      expect(config.cursor, 'next-page-token');
+    });
+
     test('supports value equality', () {
       const config1 = PaginationConfig(pageSize: 20, currentPage: 2);
       const config2 = PaginationConfig(pageSize: 20, currentPage: 2);
@@ -27,6 +34,11 @@ void main() {
       expect(config1, equals(config2));
       expect(config1.hashCode, equals(config2.hashCode));
       expect(config1, isNot(equals(config3)));
+    });
+
+    test('toString() provides a useful representation', () {
+      const config = PaginationConfig(pageSize: 25, cursor: 'abc');
+      expect(config.toString(), 'PaginationConfig(25, null, abc)');
     });
   });
 
@@ -93,6 +105,23 @@ void main() {
       expect(result1, equals(result2));
       expect(result1.hashCode, equals(result2.hashCode));
       expect(result1, isNot(equals(result3)));
+    });
+
+    test('toString() provides a useful representation', () {
+      final result = PaginatedResult<TestEntity>(
+        items: testItems,
+        totalCount: 1,
+        currentPage: 1,
+        totalPages: 1,
+        hasMore: false,
+      );
+
+      final string = result.toString();
+      expect(string, startsWith('PaginatedResult'));
+      // With equatable's stringify, we check for the values, not the keys.
+      // The props are [items, totalCount, currentPage, totalPages, hasMore, nextCursor]
+      // So the values will be [..., 1, 1, 1, false, null]
+      expect(string, contains(', 1, 1, 1, false, null)'));
     });
   });
 }

@@ -22,6 +22,18 @@ class User extends RelationalDatumEntity {
   @override
   final bool isDeleted;
 
+  @override
+  List<Object?> get props => [
+    ...super.props,
+    id,
+    userId,
+    name,
+    modifiedAt,
+    createdAt,
+    version,
+    isDeleted,
+  ];
+
   const User({
     required this.id,
     required this.name,
@@ -79,6 +91,18 @@ class Post extends RelationalDatumEntity {
   final int version;
   @override
   final bool isDeleted;
+
+  @override
+  List<Object?> get props => [
+    ...super.props,
+    id,
+    userId,
+    title,
+    modifiedAt,
+    createdAt,
+    version,
+    isDeleted,
+  ];
 
   const Post({
     required this.id,
@@ -149,6 +173,18 @@ class Profile extends RelationalDatumEntity {
   final int version;
   @override
   final bool isDeleted;
+
+  @override
+  List<Object?> get props => [
+    ...super.props,
+    id,
+    userId,
+    bio,
+    modifiedAt,
+    createdAt,
+    version,
+    isDeleted,
+  ];
 
   const Profile({
     required this.id,

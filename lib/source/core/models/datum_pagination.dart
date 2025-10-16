@@ -17,6 +17,9 @@ class PaginationConfig extends Equatable {
 
   @override
   List<Object?> get props => [pageSize, currentPage, cursor];
+
+  @override
+  bool get stringify => true;
 }
 
 /// Result of a paginated query.
@@ -67,4 +70,7 @@ class PaginatedResult<T extends DatumEntity> extends Equatable {
     hasMore,
     nextCursor,
   ];
+
+  @override
+  bool get stringify => true;
 }
