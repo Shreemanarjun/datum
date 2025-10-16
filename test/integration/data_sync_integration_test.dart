@@ -73,7 +73,9 @@ void main() {
       );
     });
 
-    Future<void> setupManager({DatumConfig<TestEntity>? config}) async {
+    Future<DatumManager<TestEntity>> setupManager({
+      DatumConfig<TestEntity>? config,
+    }) async {
       localAdapter = MockedLocalAdapter<TestEntity>();
       remoteAdapter = MockedRemoteAdapter<TestEntity>();
       connectivityChecker = MockConnectivityChecker();
@@ -180,6 +182,7 @@ void main() {
       ).thenAnswer((_) async {});
 
       await manager.initialize();
+      return manager;
     }
 
     setUp(() async {
@@ -391,8 +394,20 @@ void main() {
     test('retries a patch operation on network failure', () async {
       // Re-initialize manager with retries enabled
       // We can't use setUp for this one-off config, so we handle it manually.
-      await manager.dispose(); // Dispose the one from setUp
-      await setupManager(config: const DatumConfig(maxRetries: 1));
+      await manager
+          .dispose(); // Dispose the one from setUp      await setupManager(
+      // Create a local manager for this test to avoid interfering with the
+      // group's setUp/tearDown cycle.
+      await setupManager(
+        config: DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+            maxRetries: 3,
+            shouldRetry: (error) async {
+              return error is NetworkException;
+            },
+          ),
+        ),
+      );
 
       // 1. ARRANGE: Create and sync an initial entity.
       final initialEntity = TestEntity.create('delta-e4', 'user1', 'Initial');
@@ -459,9 +474,16 @@ void main() {
 
     test('fails permanently on non-retryable error', () async {
       // 1. ARRANGE
-      // We can't use setUp for this one-off config, so we handle it manually.
-      await manager.dispose(); // Dispose the one from setUp
-      await setupManager(config: const DatumConfig(maxRetries: 3));
+      // Create a local manager for this test to avoid interfering with the
+      // group's setUp/tearDown cycle.
+      final testManager = await setupManager(
+        config: DatumConfig(
+          errorRecoveryStrategy: const DatumErrorRecoveryStrategy(
+            maxRetries: 3,
+            shouldRetry: _alwaysRetry,
+          ),
+        ),
+      );
 
       final entity = TestEntity.create('delta-e5', 'user1', 'Will Fail');
       final nonRetryableException = Exception('Invalid data format');
@@ -491,7 +513,7 @@ void main() {
       // 2. ACT & ASSERT
       // The synchronize call should fail by re-throwing the exception.
       await expectLater(
-        () => manager.synchronize('user1'),
+        () => testManager.synchronize('user1'),
         throwsA(nonRetryableException),
       );
 
@@ -506,9 +528,11 @@ void main() {
 
       // The operation should have been removed from the queue to prevent
       // it from blocking subsequent syncs.
-      final pendingOps = await manager.getPendingCount('user1');
+      final pendingOps = await testManager.getPendingCount('user1');
       expect(pendingOps, 0);
       verify(() => localAdapter.removePendingOperation('op-fail')).called(1);
+
+      await testManager.dispose();
     });
 
     test('emits onSyncError event on synchronization failure', () async {
@@ -759,3 +783,5 @@ void main() {
     });
   });
 }
+
+Future<bool> _alwaysRetry(DatumException e) async => true;

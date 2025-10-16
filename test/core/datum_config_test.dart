@@ -14,8 +14,6 @@ void main() {
 
       expect(config.autoSyncInterval, const Duration(minutes: 15));
       expect(config.autoStartSync, isFalse);
-      expect(config.maxRetries, 3);
-      expect(config.retryDelay, const Duration(seconds: 30));
       expect(config.syncTimeout, const Duration(minutes: 2));
       expect(config.defaultConflictResolver, isNull);
       expect(
@@ -29,6 +27,13 @@ void main() {
       expect(config.migrations, isEmpty);
       expect(config.syncExecutionStrategy, isA<SequentialStrategy>());
       expect(config.onMigrationError, isNull);
+      // Verify the new error recovery strategy defaults
+      expect(config.errorRecoveryStrategy, isA<DatumErrorRecoveryStrategy>());
+      expect(config.errorRecoveryStrategy.maxRetries, 3);
+      expect(
+        config.errorRecoveryStrategy.backoffStrategy,
+        isA<ExponentialBackoff>(),
+      );
     });
 
     test('defaultConfig factory returns a config with default values', () {
@@ -36,7 +41,7 @@ void main() {
 
       // Just check a few key properties to ensure it's the default.
       expect(config.autoSyncInterval, const Duration(minutes: 15));
-      expect(config.maxRetries, 3);
+      expect(config.errorRecoveryStrategy.maxRetries, 3);
       expect(config.schemaVersion, 0);
     });
 
@@ -45,28 +50,32 @@ void main() {
       final newInterval = const Duration(minutes: 5);
       const newStrategy = ParallelStrategy();
       final newResolver = MockConflictResolver<TestEntity>();
+      const newErrorStrategy = DatumErrorRecoveryStrategy(
+        maxRetries: 5,
+        backoffStrategy: FixedBackoff(),
+        shouldRetry: _alwaysRetry,
+      );
 
       final newConfig = originalConfig.copyWith(
         autoSyncInterval: newInterval,
         autoStartSync: true,
-        maxRetries: 5,
         enableLogging: false,
         syncExecutionStrategy: newStrategy,
         defaultConflictResolver: newResolver,
         schemaVersion: 2,
+        errorRecoveryStrategy: newErrorStrategy,
       );
 
       // Check updated values
       expect(newConfig.autoSyncInterval, newInterval);
       expect(newConfig.autoStartSync, isTrue);
-      expect(newConfig.maxRetries, 5);
       expect(newConfig.enableLogging, isFalse);
       expect(newConfig.syncExecutionStrategy, newStrategy);
       expect(newConfig.defaultConflictResolver, newResolver);
       expect(newConfig.schemaVersion, 2);
+      expect(newConfig.errorRecoveryStrategy, newErrorStrategy);
 
       // Check that other values are unchanged from the original
-      expect(newConfig.retryDelay, originalConfig.retryDelay);
       expect(newConfig.migrations, originalConfig.migrations);
     });
 
@@ -76,7 +85,6 @@ void main() {
         final resolver = MockConflictResolver<TestEntity>();
         final originalConfig = DatumConfig<TestEntity>(
           autoStartSync: true,
-          maxRetries: 10,
           schemaVersion: 2,
           defaultConflictResolver: resolver,
           syncExecutionStrategy: const ParallelStrategy(),
@@ -87,8 +95,6 @@ void main() {
         // Verify that all properties are identical
         expect(copiedConfig.autoSyncInterval, originalConfig.autoSyncInterval);
         expect(copiedConfig.autoStartSync, originalConfig.autoStartSync);
-        expect(copiedConfig.maxRetries, originalConfig.maxRetries);
-        expect(copiedConfig.retryDelay, originalConfig.retryDelay);
         expect(copiedConfig.syncTimeout, originalConfig.syncTimeout);
         expect(
           copiedConfig.defaultConflictResolver,
@@ -103,3 +109,5 @@ void main() {
     );
   });
 }
+
+Future<bool> _alwaysRetry(DatumException error) async => true;

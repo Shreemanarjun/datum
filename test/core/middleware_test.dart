@@ -128,10 +128,13 @@ void main() {
         remoteAdapter: remoteAdapter,
         conflictResolver: LastWriteWinsResolver<TestEntity>(),
         connectivity: MockConnectivityChecker(),
-        datumConfig: const DatumConfig(
-          maxRetries: 0,
+        datumConfig: DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+            maxRetries: 0,
+            shouldRetry: (e) async => false,
+          ),
           schemaVersion: 0,
-        ), // Disable retries for tests
+        ),
         middlewares: [middleware],
       );
 

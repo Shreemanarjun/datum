@@ -201,7 +201,12 @@ void main() {
         remoteAdapter: remoteAdapter,
         conflictResolver: LastWriteWinsResolver<TestEntity>(),
         connectivity: connectivityChecker,
-        datumConfig: const DatumConfig(maxRetries: 1),
+        datumConfig: DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+            maxRetries: 1,
+            shouldRetry: (e) async => e is NetworkException,
+          ),
+        ),
       );
 
       await manager.initialize();

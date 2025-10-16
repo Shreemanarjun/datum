@@ -48,6 +48,20 @@ class LinearBackoff implements DatumBackoffStrategy {
   Duration getDelay(int attemptNumber) => increment * attemptNumber;
 }
 
+/// Implements a fixed backoff retry strategy where the delay is always the same.
+class FixedBackoff implements DatumBackoffStrategy {
+  /// Creates a fixed backoff strategy with a constant delay.
+  const FixedBackoff({this.delay = const Duration(seconds: 5)});
+
+  /// The fixed delay duration for every retry attempt.
+  final Duration delay;
+
+  @override
+  Duration getDelay(int attemptNumber) {
+    return delay;
+  }
+}
+
 /// Defines a strategy for how the sync engine should behave on errors.
 class DatumErrorRecoveryStrategy {
   /// Creates an error recovery strategy.
@@ -65,7 +79,7 @@ class DatumErrorRecoveryStrategy {
   final DatumBackoffStrategy backoffStrategy;
 
   /// A function that determines if a given error should trigger a retry.
-  final bool Function(DatumException error) shouldRetry;
+  final Future<bool> Function(DatumException error) shouldRetry;
 
   /// An optional callback invoked when an error occurs.
   final Future<void> Function(DatumException error)? onError;

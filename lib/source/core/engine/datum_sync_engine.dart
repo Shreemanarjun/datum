@@ -325,9 +325,9 @@ class DatumSyncEngine<T extends DatumEntity> {
       rethrow;
     } on Object catch (e, stackTrace) {
       final isRetryable =
-          e is NetworkException &&
-          e.isRetryable &&
-          operation.retryCount < config.maxRetries;
+          e is DatumException &&
+          operation.retryCount < config.errorRecoveryStrategy.maxRetries &&
+          await config.errorRecoveryStrategy.shouldRetry(e);
 
       if (isRetryable) {
         final updatedOp = operation.copyWith(

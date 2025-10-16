@@ -72,7 +72,12 @@ void main() {
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
         conflictResolver: LastWriteWinsResolver<TestEntity>(),
-        datumConfig: const DatumConfig(maxRetries: 0),
+        datumConfig: const DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+            maxRetries: 0,
+            shouldRetry: _alwaysRetry,
+          ),
+        ),
         connectivity: connectivityChecker,
         // The key fix: pass the observer to the manager's constructor.
         localObservers: [mockObserver],
@@ -251,7 +256,12 @@ void main() {
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
-        datumConfig: const DatumConfig(maxRetries: 0),
+        datumConfig: const DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+            maxRetries: 0,
+            shouldRetry: _alwaysRetry,
+          ),
+        ),
         connectivity: connectivityChecker,
         globalObservers: [mockGlobalObserver],
       );
@@ -378,6 +388,8 @@ void main() {
     });
   });
 }
+
+Future<bool> _alwaysRetry(DatumException error) async => true;
 
 /// Helper function to apply all default stubs to a set of mocks.
 void _stubDefaultBehaviors(
