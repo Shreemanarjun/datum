@@ -344,27 +344,28 @@ void main() {
 
       test('handles errors correctly', () async {
         // Arrange
-        // Isolate this test's mocks to prevent interference.
-        final localAdapter = MockLocalAdapter<TestEntity>();
-        final remoteAdapter = MockRemoteAdapter<TestEntity>();
-        final connectivityChecker = MockConnectivityChecker();
-        final logger = TestLogger();
+        // Isolate this test's mocks to prevent interference from the group's setUp.
+        final isolatedLocalAdapter = MockLocalAdapter<TestEntity>();
+        final isolatedRemoteAdapter = MockRemoteAdapter<TestEntity>();
+        final isolatedConnectivityChecker = MockConnectivityChecker();
+        final isolatedLogger = TestLogger();
 
         // Default stubs for this test's mocks
-        when(localAdapter.initialize).thenAnswer((_) async {});
-        when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
-        when(() => localAdapter.dispose()).thenAnswer((_) async {});
-        when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
+        when(isolatedLocalAdapter.initialize).thenAnswer((_) async {});
+        when(() => isolatedRemoteAdapter.initialize()).thenAnswer((_) async {});
+        when(() => isolatedLocalAdapter.dispose()).thenAnswer((_) async {});
+        when(() => isolatedRemoteAdapter.dispose()).thenAnswer((_) async {});
         when(
-          () => localAdapter.getStoredSchemaVersion(),
+          () => isolatedLocalAdapter.getStoredSchemaVersion(),
         ).thenAnswer((_) async => 1);
-        when(localAdapter.changeStream).thenAnswer((_) => const Stream.empty());
+        when(() => isolatedLocalAdapter.changeStream()).thenAnswer(
+          (_) => const Stream<DatumChangeDetail<TestEntity>>.empty(),
+        );
+        when(() => isolatedRemoteAdapter.changeStream).thenAnswer(
+          (_) => const Stream<DatumChangeDetail<TestEntity>>.empty(),
+        );
         when(
-          // This was already correct in the previous turn, but for consistency:
-          () => remoteAdapter.changeStream,
-        ).thenAnswer((_) => const Stream.empty());
-        when(
-          () => connectivityChecker.isConnected,
+          () => isolatedConnectivityChecker.isConnected,
         ).thenAnswer((_) async => true);
 
         final exception = Exception('Isolate push failed');
@@ -373,10 +374,10 @@ void main() {
         // Re-create manager for this specific strategy
         await manager.dispose();
         manager = DatumManager<TestEntity>(
-          localAdapter: localAdapter,
-          remoteAdapter: remoteAdapter,
-          connectivity: connectivityChecker,
-          logger: logger,
+          localAdapter: isolatedLocalAdapter,
+          remoteAdapter: isolatedRemoteAdapter,
+          connectivity: isolatedConnectivityChecker,
+          logger: isolatedLogger,
           datumConfig: DatumConfig(
             // Using a fail-fast strategy inside the isolate is the most
             // logical approach, as we want errors to propagate out immediately.
@@ -388,25 +389,28 @@ void main() {
         await manager.initialize();
 
         // Stub the behavior for this specific test
-        when(() => remoteAdapter.create(any())).thenAnswer((inv) async {
+        when(() => isolatedRemoteAdapter.create(any())).thenAnswer((inv) async {
           final entity = inv.positionalArguments.first as TestEntity;
           if (entity.id == 'e3') throw exception;
           processedIds.add(entity.id);
         });
         when(
-          () => localAdapter.getPendingOperations(userId),
+          () => isolatedLocalAdapter.getPendingOperations(userId),
         ).thenAnswer((_) async => operations);
         when(
-          () => localAdapter.removePendingOperation(any()),
+          () => isolatedLocalAdapter.removePendingOperation(any()),
         ).thenAnswer((_) async {});
         when(
-          () => localAdapter.readAll(userId: any(named: 'userId')),
+          () => isolatedLocalAdapter.readAll(userId: any(named: 'userId')),
         ).thenAnswer((_) async => []);
         when(
-          () => localAdapter.readByIds(any(), userId: any(named: 'userId')),
+          () => isolatedLocalAdapter.readByIds(
+            any(),
+            userId: any(named: 'userId'),
+          ),
         ).thenAnswer((_) async => {});
         when(
-          () => localAdapter.updateSyncMetadata(any(), any()),
+          () => isolatedLocalAdapter.updateSyncMetadata(any(), any()),
         ).thenAnswer((_) async {});
         when(
           () => remoteAdapter.updateSyncMetadata(any(), any()),
@@ -417,23 +421,90 @@ void main() {
 
         // Assert
         // The future should complete with the error from the isolate.
-        // In test mode, IsolateStrategy runs synchronously, so we can use a try-catch.
-        try {
-          await syncFuture;
-          fail('Should have thrown');
-        } catch (e) {
-          expect(e, exception);
-        }
+        // We use `expectLater` with `throwsA` to correctly handle the
+        // asynchronous error propagation from the sync engine.
+        await expectLater(syncFuture, throwsA(exception));
 
-        // Verify that operations before the error were processed.
+        // Verify that operations in the successful batches were processed.
         expect(processedIds, {'e0', 'e1', 'e2'});
 
         // Verify that successful operations and the failed one were dequeued.
-        verify(() => localAdapter.removePendingOperation('op0')).called(1);
-        verify(() => localAdapter.removePendingOperation('op1')).called(1);
-        verify(() => localAdapter.removePendingOperation('op2')).called(1);
-        verify(() => localAdapter.removePendingOperation('op3')).called(1);
+        verify(
+          () => isolatedLocalAdapter.removePendingOperation('op0'),
+        ).called(1);
+        verify(
+          () => isolatedLocalAdapter.removePendingOperation('op1'),
+        ).called(1);
+        verify(
+          () => isolatedLocalAdapter.removePendingOperation('op2'),
+        ).called(1);
+        verify(
+          () => isolatedLocalAdapter.removePendingOperation('op3'),
+        ).called(1);
       });
+
+      test(
+        'with forceIsolateInTest correctly processes operations in a real isolate',
+        () async {
+          // This test uses the special TestIsolateStrategy to bypass the `isTest`
+          // check and test the actual isolate communication logic.
+
+          // Arrange
+          final processedInIsolate = <String>[];
+          final progressUpdates = <(int, int)>[];
+          final completer = Completer<void>();
+
+          // The `processOperation` function will be sent from the main isolate
+          // to the worker isolate to be executed.
+          Future<void> processOp(DatumSyncOperation<TestEntity> op) async {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+            processedInIsolate.add(op.id);
+          }
+
+          void onProgress(int completed, int total) {
+            progressUpdates.add((completed, total));
+            if (completed == operations.length) {
+              completer.complete();
+            }
+          }
+
+          // Use the test strategy to force isolate spawning.
+          const strategy = IsolateStrategy(
+            SequentialStrategy(),
+            forceIsolateInTest: true,
+          );
+
+          // Act
+          // We call the strategy directly, not through the manager, to test it in isolation.
+          // The manager's mocks would be too complex to pass into a real isolate.
+          strategy.execute<TestEntity>(
+            operations,
+            processOp,
+            () => false, // isCancelled
+            onProgress,
+          );
+
+          // Assert
+          // Wait for the completer, which is triggered when the last progress update is received.
+          await completer.future.timeout(
+            const Duration(seconds: 2),
+            onTimeout: () => fail('Isolate test timed out'),
+          );
+
+          expect(
+            processedInIsolate,
+            ['op0', 'op1', 'op2', 'op3', 'op4'],
+            reason: 'All operations should be processed in order.',
+          );
+          expect(
+            progressUpdates,
+            [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)],
+            reason: 'Progress should be reported for each completed operation.',
+          );
+        },
+        // Isolates can be slow to spin up, so a longer timeout is safer.
+        timeout: const Timeout(Duration(seconds: 5)),
+      );
     });
   });
 }

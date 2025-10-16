@@ -20,6 +20,8 @@ class MockObserver<T extends DatumEntity> extends Mock
     implements DatumObserver<T> {}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('DatumMiddleware', () {
     late DatumManager<TestEntity> manager;
     late MockLocalAdapter<TestEntity> localAdapter;
@@ -91,7 +93,7 @@ void main() {
       ).thenAnswer((_) async => 0);
       when(
         () => remoteAdapter.changeStream,
-      ).thenAnswer((_) => const Stream.empty());
+      ).thenAnswer((_) => const Stream<DatumChangeDetail<TestEntity>>.empty());
       when(
         () => localAdapter.addPendingOperation(any(), any()),
       ).thenAnswer((_) async {});
@@ -106,7 +108,7 @@ void main() {
       ).thenAnswer((_) async => [entity]);
       when(
         () => localAdapter.changeStream(),
-      ).thenAnswer((_) => const Stream.empty());
+      ).thenAnswer((_) => const Stream<DatumChangeDetail<TestEntity>>.empty());
       when(
         () => localAdapter.patch(
           id: any(named: 'id'),

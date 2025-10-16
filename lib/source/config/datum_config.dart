@@ -75,6 +75,17 @@ class DatumConfig<T extends DatumEntity> {
   /// The strategy for handling errors and retries during synchronization.
   final DatumErrorRecoveryStrategy errorRecoveryStrategy;
 
+  /// The duration to buffer remote changes before processing a batch.
+  /// Helps to group rapid-fire updates from a server push into a single operation.
+  final Duration remoteEventDebounceTime;
+
+  /// The duration to keep a change ID in the cache to prevent duplicate processing.
+  ///
+  /// This should be long enough to account for network latency and potential
+  /// delivery of the same event via multiple channels (e.g., WebSocket + Push),
+  /// but short enough not to consume excessive memory.
+  final Duration changeCacheDuration;
+
   const DatumConfig({
     this.autoSyncInterval = const Duration(minutes: 15),
     this.autoStartSync = false,
@@ -93,6 +104,8 @@ class DatumConfig<T extends DatumEntity> {
       maxRetries: 3,
       backoffStrategy: ExponentialBackoff(),
     ),
+    this.remoteEventDebounceTime = const Duration(milliseconds: 50),
+    this.changeCacheDuration = const Duration(seconds: 5),
   });
 
   /// A default configuration with sensible production values.
@@ -115,6 +128,8 @@ class DatumConfig<T extends DatumEntity> {
     DatumSyncExecutionStrategy? syncExecutionStrategy,
     MigrationErrorHandler? onMigrationError,
     DatumErrorRecoveryStrategy? errorRecoveryStrategy,
+    Duration? remoteEventDebounceTime,
+    Duration? changeCacheDuration,
   }) {
     return DatumConfig<E>(
       autoSyncInterval: autoSyncInterval ?? this.autoSyncInterval,
@@ -139,6 +154,9 @@ class DatumConfig<T extends DatumEntity> {
       onMigrationError: onMigrationError ?? this.onMigrationError,
       errorRecoveryStrategy:
           errorRecoveryStrategy ?? this.errorRecoveryStrategy,
+      remoteEventDebounceTime:
+          remoteEventDebounceTime ?? this.remoteEventDebounceTime,
+      changeCacheDuration: changeCacheDuration ?? this.changeCacheDuration,
     );
   }
 }

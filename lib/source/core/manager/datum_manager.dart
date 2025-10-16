@@ -1,19 +1,28 @@
 import 'dart:async';
 
+import 'package:collection/collection.dart';
+import 'package:rxdart/rxdart.dart';
+import 'package:synchronized/synchronized.dart';
+import 'package:uuid/uuid.dart';
+
 import 'package:datum/source/adapter/local_adapter.dart';
 import 'package:datum/source/adapter/remote_adapter.dart';
-import 'package:datum/source/core/engine/datum_core.dart';
 import 'package:datum/source/config/datum_config.dart';
 import 'package:datum/source/core/engine/conflict_detector.dart';
+import 'package:datum/source/core/engine/datum_core.dart';
+import 'package:datum/source/core/engine/datum_observer.dart';
 import 'package:datum/source/core/engine/datum_sync_engine.dart';
 import 'package:datum/source/core/engine/isolate_helper.dart';
 import 'package:datum/source/core/engine/queue_manager.dart';
 import 'package:datum/source/core/events/conflict_detected_event.dart';
 import 'package:datum/source/core/events/data_change_event.dart';
-import 'package:datum/source/core/events/user_switched_event.dart';
 import 'package:datum/source/core/events/datum_event.dart';
+import 'package:datum/source/core/events/user_switched_event.dart';
 import 'package:datum/source/core/health/datum_health.dart' show DatumHealth;
+import 'package:datum/source/core/middleware/datum_middleware.dart';
+import 'package:datum/source/core/migration/migration_executor.dart';
 import 'package:datum/source/core/models/datum_change_detail.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_exception.dart';
 import 'package:datum/source/core/models/datum_operation.dart';
 import 'package:datum/source/core/models/datum_pagination.dart';
@@ -26,18 +35,10 @@ import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
 import 'package:datum/source/core/models/relational_datum_entity.dart';
 import 'package:datum/source/core/models/user_switch_models.dart';
 import 'package:datum/source/core/query/datum_query.dart';
-import 'package:datum/source/utils/connectivity_checker.dart';
-import 'package:datum/source/utils/datum_logger.dart';
-import 'package:datum/source/core/engine/datum_observer.dart';
-import 'package:datum/source/core/middleware/datum_middleware.dart';
-import 'package:datum/source/core/migration/migration_executor.dart';
-
-import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/resolver/last_write_wins_resolver.dart';
-import 'package:rxdart/rxdart.dart';
-import 'package:synchronized/synchronized.dart';
-import 'package:uuid/uuid.dart';
+import 'package:datum/source/utils/connectivity_checker.dart';
+import 'package:datum/source/utils/datum_logger.dart';
 
 class DatumManager<T extends DatumEntity> {
   final LocalAdapter<T> localAdapter;
@@ -65,6 +66,10 @@ class DatumManager<T extends DatumEntity> {
   /// A lock to ensure that write operations (push, delete) are atomic.
   final _writeLock = Lock();
 
+  /// A cache to track recently processed external change IDs to prevent echoes
+  /// and de-duplicate events. The key is the entity ID.
+  final Map<String, DateTime> _recentChangeCache = {};
+
   late final QueueManager<T> _queueManager;
   late final IsolateHelper _isolateHelper;
   late final DatumConflictDetector<T> _conflictDetector;
@@ -74,7 +79,7 @@ class DatumManager<T extends DatumEntity> {
   QueueManager<T> get queueManager => _queueManager;
 
   StreamSubscription<DatumChangeDetail<T>>? _localChangeSubscription;
-  StreamSubscription<DatumChangeDetail<T>>? _remoteChangeSubscription;
+  StreamSubscription<dynamic>? _remoteChangeSubscription;
 
   /// Public event streams
   Stream<DatumSyncEvent<T>> get eventStream => _eventController.stream;
@@ -242,54 +247,109 @@ class DatumManager<T extends DatumEntity> {
 
   void _subscribeToChangeStreams() {
     // Subscribe to local changes
-    _localChangeSubscription = localAdapter.changeStream()?.listen(
-      (change) => _handleExternalChange(change, DataSource.local),
-      onError: (e, s) => _logger.error('Error in local change stream', s),
-    );
+    _localChangeSubscription = localAdapter.changeStream()?.listen((change) {
+      // Wrap the single local change in a list to match the handler's signature.
+      _handleExternalChange([change], DataSource.local);
+    }, onError: (e, s) => _logger.error('Error in local change stream', s));
 
-    // Subscribe to remote changes
-    _remoteChangeSubscription = remoteAdapter.changeStream?.listen(
-      (change) => _handleExternalChange(change, DataSource.remote),
-      onError: (e, s) => _logger.error('Error in remote change stream', s),
-    );
+    // Subscribe to remote changes.
+    final remoteStream = remoteAdapter.changeStream;
+    if (remoteStream == null) return;
+
+    // If a debounce time is configured, buffer events for performance.
+    if (_config.remoteEventDebounceTime > Duration.zero) {
+      _remoteChangeSubscription = remoteStream
+          .bufferTime(_config.remoteEventDebounceTime)
+          .where((batch) => batch.isNotEmpty)
+          .listen(
+            (changeList) =>
+                _handleExternalChange(changeList, DataSource.remote),
+            onError: (e, s) =>
+                _logger.error('Error in remote change stream', s),
+          );
+    } else {
+      // Otherwise, process events individually. This is better for tests.
+      _remoteChangeSubscription = remoteStream.listen((change) {
+        _handleExternalChange([change], DataSource.remote);
+      }, onError: (e, s) => _logger.error('Error in remote change stream', s));
+    }
   }
 
   /// Handles changes originating from outside the manager's direct control.
   Future<void> _handleExternalChange(
-    DatumChangeDetail<T> change,
+    List<DatumChangeDetail<T>> changes,
     DataSource source,
   ) async {
     if (_disposed) return;
 
-    _logger.info(
-      'Received external change from $source: ${change.type.name} for ${change.entityId}',
-    );
+    // 1. Clean up the cache to remove old entries.
+    _cleanupChangeCache();
 
-    // Basic check to prevent simple loops: if the change comes from remote,
-    // we save it locally but prevent it from being re-queued for remote sync.
-    // A more robust implementation would use a temporary cache of processed
-    // change IDs to prevent processing duplicates.
-    try {
-      if (change.type == DatumOperationType.delete) {
-        await delete(
-          id: change.entityId,
-          userId: change.userId,
-          source: source,
-        );
-      } else if (change.data != null) {
-        // If change is from remote, just save locally.
-        // If from local, it's an external change, so queue it for remote.
-        await push(
-          item: change.data!,
-          userId: change.userId,
-          source: source, // Let push handle the logic
+    // 2. Filter out changes that have been recently processed.
+    final newChanges = changes.whereNot((c) {
+      final isRecent = _recentChangeCache.containsKey(c.entityId);
+      if (isRecent) {
+        _logger.debug(
+          'Ignoring duplicate external change for entity ${c.entityId}',
         );
       }
-    } on Object catch (e, stack) {
-      _logger.error(
-        'Failed to process external change from $source: $e',
-        stack,
-      );
+      return isRecent;
+    }).toList();
+
+    if (newChanges.isEmpty) {
+      return;
+    }
+
+    _logger.info(
+      'Processing ${newChanges.length} new external change(s) from $source.',
+    );
+
+    // 3. Process all new changes.
+    for (final change in newChanges) {
+      // Add to cache *before* processing to handle race conditions.
+      _recentChangeCache[change.entityId] = DateTime.now();
+
+      try {
+        if (change.type == DatumOperationType.delete) {
+          // For an external delete, we bypass the main `delete` method's
+          // preliminary read. We trust the event and directly call the
+          // local adapter to perform the deletion. This is more efficient
+          // and avoids the incorrect `read` call seen in the test failure.
+          _logger.debug(
+            'Applying external delete for ${change.entityId} directly to local adapter.',
+          );
+          final deleted = await localAdapter.delete(
+            change.entityId,
+            userId: change.userId,
+          );
+          if (deleted) {
+            _eventController.add(
+              DataChangeEvent<T>(
+                userId: change.userId,
+                // We don't have the full data for a delete event, so this is null.
+                data: change.data,
+                changeType: ChangeType.deleted,
+                source: source,
+              ),
+            );
+          }
+        } else if (change.data != null) {
+          // If change is from remote, just save locally.
+          // If from local, it's an external change, so queue it for remote.
+          await push(
+            item: change.data!,
+            userId: change.userId,
+            source: source, // Let push handle the logic
+          );
+        }
+      } on Object catch (e, stack) {
+        _logger.error(
+          'Failed to process external change for ${change.entityId} from $source: $e',
+          stack,
+        );
+        // Remove from cache on failure so it can be retried if the event arrives again.
+        _recentChangeCache.remove(change.entityId);
+      }
     }
   }
 
@@ -298,6 +358,13 @@ class DatumManager<T extends DatumEntity> {
       if (_eventController.isClosed) return;
       _eventController.add(event);
     }
+  }
+
+  void _cleanupChangeCache() {
+    final cacheExpiry = DateTime.now().subtract(_config.changeCacheDuration);
+    _recentChangeCache.removeWhere((key, timestamp) {
+      return timestamp.isBefore(cacheExpiry);
+    });
   }
 
   Future<T> push({
@@ -434,7 +501,9 @@ class DatumManager<T extends DatumEntity> {
   Stream<T?>? watchById(String id, String? userId) {
     _ensureInitialized();
     return localAdapter.watchById(id, userId: userId)?.asyncMap((item) {
-      if (item == null) return null;
+      if (item == null) {
+        return Future.value(null);
+      }
       return _applyPostFetchTransforms(item);
     });
   }

@@ -272,7 +272,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     final updateStream = stream
         .where(
           (event) =>
-              event.data.id == id && (userId == null || event.userId == userId),
+              event.data?.id == id && (userId == null || event.userId == userId),
         )
         .asyncMap((_) => read(id, userId: userId));
 

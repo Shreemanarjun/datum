@@ -952,7 +952,7 @@ void main() async {
             emits(
               isA<DataChangeEvent<TestEntity>>()
                   .having((e) => e.changeType, 'changeType', ChangeType.created)
-                  .having((e) => e.data.id, 'data.id', entity.id)
+                  .having((e) => e.data!.id, 'data.id', entity.id)
                   .having((e) => e.source, 'source', DataSource.local),
             ),
           );
@@ -985,7 +985,7 @@ void main() async {
             emits(
               isA<DataChangeEvent<TestEntity>>()
                   .having((e) => e.changeType, 'changeType', ChangeType.updated)
-                  .having((e) => e.data.id, 'data.id', updatedEntity.id)
+                  .having((e) => e.data!.id, 'data.id', updatedEntity.id)
                   .having((e) => e.source, 'source', DataSource.local),
             ),
           );
@@ -1013,7 +1013,7 @@ void main() async {
             emits(
               isA<DataChangeEvent<TestEntity>>()
                   .having((e) => e.changeType, 'changeType', ChangeType.deleted)
-                  .having((e) => e.data.id, 'data.id', entity.id),
+                  .having((e) => e.data!.id, 'data.id', entity.id),
             ),
           );
 

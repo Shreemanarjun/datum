@@ -23,8 +23,10 @@ abstract class DatumSyncExecutionStrategy {
   /// It wraps another [DatumSyncExecutionStrategy] (e.g., `sequential` or `parallel`)
   /// which will be executed within the isolate.
   const factory DatumSyncExecutionStrategy.isolate(
-    DatumSyncExecutionStrategy strategy,
-  ) = IsolateStrategy;
+    DatumSyncExecutionStrategy strategy, {
+    // Add the optional parameter to the factory constructor as well.
+    bool forceIsolateInTest,
+  }) = IsolateStrategy.new;
 
   /// Executes the push operations according to the strategy.
   ///
@@ -72,11 +74,21 @@ class IsolateStrategy implements DatumSyncExecutionStrategy {
   ///
   /// For example: `IsolateStrategy(SequentialStrategy())` will run the
   /// sequential sync process in a background isolate.
-  const IsolateStrategy(this.wrappedStrategy);
+  const IsolateStrategy(
+    this.wrappedStrategy, {
+    this.forceIsolateInTest = false,
+  });
 
   /// The underlying strategy (e.g., sequential or parallel) to be executed
   /// in the background isolate.
   final DatumSyncExecutionStrategy wrappedStrategy;
+
+  /// When running in a test environment (`isTest` is true), this flag can be
+  /// set to `true` to force the creation of a real isolate. This is useful
+  /// for integration tests that need to verify the isolate communication logic.
+  /// Defaults to `false`.
+  final bool forceIsolateInTest;
+
   @override
   Future<void> execute<T extends DatumEntity>(
     List<DatumSyncOperation<T>> operations,
@@ -92,8 +104,8 @@ class IsolateStrategy implements DatumSyncExecutionStrategy {
     //
     // For testing purposes, we can simulate the behavior without a real isolate
     // to speed up tests and avoid isolate-related complexities.
-    if (isTest) {
-      return wrappedStrategy.execute(
+    if (isTest && !forceIsolateInTest) {
+      return wrappedStrategy.execute<T>(
         operations,
         processOperation,
         isCancelled,
@@ -197,6 +209,7 @@ Future<void> _spawnIsolate<T extends DatumEntity>(
   final mainReceivePort = ReceivePort();
 
   final isolateInitMessage = _IsolateInitMessage(
+    // Cast to dynamic to satisfy Isolate.spawn
     mainToIsolateSendPort: mainReceivePort.sendPort,
     // Note: The wrapped strategy is not directly serializable. This approach
     // relies on the main isolate to do the actual processing.
@@ -235,14 +248,11 @@ Future<void> _spawnIsolate<T extends DatumEntity>(
             });
 
             await completer.future.whenComplete(() {
+              isolate.kill(priority: Isolate.immediate);
               mainPortSubscription.cancel();
             });
           } finally {
-            if (!completer.isCompleted) {
-              completer.future.whenComplete(mainReceivePort.close);
-            } else {
-              mainReceivePort.close();
-            }
+            mainReceivePort.close();
           }
         })
         .catchError((Object e, StackTrace s) {
@@ -318,7 +328,7 @@ void _isolateEntryPoint(_IsolateInitMessage initMessage) {
 
   // Since the wrapped strategy isn't passed, we assume a default.
   // This part of the logic is simplified as the main isolate does the work.
-  const SequentialStrategy()
+  const SequentialStrategy() // This should be `wrappedStrategy` but it's not serializable.
       .execute<DatumEntity>(
         operations,
         requestProcessing,

@@ -76,7 +76,7 @@ void main() {
           isA<DataChangeEvent<TestEntity>>()
               .having((e) => e.changeType, 'changeType', ChangeType.created)
               .having((e) => e.source, 'source', DataSource.local)
-              .having((e) => e.data.id, 'data.id', 'entity1'),
+              .having((e) => e.data!.id, 'data.id', 'entity1'),
         ),
       );
 
@@ -391,39 +391,49 @@ void main() {
       });
     });
 
-    test('forceFullSync option triggers a pull even with matching metadata',
-        () async {
-      // Arrange
-      final metadata = DatumSyncMetadata(
-        userId: 'user1',
-        lastSyncTime: DateTime.now(),
-        dataHash: 'identical-hash',
-      );
-
-      // Stub both adapters to return identical metadata.
-      // Normally, this would cause the sync engine to skip the pull phase.
-      when(() => localAdapter.getSyncMetadata('user1'))
-          .thenAnswer((_) async => metadata);
-      when(() => remoteAdapter.getSyncMetadata('user1'))
-          .thenAnswer((_) async => metadata);
-
-      final remoteEntity =
-          TestEntity.create('remote-e1', 'user1', 'Fresh Data');
-      when(() => remoteAdapter.readAll(
+    test(
+      'forceFullSync option triggers a pull even with matching metadata',
+      () async {
+        // Arrange
+        final metadata = DatumSyncMetadata(
           userId: 'user1',
-          scope: any(named: 'scope'))).thenAnswer((_) async => [remoteEntity]);
+          lastSyncTime: DateTime.now(),
+          dataHash: 'identical-hash',
+        );
 
-      // Act
-      await manager.synchronize(
-        'user1',
-        options: const DatumSyncOptions(forceFullSync: true),
-      );
+        // Stub both adapters to return identical metadata.
+        // Normally, this would cause the sync engine to skip the pull phase.
+        when(
+          () => localAdapter.getSyncMetadata('user1'),
+        ).thenAnswer((_) async => metadata);
+        when(
+          () => remoteAdapter.getSyncMetadata('user1'),
+        ).thenAnswer((_) async => metadata);
 
-      // Assert
-      // Verify that a pull was performed (by checking that the remote data was
-      // saved locally), despite the matching metadata, because forceFullSync was true.
-      verify(() => localAdapter.create(remoteEntity)).called(1);
-    });
+        final remoteEntity = TestEntity.create(
+          'remote-e1',
+          'user1',
+          'Fresh Data',
+        );
+        when(
+          () => remoteAdapter.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer((_) async => [remoteEntity]);
+
+        // Act
+        await manager.synchronize(
+          'user1',
+          options: const DatumSyncOptions(forceFullSync: true),
+        );
+
+        // Assert
+        // Verify that a pull was performed (by checking that the remote data was
+        // saved locally), despite the matching metadata, because forceFullSync was true.
+        verify(() => localAdapter.create(remoteEntity)).called(1);
+      },
+    );
   });
 }
 
@@ -502,6 +512,7 @@ void _stubDefaultBehaviors(
     () => remoteAdapter.updateSyncMetadata(any(), any()),
   ).thenAnswer((_) async {});
   when(() => localAdapter.getSyncMetadata(any())).thenAnswer((_) async => null);
-  when(() => remoteAdapter.getSyncMetadata(any()))
-      .thenAnswer((_) async => null);
+  when(
+    () => remoteAdapter.getSyncMetadata(any()),
+  ).thenAnswer((_) async => null);
 }
