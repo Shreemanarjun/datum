@@ -1,9 +1,6 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/engine/conflict_detector.dart';
-import 'package:datum/source/core/engine/datum_sync_engine.dart';
-import 'package:datum/source/core/engine/isolate_helper.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

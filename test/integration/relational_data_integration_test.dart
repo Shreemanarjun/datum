@@ -32,7 +32,10 @@ class User extends RelationalDatumEntity {
   }) : userId = id; // For users, userId is often the same as id
 
   @override
-  Map<String, Relation> get relations => {'posts': HasMany('userId')}; // A user has many posts.
+  Map<String, Relation> get relations => {
+    'posts': HasMany('userId'), // A user has many posts.
+    'profile': HasOne('userId'), // A user has one profile.
+  };
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
@@ -59,6 +62,31 @@ class User extends RelationalDatumEntity {
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
+
+  @override
+  bool operator ==(covariant User other) {
+    if (identical(this, other)) return true;
+
+    return
+      other.id == id &&
+      other.userId == userId &&
+      other.name == name &&
+      other.modifiedAt == modifiedAt &&
+      other.createdAt == createdAt &&
+      other.version == version &&
+      other.isDeleted == isDeleted;
+  }
+
+  @override
+  int get hashCode {
+    return id.hashCode ^
+      userId.hashCode ^
+      name.hashCode ^
+      modifiedAt.hashCode ^
+      createdAt.hashCode ^
+      version.hashCode ^
+      isDeleted.hashCode;
+  }
 }
 
 /// A Post entity that "belongs to" a User and has a many-to-many with Tag.
@@ -128,6 +156,31 @@ class Post extends RelationalDatumEntity {
       isDeleted: isDeleted ?? this.isDeleted,
     );
   }
+
+  @override
+  bool operator ==(covariant Post other) {
+    if (identical(this, other)) return true;
+
+    return
+      other.id == id &&
+      other.userId == userId &&
+      other.title == title &&
+      other.modifiedAt == modifiedAt &&
+      other.createdAt == createdAt &&
+      other.version == version &&
+      other.isDeleted == isDeleted;
+  }
+
+  @override
+  int get hashCode {
+    return id.hashCode ^
+      userId.hashCode ^
+      title.hashCode ^
+      modifiedAt.hashCode ^
+      createdAt.hashCode ^
+      version.hashCode ^
+      isDeleted.hashCode;
+  }
 }
 
 /// A Tag entity for the many-to-many relationship.
@@ -177,6 +230,31 @@ class Tag extends RelationalDatumEntity {
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
+
+  @override
+  bool operator ==(covariant Tag other) {
+    if (identical(this, other)) return true;
+
+    return
+      other.id == id &&
+      other.userId == userId &&
+      other.name == name &&
+      other.modifiedAt == modifiedAt &&
+      other.createdAt == createdAt &&
+      other.version == version &&
+      other.isDeleted == isDeleted;
+  }
+
+  @override
+  int get hashCode {
+    return id.hashCode ^
+      userId.hashCode ^
+      name.hashCode ^
+      modifiedAt.hashCode ^
+      createdAt.hashCode ^
+      version.hashCode ^
+      isDeleted.hashCode;
+  }
 }
 
 /// The pivot entity for the Post-Tag many-to-many relationship.
@@ -232,11 +310,75 @@ class PostTag extends RelationalDatumEntity {
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
 }
 
+/// A Profile entity that "belongs to" a User.
+class Profile extends RelationalDatumEntity {
+  @override
+  final String id;
+  @override
+  final String userId; // This is the foreign key to the User entity
+  final String bio;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final DateTime createdAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
+
+  Profile({
+    required this.id,
+    required this.userId,
+    required this.bio,
+    required this.modifiedAt,
+    required this.createdAt,
+    this.version = 1,
+    this.isDeleted = false,
+  });
+
+  // Define the relationship
+  @override
+  Map<String, Relation> get relations => {'user': BelongsTo('userId')};
+
+  @override
+  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
+    'id': id,
+    'userId': userId,
+    'bio': bio,
+    'modifiedAt': modifiedAt.toIso8601String(),
+    'createdAt': createdAt.toIso8601String(),
+    'version': version,
+    'isDeleted': isDeleted,
+  };
+
+  @override
+  Profile copyWith({
+    DateTime? modifiedAt,
+    int? version,
+    bool? isDeleted,
+    String? bio,
+  }) {
+    return Profile(
+      id: id,
+      userId: userId,
+      bio: bio ?? this.bio,
+      modifiedAt: modifiedAt ?? this.modifiedAt,
+      createdAt: createdAt,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+    );
+  }
+
+  @override
+  Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
+}
+
 void main() {
   group('Relational Data Integration Tests', () {
     late DatumManager<User> userManager;
     late DatumManager<Post> postManager;
     late DatumManager<Tag> tagManager;
+    late DatumManager<Profile> profileManager;
     late DatumManager<PostTag> postTagManager;
 
     final testUser = User(
@@ -250,6 +392,14 @@ void main() {
       id: 'post-1',
       userId: 'user-1', // Foreign key linking to testUser
       title: 'My First Post',
+      modifiedAt: DateTime(2023),
+      createdAt: DateTime(2023),
+    );
+
+    final testProfile = Profile(
+      id: 'profile-1',
+      userId: 'user-1', // Foreign key linking to testUser
+      bio: 'Loves Dart and Flutter.',
       modifiedAt: DateTime(2023),
       createdAt: DateTime(2023),
     );
@@ -285,25 +435,40 @@ void main() {
     );
 
     setUp(() async {
+      // Create all mock adapters first, providing related adapters where needed.
+      final userAdapter = MockLocalAdapter<User>();
+      final profileAdapter = MockLocalAdapter<Profile>();
+      final postTagAdapter = MockLocalAdapter<PostTag>();
+      final postAdapter = MockLocalAdapter<Post>(
+        relatedAdapters: {PostTag: postTagAdapter},
+      );
+      final tagAdapter = MockLocalAdapter<Tag>(
+        relatedAdapters: {PostTag: postTagAdapter},
+      );
+
       Datum.resetForTesting();
       await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
         connectivityChecker: MockConnectivityChecker(),
         registrations: [
           DatumRegistration<User>(
-            localAdapter: MockLocalAdapter<User>(),
+            localAdapter: userAdapter,
             remoteAdapter: MockRemoteAdapter<User>(),
           ),
           DatumRegistration<Post>(
-            localAdapter: MockLocalAdapter<Post>(),
+            localAdapter: postAdapter,
             remoteAdapter: MockRemoteAdapter<Post>(),
           ),
           DatumRegistration<Tag>(
-            localAdapter: MockLocalAdapter<Tag>(),
+            localAdapter: tagAdapter,
             remoteAdapter: MockRemoteAdapter<Tag>(),
           ),
+          DatumRegistration<Profile>(
+            localAdapter: profileAdapter,
+            remoteAdapter: MockRemoteAdapter<Profile>(),
+          ),
           DatumRegistration<PostTag>(
-            localAdapter: MockLocalAdapter<PostTag>(),
+            localAdapter: postTagAdapter,
             remoteAdapter: MockRemoteAdapter<PostTag>(),
           ),
         ],
@@ -311,6 +476,7 @@ void main() {
       userManager = Datum.manager<User>();
       postManager = Datum.manager<Post>();
       tagManager = Datum.manager<Tag>();
+      profileManager = Datum.manager<Profile>();
       postTagManager = Datum.manager<PostTag>();
     });
 
@@ -488,6 +654,48 @@ void main() {
         );
       },
     );
+
+    test('fetches "hasOne" related entity successfully from local', () async {
+      // Arrange: Add both the user and their profile to the local store.
+      await userManager.push(item: testUser, userId: testUser.id);
+      await profileManager.push(item: testProfile, userId: testUser.id);
+
+      // Act: Fetch the 'profile' for the user.
+      final profiles = await userManager.fetchRelated<Profile>(
+        testUser,
+        'profile',
+      );
+
+      // Assert
+      expect(profiles, isNotEmpty);
+      expect(profiles.length, 1);
+      expect(profiles.first.id, testProfile.id);
+      expect(profiles.first.bio, 'Loves Dart and Flutter.');
+    });
+
+    test('fetches "hasOne" related entity successfully from remote', () async {
+      // Arrange: Add the user and profile to the remote mock adapters.
+      (userManager.remoteAdapter as MockRemoteAdapter).addRemoteItem(
+        testUser.id,
+        testUser,
+      );
+      (profileManager.remoteAdapter as MockRemoteAdapter).addRemoteItem(
+        testUser.id,
+        testProfile,
+      );
+
+      // Act: Fetch the 'profile' for the user from the remote source.
+      final profiles = await userManager.fetchRelated<Profile>(
+        testUser,
+        'profile',
+        source: DataSource.remote,
+      );
+
+      // Assert
+      expect(profiles, isNotEmpty);
+      expect(profiles.length, 1);
+      expect(profiles.first.id, testProfile.id);
+    });
 
     test(
       'returns an empty list for "hasMany" when no related entities exist',

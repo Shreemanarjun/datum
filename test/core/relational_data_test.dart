@@ -32,7 +32,10 @@ class User extends RelationalDatumEntity {
   }) : userId = id; // For users, userId is often the same as id
 
   @override
-  Map<String, Relation> get relations => {'posts': HasMany('userId')}; // A user has many posts.
+  Map<String, Relation> get relations => {
+    'posts': HasMany('userId'), // A user has many posts.
+    'profile': HasOne('userId'), // A user has one profile.
+  };
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
@@ -120,6 +123,69 @@ class Post extends RelationalDatumEntity {
       id: id,
       userId: userId,
       title: title,
+      modifiedAt: modifiedAt ?? this.modifiedAt,
+      createdAt: createdAt,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+    );
+  }
+
+  @override
+  Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
+}
+
+/// A Profile entity that "belongs to" a User.
+class Profile extends RelationalDatumEntity {
+  @override
+  final String id;
+  @override
+  final String userId; // This is the foreign key to the User entity
+  final String bio;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final DateTime createdAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
+
+  Profile({
+    required this.id,
+    required this.userId,
+    required this.bio,
+    required this.modifiedAt,
+    required this.createdAt,
+    this.version = 1,
+    this.isDeleted = false,
+  });
+
+  // Define the relationship
+  @override
+  Map<String, Relation> get relations => {'user': BelongsTo('userId')};
+
+  @override
+  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
+    'id': id,
+    'userId': userId,
+    'bio': bio,
+    'modifiedAt': modifiedAt.toIso8601String(),
+    'createdAt': createdAt.toIso8601String(),
+    'version': version,
+    'isDeleted': isDeleted,
+  };
+
+  @override
+  Profile copyWith({
+    DateTime? modifiedAt,
+    int? version,
+    bool? isDeleted,
+    String? bio,
+  }) {
+    return Profile(
+      id: id,
+      userId: userId,
+      bio: bio ?? this.bio,
       modifiedAt: modifiedAt ?? this.modifiedAt,
       createdAt: createdAt,
       version: version ?? this.version,
@@ -235,6 +301,7 @@ void main() {
   group('Relational Data: fetchRelated', () {
     late DatumManager<User> userManager;
     late DatumManager<Post> postManager;
+    late DatumManager<Profile> profileManager;
 
     final testUser = User(
       id: 'user-1',
@@ -247,6 +314,14 @@ void main() {
       id: 'post-1',
       userId: 'user-1', // Foreign key linking to testUser
       title: 'My First Post',
+      modifiedAt: DateTime(2023),
+      createdAt: DateTime(2023),
+    );
+
+    final testProfile = Profile(
+      id: 'profile-1',
+      userId: 'user-1', // Foreign key linking to testUser
+      bio: 'Loves Dart and Flutter.',
       modifiedAt: DateTime(2023),
       createdAt: DateTime(2023),
     );
@@ -269,6 +344,15 @@ void main() {
           createdAt: DateTime(0),
         ),
       );
+      registerFallbackValue(
+        Profile(
+          id: 'fb',
+          userId: 'fb',
+          bio: 'fb',
+          modifiedAt: DateTime(0),
+          createdAt: DateTime(0),
+        ),
+      );
     });
     setUp(() async {
       await Datum.initialize(
@@ -283,10 +367,15 @@ void main() {
             localAdapter: MockLocalAdapter<Post>(),
             remoteAdapter: MockRemoteAdapter<Post>(),
           ),
+          DatumRegistration<Profile>(
+            localAdapter: MockLocalAdapter<Profile>(),
+            remoteAdapter: MockRemoteAdapter<Profile>(),
+          ),
         ],
       );
       userManager = Datum.manager<User>();
       postManager = Datum.manager<Post>();
+      profileManager = Datum.manager<Profile>();
     });
 
     test('fetches a "belongsTo" related entity successfully', () async {
@@ -328,6 +417,24 @@ void main() {
         posts.map((p) => p.title),
         containsAll(['My First Post', 'My Second Post']),
       );
+    });
+
+    test('fetches a "hasOne" related entity successfully', () async {
+      // Arrange: Add both the user and their profile to the local store.
+      await userManager.push(item: testUser, userId: testUser.id);
+      await profileManager.push(item: testProfile, userId: testUser.id);
+
+      // Act: Fetch the 'profile' for the user.
+      final profiles = await userManager.fetchRelated<Profile>(
+        testUser,
+        'profile',
+      );
+
+      // Assert
+      expect(profiles, isNotEmpty);
+      expect(profiles.length, 1);
+      expect(profiles.first.id, testProfile.id);
+      expect(profiles.first.bio, 'Loves Dart and Flutter.');
     });
 
     test('returns an empty list if related entity does not exist', () async {

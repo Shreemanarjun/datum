@@ -5,12 +5,11 @@ import 'package:datum/datum.dart';
 import 'package:rxdart/rxdart.dart';
 
 class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
-  MockLocalAdapter({this.fromJson});
+  MockLocalAdapter({this.fromJson, this.relatedAdapters});
 
   final Map<String, Map<String, T>> _storage = {};
   final Map<String, Map<String, Map<String, dynamic>>> _rawStorage = {};
   final Map<String, List<DatumSyncOperation<T>>> _pendingOps = {};
-  final Map<String, DatumSyncMetadata?> _metadata = {}; // ignore: unused_field
   final _changeController = StreamController<DatumChangeDetail<T>>.broadcast();
   int _schemaVersion = 0;
 
@@ -20,8 +19,13 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   /// A function to deserialize JSON into an entity of type T.
   final T Function(Map<String, dynamic>)? fromJson;
 
+  /// A map of related adapters for testing relational queries.
+  final Map<Type, LocalAdapter<DatumEntity>>? relatedAdapters;
+
   /// An external stream to drive reactive queries, typically from DatumManager.
   Stream<DataChangeEvent<T>>? externalChangeStream;
+
+  final Map<String, DatumSyncMetadata?> _metadata = {}; // ignore: unused_field
 
   @override
   String get name => 'MockLocalAdapter';
@@ -68,45 +72,35 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
   @override
   Future<void> create(T entity) async {
-    _storage.putIfAbsent(entity.userId, () => {})[entity.id] = entity;
-    if (!silent) {
-      _changeController.add(
-        DatumChangeDetail(
-          entityId: entity.id,
-          userId: entity.userId,
-          type: DatumOperationType.create,
-          timestamp: DateTime.now(),
-          data: entity,
-        ),
-      );
-    }
+    // Delegate to the synchronized push method to ensure atomicity.
+    await push(entity);
   }
 
   @override
   Future<void> update(T entity) async {
-    _storage.putIfAbsent(entity.userId, () => {})[entity.id] = entity;
-    if (!silent) {
-      _changeController.add(
-        DatumChangeDetail(
-          entityId: entity.id,
-          userId: entity.userId,
-          type: DatumOperationType.update,
-          timestamp: DateTime.now(),
-          data: entity,
-        ),
-      );
-    }
+    // Delegate to the synchronized push method to ensure atomicity.
+    await push(entity);
   }
 
   /// A custom method for tests that combines create/update logic.
   Future<void> push(T item) async {
-    _storage.putIfAbsent(item.userId, () => {})[item.id] = item;
+    final bool exists = _storage[item.userId]?.containsKey(item.id) ?? false;
+    // ignore: avoid_print
+    print(
+      '[MockLocalAdapter] push: id=${item.id}, userId=${item.userId}, exists: $exists',
+    );
+    _storage.putIfAbsent(item.userId, () => {})[item.id] =
+        item; // This now correctly overwrites
+    // Add a microtask delay BEFORE emitting the change to ensure the storage
+    // update is settled. This helps prevent race conditions in reactive tests
+    // where a stream might query the data before it's fully updated.
+    await Future<void>.delayed(Duration.zero);
     if (!silent) {
       _changeController.add(
         DatumChangeDetail(
           entityId: item.id,
           userId: item.userId,
-          type: DatumOperationType.update,
+          type: exists ? DatumOperationType.update : DatumOperationType.create,
           timestamp: DateTime.now(),
           data: item,
         ),
@@ -130,26 +124,21 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
     final json = existing.toMap()..addAll(delta);
     final patchedItem = fromJson!(json);
-    _storage.putIfAbsent(userId ?? '', () => {})[id] = patchedItem;
-
-    if (!silent) {
-      _changeController.add(
-        DatumChangeDetail(
-          entityId: id,
-          userId: userId ?? '',
-          type: DatumOperationType.update,
-          timestamp: DateTime.now(),
-          data: patchedItem,
-        ),
-      );
-    }
+    // Delegate to the push method to ensure atomicity.
+    await push(patchedItem);
     return patchedItem;
   }
 
   @override
   Future<bool> delete(String id, {String? userId}) async {
+    // ignore: avoid_print
+    print('[MockLocalAdapter] delete: id=$id, userId=${userId ?? 'null'}');
     final item = _storage[userId ?? '']?.remove(id);
     if (item != null) {
+      // Add a microtask delay to ensure the storage update is settled before
+      // the change event is broadcast. This helps prevent race conditions in
+      // reactive tests.
+      await Future<void>.delayed(Duration.zero);
       if (!silent) {
         _changeController.add(
           DatumChangeDetail(
@@ -208,6 +197,10 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
   @override
   Future<void> clear() async {
+    // ignore: avoid_print
+    print(
+      '[MockLocalAdapter] clear: Wiping all storage, pending ops, and metadata.',
+    );
     _storage.clear();
     _pendingOps.clear();
     _metadata.clear();
@@ -262,7 +255,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         .where((event) => userId == null || event.userId == userId)
         .asyncMap((_) => readAll(userId: userId));
 
-    return Rx.concat([initialDataStream, updateStream]);
+    return Rx.merge([initialDataStream, updateStream]).asBroadcastStream();
   }
 
   @override
@@ -278,7 +271,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         )
         .asyncMap((_) => read(id, userId: userId));
 
-    return ConcatStream([initialDataStream, updateStream]);
+    return MergeStream([initialDataStream, updateStream]).asBroadcastStream();
   }
 
   @override
@@ -349,7 +342,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         .where((event) => userId == null || event.userId == userId)
         .asyncMap((_) => getFiltered());
 
-    return Rx.concat([initialDataStream, updateStream]);
+    return Rx.concat([initialDataStream, updateStream]).asBroadcastStream();
   }
 
   @override
@@ -485,17 +478,25 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         );
         return relatedAdapter.query(query);
       case ManyToMany():
-        // 1. Get the manager for the pivot entity.
-        final pivotManager = Datum.managerByType(
-          relation.pivotEntity.runtimeType,
-        );
-        // 2. Query the pivot table to find all entries matching the parent's ID.
+        // 1. Get the manager for the pivot entity via the central Datum instance.
+        final pivotAdapter = relatedAdapters?[relation.pivotEntity.runtimeType];
+        if (pivotAdapter == null) {
+          throw StateError(
+            'MockLocalAdapter requires a related adapter for ${relation.pivotEntity.runtimeType} to be provided for ManyToMany relations.',
+          );
+        }
+
+        // 2. Query the pivot table to find all entries matching the parent's local key.
         final pivotQuery = DatumQuery(
           filters: [
-            Filter(relation.thisForeignKey, FilterOperator.equals, parent.id),
+            Filter(
+              relation.thisForeignKey,
+              FilterOperator.equals,
+              parent.toMap()[relation.thisLocalKey],
+            ),
           ],
         );
-        final pivotEntries = await pivotManager.localAdapter.query(pivotQuery);
+        final pivotEntries = await pivotAdapter.query(pivotQuery);
 
         if (pivotEntries.isEmpty) {
           return [];
@@ -504,13 +505,29 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         // 3. Extract the IDs of the "other" side of the relationship.
         final otherIds = pivotEntries
             .map((e) => e.toMap()[relation.otherForeignKey] as String)
+            .where((id) => id.isNotEmpty)
             .toList();
 
+        if (otherIds.isEmpty) return [];
+
         // 4. Fetch the related entities using the extracted IDs.
-        return (await relatedAdapter.readByIds(
-          otherIds,
+        return relatedAdapter.query(
+          DatumQuery(
+            filters: [
+              Filter(relation.otherLocalKey, FilterOperator.isIn, otherIds),
+            ],
+          ),
           userId: parent.userId,
-        )).values.toList();
+        );
+      case HasOne():
+        final foreignKeyField = relation.foreignKey;
+        final localKeyValue = parent.toMap()[relation.localKey];
+        final query = DatumQuery(
+          filters: [
+            Filter(foreignKeyField, FilterOperator.equals, localKeyValue),
+          ],
+        );
+        return relatedAdapter.query(query);
     }
   }
 
@@ -547,27 +564,51 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         );
         return relatedAdapter.watchQuery(query);
       case ManyToMany():
-        final pivotManager = Datum.managerByType(
-          relation.pivotEntity.runtimeType,
-        );
+        final pivotAdapter = relatedAdapters?[relation.pivotEntity.runtimeType];
+        if (pivotAdapter == null) {
+          throw StateError(
+            'MockLocalAdapter requires a related adapter for ${relation.pivotEntity.runtimeType} to be provided for ManyToMany relations.',
+          );
+        }
+
         final pivotQuery = DatumQuery(
           filters: [
-            Filter(relation.thisForeignKey, FilterOperator.equals, parent.id),
+            Filter(
+              relation.thisForeignKey,
+              FilterOperator.equals,
+              parent.toMap()[relation.thisLocalKey],
+            ),
           ],
         );
 
-        return pivotManager.localAdapter.watchQuery(pivotQuery)?.switchMap((
-          pivotEntries,
-        ) {
+        return pivotAdapter.watchQuery(pivotQuery)?.switchMap((pivotEntries) {
           if (pivotEntries.isEmpty) return Stream.value([]);
           final otherIds = pivotEntries
-              .map((e) => e.toMap()[relation.otherForeignKey] as String)
+              .map((e) => e.toMap()[relation.otherForeignKey] as String?)
+              .where((id) => id != null && id.isNotEmpty)
+              .cast<String>()
               .toList();
+          if (otherIds.isEmpty) return Stream.value([]);
           final relatedQuery = DatumQuery(
-            filters: [Filter('id', FilterOperator.isIn, otherIds)],
+            filters: [
+              Filter(relation.otherLocalKey, FilterOperator.isIn, otherIds),
+            ],
           );
           return relatedAdapter.watchQuery(relatedQuery) ?? Stream.value([]);
         });
+      case HasOne():
+        final foreignKeyField = relation.foreignKey;
+        final localKeyValue = parent.toMap()[relation.localKey];
+        final query = DatumQuery(
+          filters: [
+            Filter(foreignKeyField, FilterOperator.equals, localKeyValue),
+          ],
+        );
+        // Use watchFirst for a more direct 1-to-1 watch, which is less
+        // prone to emitting intermediate empty lists during updates.
+        return relatedAdapter
+            .watchFirst(query: query)
+            ?.map((item) => item != null ? [item] : []);
     }
   }
 }
@@ -651,13 +692,15 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
     if (_failedIds.contains(item.id)) {
       throw NetworkException('Simulated push failure for ${item.id}');
     }
+    final bool exists =
+        _remoteStorage[item.userId]?.containsKey(item.id) ?? false;
     _remoteStorage.putIfAbsent(item.userId, () => {})[item.id] = item;
     if (!silent) {
       _changeController.add(
         DatumChangeDetail(
           entityId: item.id,
           userId: item.userId,
-          type: DatumOperationType.update,
+          type: exists ? DatumOperationType.update : DatumOperationType.create,
           timestamp: DateTime.now(),
           data: item,
         ),
@@ -845,10 +888,14 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
         final pivotManager = Datum.managerByType(
           relation.pivotEntity.runtimeType,
         );
-        // 2. Query the pivot table to find all entries matching the parent's ID.
+        // 2. Query the pivot table to find all entries matching the parent's local key.
         final pivotQuery = DatumQuery(
           filters: [
-            Filter(relation.thisForeignKey, FilterOperator.equals, parent.id),
+            Filter(
+              relation.thisForeignKey,
+              FilterOperator.equals,
+              parent.toMap()[relation.thisLocalKey],
+            ),
           ],
         );
         final pivotEntries = await pivotManager.remoteAdapter.query(pivotQuery);
@@ -859,13 +906,30 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
 
         // 3. Extract the IDs of the "other" side of the relationship.
         final otherIds = pivotEntries
-            .map((e) => e.toMap()[relation.otherForeignKey] as String)
+            .map((e) => e.toMap()[relation.otherForeignKey] as String?)
+            .where((id) => id != null && id.isNotEmpty)
+            .cast<String>()
             .toList();
+
+        if (otherIds.isEmpty) return [];
 
         // 4. Fetch the related entities using the extracted IDs.
         return relatedAdapter.query(
-          DatumQuery(filters: [Filter('id', FilterOperator.isIn, otherIds)]),
+          DatumQuery(
+            filters: [
+              Filter(relation.otherLocalKey, FilterOperator.isIn, otherIds),
+            ],
+          ),
         );
+      case HasOne():
+        final foreignKeyField = relation.foreignKey;
+        final localKeyValue = parent.toMap()[relation.localKey];
+        final query = DatumQuery(
+          filters: [
+            Filter(foreignKeyField, FilterOperator.equals, localKeyValue),
+          ],
+        );
+        return relatedAdapter.query(query);
     }
   }
 }

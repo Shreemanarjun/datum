@@ -36,6 +36,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/resolver/last_write_wins_resolver.dart';
 import 'package:rxdart/rxdart.dart';
+import 'package:synchronized/synchronized.dart';
 import 'package:uuid/uuid.dart';
 
 class DatumManager<T extends DatumEntity> {
@@ -60,6 +61,9 @@ class DatumManager<T extends DatumEntity> {
   final BehaviorSubject<DatumSyncStatusSnapshot> _statusSubject;
   final BehaviorSubject<DatumSyncMetadata> _metadataSubject = BehaviorSubject();
   final Map<String, Timer> _autoSyncTimers = {};
+
+  /// A lock to ensure that write operations (push, delete) are atomic.
+  final _writeLock = Lock();
 
   late final QueueManager<T> _queueManager;
   late final IsolateHelper _isolateHelper;
@@ -301,100 +305,104 @@ class DatumManager<T extends DatumEntity> {
     required String userId,
     DataSource source = DataSource.local,
     bool forceRemoteSync = false,
-  }) async {
-    _ensureInitialized();
-    // Check for user switch before proceeding.
-    await _syncEngine.checkForUserSwitch(userId);
+  }) {
+    return _writeLock.synchronized(() async {
+      _ensureInitialized();
+      // Check for user switch before proceeding.
+      await _syncEngine.checkForUserSwitch(userId);
 
-    final existing = await localAdapter.read(item.id, userId: userId);
-    final isCreate = existing == null;
+      final existing = await localAdapter.read(item.id, userId: userId);
+      final isCreate = existing == null;
 
-    final transformed = await _applyPreSaveTransforms(item);
+      final transformed = await _applyPreSaveTransforms(item);
 
-    Map<String, dynamic>? delta;
-    if (!isCreate) {
-      delta = transformed.diff(existing);
-      if (delta == null) {
-        _logger.debug(
-          'No changes detected for entity ${item.id}, skipping save.',
+      Map<String, dynamic>? delta;
+      if (!isCreate) {
+        delta = transformed.diff(existing);
+        if (delta == null) {
+          _logger.debug(
+            'No changes detected for entity ${item.id}, skipping save.',
+          );
+          return transformed;
+        }
+      }
+
+      if (isCreate) {
+        _logger.debug('Notifying observers of onCreateStart for ${item.id}');
+        for (final observer in _localObservers) {
+          observer.onCreateStart(transformed);
+        }
+        for (final observer in _globalObservers) {
+          observer.onCreateStart(transformed);
+        }
+        await localAdapter.create(transformed);
+      } else if (delta != null) {
+        // If a delta is available, perform a more efficient patch.
+        _logger.debug('Notifying observers of onUpdateStart for ${item.id}');
+        for (final observer in _localObservers) {
+          observer.onUpdateStart(transformed);
+        }
+        for (final observer in _globalObservers) {
+          observer.onUpdateStart(transformed);
+        }
+        await localAdapter.patch(
+          id: transformed.id,
+          delta: delta,
+          userId: userId,
         );
-        return transformed;
+      } else {
+        // Fallback to a full update if no delta is calculated.
+        _logger.debug('Notifying observers of onUpdateStart for ${item.id}');
+        for (final observer in _localObservers) {
+          observer.onUpdateStart(transformed);
+        }
+        for (final observer in _globalObservers) {
+          observer.onUpdateStart(transformed);
+        }
+        await localAdapter.update(transformed);
       }
-    }
 
-    if (isCreate) {
-      _logger.debug('Notifying observers of onCreateStart for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onCreateStart(transformed);
+      if (source == DataSource.local || forceRemoteSync) {
+        final operation = _createOperation(
+          userId: userId,
+          type: isCreate
+              ? DatumOperationType.create
+              : DatumOperationType.update,
+          entityId: transformed.id,
+          data: transformed,
+          delta: delta,
+        );
+        await _queueManager.enqueue(operation);
       }
-      for (final observer in _globalObservers) {
-        observer.onCreateStart(transformed);
-      }
-      await localAdapter.create(transformed);
-    } else if (delta != null) {
-      // If a delta is available, perform a more efficient patch.
-      _logger.debug('Notifying observers of onUpdateStart for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onUpdateStart(transformed);
-      }
-      for (final observer in _globalObservers) {
-        observer.onUpdateStart(transformed);
-      }
-      await localAdapter.patch(
-        id: transformed.id,
-        delta: delta,
-        userId: userId,
+
+      _eventController.add(
+        DataChangeEvent<T>(
+          userId: userId,
+          data: transformed,
+          changeType: isCreate ? ChangeType.created : ChangeType.updated,
+          source: source,
+        ),
       );
-    } else {
-      // Fallback to a full update if no delta is calculated.
-      _logger.debug('Notifying observers of onUpdateStart for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onUpdateStart(transformed);
-      }
-      for (final observer in _globalObservers) {
-        observer.onUpdateStart(transformed);
-      }
-      await localAdapter.update(transformed);
-    }
 
-    if (source == DataSource.local || forceRemoteSync) {
-      final operation = _createOperation(
-        userId: userId,
-        type: isCreate ? DatumOperationType.create : DatumOperationType.update,
-        entityId: transformed.id,
-        data: transformed,
-        delta: delta,
-      );
-      await _queueManager.enqueue(operation);
-    }
-
-    _eventController.add(
-      DataChangeEvent<T>(
-        userId: userId,
-        data: transformed,
-        changeType: isCreate ? ChangeType.created : ChangeType.updated,
-        source: source,
-      ),
-    );
-
-    if (isCreate) {
-      _logger.debug('Notifying observers of onCreateEnd for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onCreateEnd(transformed);
+      if (isCreate) {
+        _logger.debug('Notifying observers of onCreateEnd for ${item.id}');
+        for (final observer in _localObservers) {
+          observer.onCreateEnd(transformed);
+        }
+        for (final observer in _globalObservers) {
+          observer.onCreateEnd(transformed);
+        }
+      } else {
+        _logger.debug('Notifying observers of onUpdateEnd for ${item.id}');
+        for (final observer in _localObservers) {
+          observer.onUpdateEnd(transformed);
+        }
+        for (final observer in _globalObservers) {
+          observer.onUpdateEnd(transformed);
+        }
       }
-      for (final observer in _globalObservers) {
-        observer.onCreateEnd(transformed);
-      }
-    } else {
-      _logger.debug('Notifying observers of onUpdateEnd for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onUpdateEnd(transformed);
-      }
-      for (final observer in _globalObservers) {
-        observer.onUpdateEnd(transformed);
-      }
-    }
-    return transformed;
+      return transformed;
+    });
   }
 
   /// Reads a single entity by its ID from the primary local adapter.
@@ -472,65 +480,67 @@ class DatumManager<T extends DatumEntity> {
     required String userId,
     DataSource source = DataSource.local,
     bool forceRemoteSync = false,
-  }) async {
-    _ensureInitialized();
-    // Check for user switch before proceeding.
-    await _syncEngine.checkForUserSwitch(userId);
+  }) {
+    return _writeLock.synchronized(() async {
+      _ensureInitialized();
+      // Check for user switch before proceeding.
+      await _syncEngine.checkForUserSwitch(userId);
 
-    final existing = await localAdapter.read(id, userId: userId);
-    if (existing == null) {
-      _logger.debug(
-        'Entity $id does not exist for user $userId, skipping delete',
-      );
-      return false;
-    }
+      final existing = await localAdapter.read(id, userId: userId);
+      if (existing == null) {
+        _logger.debug(
+          'Entity $id does not exist for user $userId, skipping delete',
+        );
+        return false;
+      }
 
-    _logger.debug('Notifying observers of onDeleteStart for $id');
-    for (final observer in _localObservers) {
-      observer.onDeleteStart(id);
-    }
-    for (final observer in _globalObservers) {
-      observer.onDeleteStart(id);
-    }
-    final deleted = await localAdapter.delete(id, userId: userId);
-    if (!deleted) {
-      _logger.warn('Local adapter failed to delete entity $id');
-      // Notify observers of the failure before returning.
+      _logger.debug('Notifying observers of onDeleteStart for $id');
       for (final observer in _localObservers) {
-        observer.onDeleteEnd(id, success: false);
+        observer.onDeleteStart(id);
       }
       for (final observer in _globalObservers) {
-        observer.onDeleteEnd(id, success: false);
+        observer.onDeleteStart(id);
       }
-      return false;
-    }
+      final deleted = await localAdapter.delete(id, userId: userId);
+      if (!deleted) {
+        _logger.warn('Local adapter failed to delete entity $id');
+        // Notify observers of the failure before returning.
+        for (final observer in _localObservers) {
+          observer.onDeleteEnd(id, success: false);
+        }
+        for (final observer in _globalObservers) {
+          observer.onDeleteEnd(id, success: false);
+        }
+        return false;
+      }
 
-    _logger.debug('Notifying observers of onDeleteEnd for $id');
-    for (final observer in _localObservers) {
-      observer.onDeleteEnd(id, success: true);
-    }
-    for (final observer in _globalObservers) {
-      observer.onDeleteEnd(id, success: true);
-    }
-    if (source == DataSource.local || forceRemoteSync) {
-      final operation = _createOperation(
-        userId: userId,
-        type: DatumOperationType.delete,
-        entityId: id,
+      _logger.debug('Notifying observers of onDeleteEnd for $id');
+      for (final observer in _localObservers) {
+        observer.onDeleteEnd(id, success: true);
+      }
+      for (final observer in _globalObservers) {
+        observer.onDeleteEnd(id, success: true);
+      }
+      if (source == DataSource.local || forceRemoteSync) {
+        final operation = _createOperation(
+          userId: userId,
+          type: DatumOperationType.delete,
+          entityId: id,
+        );
+        await _queueManager.enqueue(operation);
+      }
+
+      _eventController.add(
+        DataChangeEvent<T>(
+          userId: userId,
+          data: existing,
+          changeType: ChangeType.deleted,
+          source: source,
+        ),
       );
-      await _queueManager.enqueue(operation);
-    }
 
-    _eventController.add(
-      DataChangeEvent<T>(
-        userId: userId,
-        data: existing,
-        changeType: ChangeType.deleted,
-        source: source,
-      ),
-    );
-
-    return true;
+      return true;
+    });
   }
 
   /// Fetches related entities for a given parent entity.

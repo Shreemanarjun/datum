@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:math';
-
 import 'package:datum/source/core/models/datum_exception.dart';
 
 /// Abstract base class for retry backoff strategies.
 abstract class DatumBackoffStrategy {
   /// Calculates the delay for a given retry attempt.
-  Duration getDelay(int attemptNumber);
+  /// Can return a [Duration] directly or a [Future<Duration>].
+  FutureOr<Duration> getDelay(int attemptNumber);
 }
 
 /// Implements an exponential backoff retry strategy.
@@ -62,6 +62,21 @@ class FixedBackoff implements DatumBackoffStrategy {
   }
 }
 
+/// Implements a custom backoff strategy defined by a function.
+/// Useful for testing or complex retry logic.
+class CustomBackoff implements DatumBackoffStrategy {
+  /// Creates a custom backoff strategy.
+  const CustomBackoff(this.delayCalculator);
+
+  /// A function that takes the attempt number and returns the delay duration.
+  final FutureOr<Duration> Function(int attemptNumber) delayCalculator;
+
+  @override
+  FutureOr<Duration> getDelay(int attemptNumber) {
+    return delayCalculator(attemptNumber);
+  }
+}
+
 /// Defines a strategy for how the sync engine should behave on errors.
 class DatumErrorRecoveryStrategy {
   /// Creates an error recovery strategy.
@@ -79,8 +94,13 @@ class DatumErrorRecoveryStrategy {
   final DatumBackoffStrategy backoffStrategy;
 
   /// A function that determines if a given error should trigger a retry.
+  ///
+  /// It receives a [DatumException] and should return a `Future<bool>`
+  /// indicating whether a retry should be attempted.
   final Future<bool> Function(DatumException error) shouldRetry;
 
-  /// An optional callback invoked when an error occurs.
+  /// An optional callback invoked when an error occurs that will not be retried,
+  /// or after all retries have been exhausted. This is useful for logging
+  /// or triggering alerts for persistent failures.
   final Future<void> Function(DatumException error)? onError;
 }

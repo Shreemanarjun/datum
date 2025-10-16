@@ -1,4 +1,5 @@
-import 'package:datum/source/core/sync/datum_sync_status_snapshot.dart';
+
+import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

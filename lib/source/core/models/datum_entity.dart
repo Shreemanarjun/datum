@@ -51,4 +51,14 @@ abstract class DatumEntity {
   /// Compares this entity with an older version and returns a map of the
   /// fields that have changed. Returns `null` if there are no differences.
   Map<String, dynamic>? diff(DatumEntity oldVersion);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DatumEntity &&
+          runtimeType == other.runtimeType &&
+          id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
 }
