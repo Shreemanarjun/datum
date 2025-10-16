@@ -298,6 +298,79 @@ await Datum.instance.dispose();
 
 ---
 
+## 🔗 Relational Data & Advanced Querying
+
+Datum goes beyond simple CRUD by providing powerful tools for handling relational data and building complex queries.
+
+### 1. Defining Relationships
+
+To enable relations, your model must extend `RelationalDatumEntity`. Define relationships in the `relations` map.
+
+```dart
+class User extends RelationalDatumEntity {
+  // ... fields
+  @override
+  Map<String, Relation> get relations => {
+    'posts': HasMany('userId'), // User has many Posts
+    'profile': HasOne('userId'),  // User has one Profile
+  };
+  // ...
+}
+
+class Post extends RelationalDatumEntity {
+  // ... fields
+  @override
+  Map<String, Relation> get relations => {
+    'author': BelongsTo('userId'), // Post belongs to a User
+    'tags': ManyToMany(PostTag.constInstance, 'postId', 'tagId'), // Post has and belongs to many Tags
+  };
+  // ...
+}
+```
+
+### 2. Fetching & Watching Relational Data
+
+Use `fetchRelated` for a one-time fetch and `watchRelated` for a real-time stream of related entities.
+
+```dart
+// Get the parent entity
+final user = await userManager.read('user-1');
+
+// One-time fetch of all posts for the user
+final posts = await userManager.fetchRelated<Post>(user!, 'posts');
+print('User has ${posts.length} posts.');
+
+// Reactively watch the user's posts for any changes
+userManager.watchRelated<Post>(user, 'posts').listen((updatedPosts) {
+  print('User posts updated: ${updatedPosts.length}');
+});
+```
+
+### 3. Building Advanced Queries
+
+Use the fluent `DatumQueryBuilder` to create sophisticated queries with filtering, sorting, and pagination.
+
+```dart
+// Build a query to find the 10 most recent, published posts containing 'Flutter'
+final query = DatumQueryBuilder<Post>()
+  .where('title', contains: 'Flutter')
+  .where('isPublished', isEqualTo: true)
+  .orderBy('createdAt', descending: true)
+  .limit(10)
+  .build();
+
+// Execute the query against the local or remote data source
+final localResults = await postManager.query(query, source: DataSource.local);
+final remoteResults = await postManager.query(query, source: DataSource.remote);
+
+// You can also watch a query for real-time updates
+postManager.watchQuery(query).listen((posts) {
+  // This list will update automatically when data changes
+});
+```
+
+---
+
 ## 🩺 Sync Health & Metrics
 
 Datum provides built-in observability for your synchronization layer — enabling you to **monitor real-time health** and **analyze sync performance**.

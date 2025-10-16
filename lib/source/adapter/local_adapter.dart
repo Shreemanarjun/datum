@@ -168,6 +168,50 @@ abstract class LocalAdapter<T extends DatumEntity> {
   }
 
   /// Executes a block of code within a single atomic transaction.
+  ///
+  /// This is crucial for multi-step processes where all steps must succeed or
+  /// fail together, ensuring the database is not left in an inconsistent state.
+  /// A prime use case is schema migrations, where multiple data transformations
+  /// must be applied atomically.
+  ///
+  /// Implementations of this method should ensure that if the `action`
+  /// throws an error, any changes made within the transaction are rolled back,
+  /// preserving data integrity (ACID principles). For adapters on top of
+  /// databases that support native transactions (like SQLite), this should
+  /// wrap the action in a database transaction. For others, it may require
+  /// manual locking and state backup/restore logic.
+  ///
+  /// ### Example with `synchronized`
+  ///
+  /// For adapters without native transaction support (like an in-memory or
+  /// simple file-based adapter), you can use the `synchronized` package to
+  /// ensure atomicity:
+  ///
+  /// ```dart
+  /// import 'package:synchronized/synchronized.dart';
+  ///
+  /// class MyInMemoryAdapter<T extends DatumEntity> extends LocalAdapter<T> {
+  ///   final _transactionLock = Lock();
+  ///   final Map<String, T> _storage = {};
+  ///
+  ///   @override
+  ///   Future<R> transaction<R>(Future<R> Function() action) async {
+  ///     return _transactionLock.synchronized(() async {
+  ///       // 1. Backup state before the transaction.
+  ///       final backup = Map<String, T>.from(_storage);
+  ///       try {
+  ///         // 2. Execute the action.
+  ///         return await action();
+  ///       } catch (e) {
+  ///         // 3. On error, restore from backup (rollback).
+  ///         _storage..clear()..addAll(backup);
+  ///         rethrow;
+  ///       }
+  ///     });
+  ///   }
+  ///   // ... other adapter methods
+  /// }
+  /// ```
   Future<R> transaction<R>(Future<R> Function() action);
 
   /// Dispose of underlying resources (e.g., close database connections).
