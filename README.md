@@ -1,8 +1,14 @@
-Perfect ✅ — you’re essentially describing a **developer-friendly README** that’s both **marketing-style (feature-rich)** and **practical (step-by-step usage)** — just like top-tier open-source Flutter libraries such as *Drift*, *Hive*, or *Isar*.
 
-Below is a **professionally structured README template** for your `datum` framework that follows your instructions exactly — feature overview first (with emojis), platform support, installation, initialization, entity setup, adapters, sync usage, and advanced tracking/reactive features grouped logically.
 
----
+<p align="center">
+  <!--
+    Replace this with the path to your logo.
+    It's best to use a raw GitHub content URL for broad compatibility.
+    Example: https://raw.githubusercontent.com/your-username/datum/main/assets/logo.png
+  -->
+  <img src="logo/datum.png" alt="Datum Logo" width="200">
+</p>
+
 
 # 🧠 Datum — The Offline-First Data Synchronization Framework for Flutter
 
