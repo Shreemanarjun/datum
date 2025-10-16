@@ -22,7 +22,7 @@ class User extends RelationalDatumEntity {
   @override
   final bool isDeleted;
 
-  User({
+  const User({
     required this.id,
     required this.name,
     required this.modifiedAt,
@@ -105,7 +105,7 @@ class Post extends RelationalDatumEntity {
   @override
   final bool isDeleted;
 
-  Post({
+  const Post({
     required this.id,
     required this.userId,
     required this.title,
@@ -199,7 +199,7 @@ class Tag extends RelationalDatumEntity {
   @override
   final bool isDeleted;
 
-  Tag({
+  const Tag({
     required this.id,
     required this.userId,
     required this.name,
@@ -269,7 +269,7 @@ class PostTag extends RelationalDatumEntity {
   @override
   final DateTime createdAt;
 
-  PostTag({
+  const PostTag({
     required this.id,
     required this.postId,
     required this.tagId,
@@ -326,7 +326,7 @@ class Profile extends RelationalDatumEntity {
   @override
   final bool isDeleted;
 
-  Profile({
+  const Profile({
     required this.id,
     required this.userId,
     required this.bio,

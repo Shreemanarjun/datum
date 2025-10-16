@@ -1,9 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:datum/datum.dart';
 
 /// A mock entity for testing purposes.
-@immutable
-class TestEntity implements DatumEntity {
+class TestEntity extends DatumEntity {
   /// Creates a [TestEntity].
   const TestEntity({
     required this.id,
@@ -103,31 +101,7 @@ class TestEntity implements DatumEntity {
   );
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TestEntity &&
-          runtimeType == other.runtimeType &&
-          id == other.id &&
-          userId == other.userId &&
-          name == other.name &&
-          value == other.value &&
-          modifiedAt == other.modifiedAt &&
-          createdAt == other.createdAt &&
-          version == other.version &&
-          isDeleted == other.isDeleted &&
-          completed == other.completed;
-
-  @override
-  int get hashCode =>
-      id.hashCode ^
-      userId.hashCode ^
-      name.hashCode ^
-      value.hashCode ^
-      modifiedAt.hashCode ^
-      createdAt.hashCode ^
-      version.hashCode ^
-      isDeleted.hashCode ^
-      completed.hashCode;
+  List<Object?> get props => [...super.props, name, value, completed];
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) {
@@ -144,4 +118,7 @@ class TestEntity implements DatumEntity {
 
     return diffMap.isEmpty ? null : diffMap;
   }
+
+  @override
+  bool get stringify => true;
 }

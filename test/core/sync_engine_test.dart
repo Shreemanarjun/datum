@@ -585,10 +585,12 @@ void main() {
             context: any(named: 'context'),
           ),
         ).thenAnswer(
-          (_) async => const DatumConflictResolution(
-            strategy: DatumResolutionStrategy.merge,
-            resolvedData: null, // This is the invalid state we are testing.
-          ),
+          // We can't call the private `_` constructor.
+          // To test the StateError, we can simulate an invalid resolution
+          // by using a valid constructor and then creating an invalid state.
+          (_) async => DatumConflictResolution.merge(
+            TestEntity.create('e1', 'user-1', 'Merged'),
+          ).copyWith(setResolvedDataToNull: true),
         );
 
         final engineWithCustomResolver = DatumSyncEngine<TestEntity>(
@@ -609,11 +611,13 @@ void main() {
         // Act & Assert
         await expectLater(
           engineWithCustomResolver.synchronize('user-1'),
-          throwsA(isA<SyncExceptionWithEvents>().having(
-            (e) => e.originalError,
-            'originalError',
-            isA<StateError>(),
-          )),
+          throwsA(
+            isA<SyncExceptionWithEvents>().having(
+              (e) => e.originalError,
+              'originalError',
+              isA<StateError>(),
+            ),
+          ),
         );
       });
     });

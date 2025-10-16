@@ -10,7 +10,7 @@ import '../mocks/test_entity.dart';
 
 // A second entity type for testing multi-manager scenarios.
 class AnotherTestEntity extends DatumEntity {
-  AnotherTestEntity({
+  const AnotherTestEntity({
     required this.id,
     required this.userId,
     required this.modifiedAt,

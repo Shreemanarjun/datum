@@ -1,8 +1,9 @@
+import 'package:equatable/equatable.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 
 /// Description of a conflict encountered during a sync.
-class DatumSyncConflictSummary<T extends DatumEntity> {
+class DatumSyncConflictSummary<T extends DatumEntity> extends Equatable {
   /// How the conflict was resolved.
   final DatumConflictResolution<T> resolution;
 
@@ -18,4 +19,7 @@ class DatumSyncConflictSummary<T extends DatumEntity> {
   @override
   String toString() =>
       'DatumSyncConflictSummary(resolution: $resolution, entityId: $entityId)';
+
+  @override
+  List<Object?> get props => [resolution, entityId];
 }

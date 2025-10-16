@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:datum/datum.dart';
 
 /// A simple, self-contained entity for testing purposes.
-class TestHashEntity implements DatumEntity {
+class TestHashEntity extends DatumEntity {
   @override
   final String id;
   @override
@@ -18,7 +18,7 @@ class TestHashEntity implements DatumEntity {
   @override
   final bool isDeleted;
 
-  TestHashEntity({
+  const TestHashEntity({
     required this.id,
     required this.userId,
     required this.name,
@@ -63,30 +63,11 @@ class TestHashEntity implements DatumEntity {
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
 
   @override
-  bool operator ==(covariant TestHashEntity other) {
-    if (identical(this, other)) return true;
-
-    return other.id == id &&
-        other.userId == userId &&
-        other.name == name &&
-        other.modifiedAt == modifiedAt &&
-        other.createdAt == createdAt &&
-        other.version == version &&
-        other.isDeleted == isDeleted;
-  }
+  List<Object?> get props => [...super.props, name];
 
   @override
-  int get hashCode {
-    return Object.hash(
-      id,
-      userId,
-      name,
-      modifiedAt,
-      createdAt,
-      version,
-      isDeleted,
-    );
-  }
+  // Setting stringify to true provides a more descriptive toString() output.
+  bool get stringify => true;
 }
 
 void main() {

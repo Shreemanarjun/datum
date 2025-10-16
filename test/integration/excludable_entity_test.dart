@@ -223,6 +223,74 @@ void main() {
         expect(delta.containsKey('name'), isTrue);
         expect(delta['name'], 'Updated');
       });
+
+      test('operator == correctly compares entities based on all fields', () {
+        final now = DateTime.now();
+        final entity1 = ExcludableEntity(
+          id: 'e1',
+          userId: 'u1',
+          name: 'Entity One',
+          modifiedAt: now,
+          createdAt: now,
+          version: 1,
+        );
+
+        // Create an identical copy.
+        final entity1Copy = entity1.copyWith();
+
+        // Create a copy with different data.
+        final entity2 = entity1.copyWith(
+          name: 'Entity One Updated',
+          version: 2,
+          modifiedAt: now.add(const Duration(seconds: 1)),
+        );
+
+        // Create an entity with a different ID.
+        final entity3 = ExcludableEntity(
+          id: 'e2',
+          userId: 'u1',
+          name: 'Entity One',
+          modifiedAt: now,
+          createdAt: now,
+          version: 1,
+        );
+
+        // Assert that identical entities are equal.
+        expect(entity1 == entity1Copy, isTrue);
+
+        // Assert that entities with different properties are not equal.
+        expect(entity1 == entity2, isFalse);
+
+        // Assert that entities with different IDs are not equal.
+        expect(entity1 == entity3, isFalse);
+      });
+
+      test('hashCode is consistent for equal objects', () {
+        final now = DateTime.now();
+        final entity1 = ExcludableEntity(
+          id: 'e1',
+          userId: 'u1',
+          name: 'Entity One',
+          modifiedAt: now,
+          createdAt: now,
+          version: 1,
+        );
+
+        // Create an identical copy.
+        final entity1Copy = entity1.copyWith();
+
+        // Create a different entity.
+        final entity2 = entity1.copyWith(
+          name: 'Entity One Updated',
+          version: 2,
+        );
+
+        // Equal objects must have equal hash codes.
+        expect(entity1.hashCode, equals(entity1Copy.hashCode));
+
+        // Unequal objects should ideally have different hash codes.
+        expect(entity1.hashCode, isNot(equals(entity2.hashCode)));
+      });
     });
 
     test(

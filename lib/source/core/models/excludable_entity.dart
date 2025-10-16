@@ -5,7 +5,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 /// This class demonstrates how to use [MapTarget] in the `toMap` and `diff`
 /// methods to control which fields are serialized for the local database versus
 /// the remote server.
-class ExcludableEntity implements DatumEntity {
+class ExcludableEntity extends DatumEntity {
   @override
   final String id;
   @override
@@ -29,7 +29,7 @@ class ExcludableEntity implements DatumEntity {
   final Map<String, dynamic>? remoteOnlyFields;
 
   /// Creates an instance of [ExcludableEntity].
-  ExcludableEntity({
+  const ExcludableEntity({
     required this.id,
     required this.userId,
     required this.name,
@@ -118,4 +118,16 @@ class ExcludableEntity implements DatumEntity {
 
     return diff.isEmpty ? null : diff;
   }
+
+  @override
+  List<Object?> get props => [
+    ...super.props,
+    name,
+    localOnlyFields,
+    remoteOnlyFields,
+  ];
+
+  @override
+  // Setting stringify to true provides a more descriptive toString() output.
+  bool get stringify => true;
 }

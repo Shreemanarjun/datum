@@ -1,3 +1,5 @@
+import 'package:equatable/equatable.dart';
+
 /// The target for serialization, allowing different fields for local vs. remote.
 enum MapTarget {
   /// For serialization to the local database.
@@ -12,9 +14,13 @@ enum MapTarget {
 /// This abstract class defines the essential properties and methods that
 /// any data model must implement to be compatible with the Datum synchronization
 /// engine. It promotes immutability through the `copyWith` method and provides
-/// mechanisms for serialization and change detection.
-abstract class DatumEntity {
+/// mechanisms for serialization and change detection. It extends [Equatable]
+/// to provide value-based equality on the entity's [id].
+abstract class DatumEntity extends Equatable {
   /// A unique identifier for the entity. Typically a UUID.
+  /// Creates a const [DatumEntity].
+  const DatumEntity();
+
   String get id;
 
   /// The ID of the user who owns this entity.
@@ -53,12 +59,12 @@ abstract class DatumEntity {
   Map<String, dynamic>? diff(DatumEntity oldVersion);
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is DatumEntity &&
-          runtimeType == other.runtimeType &&
-          id == other.id;
-
-  @override
-  int get hashCode => id.hashCode;
+  List<Object?> get props => [
+    id,
+    userId,
+    modifiedAt,
+    createdAt,
+    version,
+    isDeleted,
+  ];
 }

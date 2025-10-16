@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-// Correct import
-import 'package:flutter/foundation.dart';
+
 import 'package:rxdart/rxdart.dart';
 
 class Datum {
@@ -17,9 +16,6 @@ class Datum {
     return _instance!;
   }
 
-  /// Returns the singleton instance if it has been initialized, otherwise null.
-  /// For testing purposes.
-  @visibleForTesting
   static Datum? get instanceOrNull => _instance;
 
   final DatumConfig config;
@@ -384,8 +380,6 @@ class Datum {
     await _statusSubject.close();
   }
 
-  /// Resets the singleton instance. For testing purposes only.
-  @visibleForTesting
   static void resetForTesting() {
     _instance = null;
   }

@@ -19,7 +19,7 @@ class User extends RelationalDatumEntity {
   @override
   final bool isDeleted;
 
-  User({
+  const User({
     required this.id,
     required this.name,
     required this.modifiedAt,

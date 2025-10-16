@@ -1,7 +1,8 @@
+import 'package:equatable/equatable.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 
 /// Configuration for paginated queries.
-class PaginationConfig {
+class PaginationConfig extends Equatable {
   /// Number of items per page.
   final int pageSize;
 
@@ -13,10 +14,13 @@ class PaginationConfig {
 
   /// Creates pagination configuration.
   const PaginationConfig({this.pageSize = 50, this.currentPage, this.cursor});
+
+  @override
+  List<Object?> get props => [pageSize, currentPage, cursor];
 }
 
 /// Result of a paginated query.
-class PaginatedResult<T extends DatumEntity> {
+class PaginatedResult<T extends DatumEntity> extends Equatable {
   /// Items in the current page.
   final List<T> items;
 
@@ -47,10 +51,20 @@ class PaginatedResult<T extends DatumEntity> {
 
   /// Creates an empty paginated result.
   const PaginatedResult.empty()
-      : items = const [],
-        totalCount = 0,
-        currentPage = 1,
-        totalPages = 0,
-        hasMore = false,
-        nextCursor = null;
+    : items = const [],
+      totalCount = 0,
+      currentPage = 1,
+      totalPages = 0,
+      hasMore = false,
+      nextCursor = null;
+
+  @override
+  List<Object?> get props => [
+    items,
+    totalCount,
+    currentPage,
+    totalPages,
+    hasMore,
+    nextCursor,
+  ];
 }
