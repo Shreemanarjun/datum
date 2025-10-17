@@ -765,5 +765,79 @@ void main() {
         expect(tags, isEmpty);
       },
     );
+
+    test(
+      'fetches "hasMany" correctly after a related entity is deleted',
+      () async {
+        // Arrange: Create one user and two posts belonging to that user.
+        final post2 = Post(
+          id: 'post-2',
+          userId: 'user-1',
+          title: 'My Second Post',
+          modifiedAt: DateTime(2023, 2),
+          createdAt: DateTime(2023, 2),
+        );
+        await userManager.push(item: testUser, userId: testUser.id);
+        await postManager.push(item: testPost, userId: testUser.id);
+        await postManager.push(item: post2, userId: testUser.id);
+
+        // Act: Delete one of the posts.
+        await postManager.delete(id: testPost.id, userId: testUser.id);
+
+        // Assert: Fetch the 'posts' for the user again.
+        final posts = await userManager.fetchRelated<Post>(testUser, 'posts');
+        expect(posts, isNotEmpty);
+        expect(posts.length, 1);
+        expect(posts.first.id, 'post-2');
+      },
+    );
+
+    test(
+      'fetches "belongsTo" correctly after the parent entity is deleted',
+      () async {
+        // Arrange: Add both the user and the post to the local store.
+        await userManager.push(item: testUser, userId: testUser.id);
+        await postManager.push(item: testPost, userId: testUser.id);
+
+        // Pre-Assert: Ensure the relationship exists before deletion.
+        final initialAuthors =
+            await postManager.fetchRelated<User>(testPost, 'author');
+        expect(initialAuthors, isNotEmpty);
+
+        // Act: Delete the user (the "parent" in the belongsTo relationship).
+        await userManager.delete(id: testUser.id, userId: testUser.id);
+
+        // Assert: Fetching the author for the post should now return an empty list.
+        final authorsAfterDelete =
+            await postManager.fetchRelated<User>(testPost, 'author');
+        expect(authorsAfterDelete, isEmpty);
+      },
+    );
+
+    test(
+      'fetches "manyToMany" correctly after a pivot entry is deleted',
+      () async {
+        // Arrange: Add the post, tags, and pivot entries to the local store.
+        await postManager.push(item: testPost, userId: testUser.id);
+        await tagManager.push(item: tag1, userId: testUser.id);
+        await tagManager.push(item: tag2, userId: testUser.id);
+        await postTagManager.push(item: postTag1, userId: postTag1.userId);
+        await postTagManager.push(item: postTag2, userId: postTag2.userId);
+
+        // Pre-Assert: Ensure both tags are related initially.
+        final initialTags =
+            await postManager.fetchRelated<Tag>(testPost, 'tags');
+        expect(initialTags, hasLength(2));
+
+        // Act: Delete one of the pivot table entries (the link between post and tag).
+        await postTagManager.delete(id: postTag1.id, userId: postTag1.userId);
+
+        // Assert: Fetching the tags for the post should now only return one tag.
+        final tagsAfterDelete =
+            await postManager.fetchRelated<Tag>(testPost, 'tags');
+        expect(tagsAfterDelete, hasLength(1));
+        expect(tagsAfterDelete.first.id, 'tag-2');
+      },
+    );
   });
 }

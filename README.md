@@ -298,7 +298,7 @@ await Datum.instance.dispose();
 
 ---
 
-## 🔗 Relational Data & Advanced Querying
+## ⛓️ Managing Relational Data & Advanced Querying
 
 Datum goes beyond simple CRUD by providing powerful tools for handling relational data and building complex queries.
 
@@ -523,6 +523,51 @@ if (result.success) {
 | `keepLocal`            | Switch without touching local or remote data.                    |
 
 ### Step 4: Listen for User Switch Events
+
+### Strategy Cheat Sheet
+
+Here are quick copy-paste examples for each strategy:
+
+| Strategy | Example Usage |
+| :--- | :--- |
+| `syncThenSwitch` | ```dart
+// Syncs old user's data, then switches.
+// Good for ensuring data isn't lost.
+await manager.switchUser(
+  oldUserId: 'user-A',
+  newUserId: 'user-B',
+  strategy: UserSwitchStrategy.syncThenSwitch,
+);
+``` |
+| `clearAndFetch` | ```dart
+// Wipes local data for the new user and pulls fresh data.
+// Good for a clean login.
+await manager.switchUser(
+  oldUserId: 'user-A',
+  newUserId: 'user-B',
+  strategy: UserSwitchStrategy.clearAndFetch,
+);
+``` |
+| `promptIfUnsyncedData` | ```dart
+// Fails if the old user has unsynced changes.
+// Good for preventing data loss with user confirmation.
+final result = await manager.switchUser(
+  oldUserId: 'user-A',
+  newUserId: 'user-B',
+  strategy: UserSwitchStrategy.promptIfUnsyncedData,
+);
+if (!result.success) {
+  // Show a dialog: "You have unsynced changes. Sync now?"
+}
+``` |
+| `keepLocal` | ```dart
+// Switches immediately, keeping any existing local data for the new user.
+await manager.switchUser(
+  oldUserId: 'user-A',
+  newUserId: 'user-B',
+  strategy: UserSwitchStrategy.keepLocal,
+);
+``` |
 
 ```dart
 manager.onUserSwitched.listen((event) {

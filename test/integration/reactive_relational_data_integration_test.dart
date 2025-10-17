@@ -140,6 +140,35 @@ void main() {
       await postManager.push(item: testPost, userId: testUser.id);
     });
 
+    test('watchRelated for "hasMany" reacts to related entity deletion',
+        () async {
+      // Arrange: Add a user and two posts.
+      await userManager.push(item: testUser, userId: testUser.id);
+      final post2 = testPost.copyWith(id: 'post-2', title: 'Second Post');
+      await postManager.push(item: testPost, userId: testUser.id);
+      await postManager.push(item: post2, userId: testUser.id);
+
+      // Start watching the user's posts.
+      final postStream = userManager.watchRelated<Post>(testUser, 'posts');
+
+      // Assert: Expect the initial list of two posts, then an updated list
+      // with only one post after the deletion.
+      expect(
+        postStream,
+        emitsInOrder([
+          (List<Post> posts) =>
+              posts.length == 2 &&
+              posts.any((p) => p.id == 'post-1') &&
+              posts.any((p) => p.id == 'post-2'),
+          (List<Post> posts) =>
+              posts.length == 1 && posts.first.id == 'post-2',
+        ]),
+      );
+
+      // Act: Delete one of the posts, which should trigger the stream.
+      await postManager.delete(id: testPost.id, userId: testUser.id);
+    });
+
     test(
       'watchRelated for "belongsTo" reacts to related entity deletion (constraint failure)',
       () async {
@@ -199,6 +228,46 @@ void main() {
 
         // Act: Create the link in the pivot table.
         await postTagManager.push(item: postTag, userId: postTag.userId);
+      },
+    );
+
+    test(
+      'watchRelated for "manyToMany" reacts to pivot table entry deletion',
+      () async {
+        // Arrange
+        final tag = Tag(
+          id: 'tag-1',
+          userId: 'user-1',
+          name: 'Flutter',
+          modifiedAt: DateTime.now(),
+          createdAt: DateTime.now(),
+        );
+        final postTag = PostTag(
+          id: 'pt-1',
+          postId: 'post-1',
+          tagId: 'tag-1',
+          modifiedAt: DateTime.now(),
+          createdAt: DateTime.now(),
+        );
+
+        await postManager.push(item: testPost, userId: testUser.id);
+        await tagManager.push(item: tag, userId: testUser.id);
+        await postTagManager.push(item: postTag, userId: postTag.userId);
+
+        final tagStream = postManager.watchRelated<Tag>(testPost, 'tags');
+
+        // Assert
+        expect(
+          tagStream,
+          emitsInOrder([
+            (List<Tag> tags) => tags.length == 1 && tags.first.id == 'tag-1',
+            isEmpty, // After the pivot entry is deleted
+          ]),
+        );
+
+        // Act: Delete the link in the pivot table. This should trigger the
+        // stream to emit an empty list.
+        await postTagManager.delete(id: postTag.id, userId: postTag.userId);
       },
     );
 
