@@ -1,5 +1,5 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../mocks/mock_connectivity_checker.dart';
@@ -115,6 +115,7 @@ void main() {
         remoteAdapter: remoteAdapter,
         connectivity: connectivityChecker,
         datumConfig: config ?? const DatumConfig(),
+        // The key fix: pass the observer to the manager's constructor.
         localObservers: [mockObserver],
       );
       await manager.initialize();

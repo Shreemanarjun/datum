@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 
@@ -17,12 +17,10 @@ typedef StreamControllers = ({
   StreamController<DatumChangeDetail<TestEntity>> remote,
 });
 
-class MockConnectivityChecker extends Mock implements ConnectivityChecker {}
+class MockConnectivityChecker extends Mock
+    implements DatumConnectivityChecker {}
 
 void main() {
-  // This is crucial for tests that use plugins which interact with platform channels.
-  TestWidgetsFlutterBinding.ensureInitialized();
-
   group('DatumManager External Change Handling', () {
     late MockLocalAdapter<TestEntity> localAdapter;
     late MockRemoteAdapter<TestEntity> remoteAdapter;
@@ -257,6 +255,7 @@ void main() {
         manager = DatumManager<TestEntity>(
           localAdapter: localAdapter,
           remoteAdapter: remoteAdapter,
+          connectivity: connectivityChecker,
           datumConfig: const DatumConfig<TestEntity>(
             schemaVersion: 0,
             remoteEventDebounceTime: Duration.zero,
@@ -301,6 +300,7 @@ void main() {
         manager = DatumManager<TestEntity>(
           localAdapter: localAdapter,
           remoteAdapter: remoteAdapter,
+          connectivity: connectivityChecker,
           datumConfig: const DatumConfig<TestEntity>(
             schemaVersion: 0,
             remoteEventDebounceTime: Duration(milliseconds: 200),
@@ -449,11 +449,9 @@ void main() {
         expect(pendingOps, 1);
 
         // Capture the operation that was enqueued to inspect its contents.
-        final capturedOp =
-            verify(
-                  () => localAdapter.addPendingOperation(userId, captureAny()),
-                ).captured.single
-                as DatumSyncOperation<TestEntity>;
+        final capturedOp = verify(
+          () => localAdapter.addPendingOperation(userId, captureAny()),
+        ).captured.single as DatumSyncOperation<TestEntity>;
 
         // Assert that the operation is an 'update'.
         expect(capturedOp.type, DatumOperationType.update);

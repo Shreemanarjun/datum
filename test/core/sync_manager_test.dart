@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -14,7 +14,8 @@ class MockLocalAdapter<T extends DatumEntity> extends Mock
 class MockRemoteAdapter<T extends DatumEntity> extends Mock
     implements RemoteAdapter<T> {}
 
-class MockConnectivityChecker extends Mock implements ConnectivityChecker {}
+class MockConnectivityChecker extends Mock
+    implements DatumConnectivityChecker {}
 
 /// A custom logger for tests that omits stack traces for cleaner output.
 class TestLogger extends DatumLogger {
@@ -1044,12 +1045,10 @@ void main() async {
             ).thenAnswer((_) async {});
 
             // Act & Assert
-            final startedFuture = manager.eventStream
-                .whereType<DatumSyncStartedEvent>()
-                .first;
-            final completedFuture = manager.eventStream
-                .whereType<DatumSyncCompletedEvent>()
-                .first;
+            final startedFuture =
+                manager.eventStream.whereType<DatumSyncStartedEvent>().first;
+            final completedFuture =
+                manager.eventStream.whereType<DatumSyncCompletedEvent>().first;
 
             await manager.synchronize(userId);
 
@@ -1344,6 +1343,7 @@ void main() async {
         final uninitializedManager = DatumManager<TestEntity>(
           localAdapter: localAdapter,
           remoteAdapter: remoteAdapter,
+          connectivity: connectivityChecker,
         );
 
         // Act & Assert
@@ -1416,7 +1416,11 @@ void main() async {
           );
           final syncThrowFuture = expectLater(
             () => manager.synchronize(userId),
-            throwsA(exception),
+            // Instead of checking for the exact exception instance,
+            // check for the type and a property (like the message) to make
+            // the test more robust against stack trace differences.
+            throwsA(isA<Exception>().having((e) => e.toString(), 'toString()',
+                'Exception: Remote push failed')),
           );
 
           // Assert

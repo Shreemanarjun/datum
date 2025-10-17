@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// Represents the specific health status of a synchronization process.
 enum DatumSyncHealth {

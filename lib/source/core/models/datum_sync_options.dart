@@ -1,7 +1,7 @@
 import 'package:datum/source/config/datum_config.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// Configuration passed when triggering a manual synchronization via `Datum.sync()`.
 @immutable

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
@@ -330,6 +330,7 @@ void main() {
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
+        // connectivity is required
         connectivity: connectivityChecker,
       );
       await manager.initialize();

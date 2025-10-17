@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:datum/datum.dart';
 import '../mocks/test_entity.dart';
 
@@ -29,7 +29,8 @@ void main() {
 
     group('MergeResolver', () {
       test('should have correct name property', () {
-        final resolver = MergeResolver<TestEntity>(onMerge: (_, __, ___) async => null);
+        final resolver =
+            MergeResolver<TestEntity>(onMerge: (_, __, ___) async => null);
         expect(resolver.name, 'Merge');
       });
 
@@ -94,7 +95,8 @@ void main() {
 
         // Assert
         expect(resolution.strategy, DatumResolutionStrategy.abort);
-        expect(resolution.message, 'Merge requires both local and remote data to be available.');
+        expect(resolution.message,
+            'Merge requires both local and remote data to be available.');
       });
 
       test('should abort when only remote is null', () async {
@@ -112,7 +114,8 @@ void main() {
 
         // Assert
         expect(resolution.strategy, DatumResolutionStrategy.abort);
-        expect(resolution.message, 'Merge requires both local and remote data to be available.');
+        expect(resolution.message,
+            'Merge requires both local and remote data to be available.');
       });
 
       test('should abort when onMerge returns null', () async {
@@ -351,7 +354,8 @@ void main() {
 
     group('UserPromptResolver', () {
       test('should have correct name property', () {
-        final resolver = UserPromptResolver<TestEntity>(onPrompt: (_, __, ___) async => DatumResolutionStrategy.abort);
+        final resolver = UserPromptResolver<TestEntity>(
+            onPrompt: (_, __, ___) async => DatumResolutionStrategy.abort);
         expect(resolver.name, 'UserPrompt');
       });
 
@@ -564,7 +568,8 @@ void main() {
 
         // Assert
         expect(resolution.strategy, DatumResolutionStrategy.abort);
-        expect(resolution.message, 'Merge requires both local and remote data to be available.');
+        expect(resolution.message,
+            'Merge requires both local and remote data to be available.');
       });
 
       test('should abort when user chooses abort', () async {

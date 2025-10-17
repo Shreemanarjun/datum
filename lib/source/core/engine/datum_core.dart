@@ -21,11 +21,11 @@ class Datum {
   final DatumConfig config;
   final Map<Type, DatumManager<DatumEntity>> _managers = {};
   final Map<Type, AdapterPair> _adapterPairs = {};
-  final ConnectivityChecker connectivityChecker;
+  final DatumConnectivityChecker connectivityChecker;
   final List<GlobalDatumObserver> globalObservers = [];
   final DatumLogger logger;
   final List<StreamSubscription<DatumSyncEvent<DatumEntity>>>
-  _managerSubscriptions = [];
+      _managerSubscriptions = [];
 
   // Stream controllers for events and status
   final StreamController<DatumSyncEvent<DatumEntity>> _eventController =
@@ -57,7 +57,7 @@ class Datum {
   /// This must be called once before accessing [Datum.instance] or any other methods.
   static Future<Datum> initialize({
     required DatumConfig config,
-    required ConnectivityChecker connectivityChecker,
+    required DatumConnectivityChecker connectivityChecker,
     DatumLogger? logger,
     List<DatumRegistration> registrations = const [],
   }) async {
@@ -289,7 +289,13 @@ class Datum {
         userId,
         (s) => s.copyWith(status: DatumSyncStatus.failed, errors: [e]),
       );
-      rethrow;
+      // CRITICAL: Using `return Future.error` instead of a synchronous `throw`
+      // is essential to prevent race conditions. It ensures that any error
+      // events emitted from the underlying managers have a chance to be
+      // delivered to listeners on the global `Datum.instance.events` stream
+      // *before* the Future returned by this `synchronize()` method completes
+      // with an error.
+      return Future.error(e, stack);
     }
   }
 

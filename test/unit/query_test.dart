@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:datum/datum.dart';
 
 import '../mocks/test_entity.dart';
@@ -11,10 +11,9 @@ void main() {
     const tableName = 'items';
 
     test('converts a simple "where equals" query to SQLite SQL', () {
-      final query =
-          (DatumQueryBuilder<TestEntity>()
-                ..where('completed', isEqualTo: false))
-              .build();
+      final query = (DatumQueryBuilder<TestEntity>()
+            ..where('completed', isEqualTo: false))
+          .build();
 
       final result = query.toSql(tableName);
 
@@ -38,12 +37,11 @@ void main() {
     });
 
     test('converts a query with OR logical operator', () {
-      final query =
-          (DatumQueryBuilder<TestEntity>()
-                ..logicalOperator = LogicalOperator.or)
-              .where('priority', isGreaterThan: 4)
-              .where('status', isEqualTo: 'urgent')
-              .build();
+      final query = (DatumQueryBuilder<TestEntity>()
+            ..logicalOperator = LogicalOperator.or)
+          .where('priority', isGreaterThan: 4)
+          .where('status', isEqualTo: 'urgent')
+          .build();
 
       final result = query.toSql(tableName);
 
@@ -86,10 +84,8 @@ void main() {
     });
 
     test('handles "IN" and "NOT IN" clauses correctly', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('status', isIn: ['new', 'open'])
-          .where('id', isNotIn: ['id1', 'id2'])
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('status',
+          isIn: ['new', 'open']).where('id', isNotIn: ['id1', 'id2']).build();
 
       final result = query.toSql(tableName);
 
@@ -101,26 +97,23 @@ void main() {
     });
 
     test('handles empty "IN" list to prevent SQL errors', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('status', isIn: [])
-          .build();
+      final query =
+          DatumQueryBuilder<TestEntity>().where('status', isIn: []).build();
       final result = query.toSql(tableName);
       expect(result.sql, 'SELECT * FROM "$tableName" WHERE 0=1');
     });
 
     test('handles empty "NOT IN" list to prevent SQL errors', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('status', isNotIn: [])
-          .build();
+      final query =
+          DatumQueryBuilder<TestEntity>().where('status', isNotIn: []).build();
       final result = query.toSql(tableName);
       // `NOT IN ()` is always true, so the condition should be `1=1`.
       expect(result.sql, 'SELECT * FROM "$tableName" WHERE 1=1');
     });
 
     test('handles "BETWEEN" clause correctly', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('createdAt', between: [DateTime(2023), DateTime(2024)])
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('createdAt',
+          between: [DateTime(2023), DateTime(2024)]).build();
 
       final result = query.toSql(tableName);
 
@@ -198,9 +191,9 @@ void main() {
     test('handles composite "OR" filter', () {
       final query =
           DatumQueryBuilder<TestEntity>().where('category', isEqualTo: 'A').or([
-            const Filter('status', FilterOperator.equals, 'new'),
-            const Filter('priority', FilterOperator.greaterThan, 3),
-          ]).build();
+        const Filter('status', FilterOperator.equals, 'new'),
+        const Filter('priority', FilterOperator.greaterThan, 3),
+      ]).build();
 
       final result = query.toSql(tableName);
 
@@ -212,15 +205,13 @@ void main() {
     });
 
     test('handles composite "AND" filter for explicit grouping', () {
-      final query =
-          (DatumQueryBuilder<TestEntity>()
-                ..logicalOperator = LogicalOperator.or)
-              .where('category', isEqualTo: 'A')
-              .and([
-                const Filter('status', FilterOperator.equals, 'active'),
-                const Filter('priority', FilterOperator.lessThan, 2),
-              ])
-              .build();
+      final query = (DatumQueryBuilder<TestEntity>()
+            ..logicalOperator = LogicalOperator.or)
+          .where('category', isEqualTo: 'A')
+          .and([
+        const Filter('status', FilterOperator.equals, 'active'),
+        const Filter('priority', FilterOperator.lessThan, 2),
+      ]).build();
 
       final result = query.toSql(tableName);
 
@@ -255,18 +246,19 @@ void main() {
 
     test('throws for arrayContainsAny operator without a custom builder', () {
       final query = DatumQueryBuilder<TestEntity>()
-          .where('tags', arrayContainsAny: ['urgent'])
-          .build();
+          .where('tags', arrayContainsAny: ['urgent']).build();
 
       expect(() => query.toSql(tableName), throwsA(isA<UnsupportedError>()));
     });
 
     test('throws for withinDistance operator without a custom builder', () {
-      final query = DatumQueryBuilder<TestEntity>().whereWithinDistance(
-        'location',
-        {'latitude': 0, 'longitude': 0},
-        100,
-      ).build();
+      final query = DatumQueryBuilder<TestEntity>()
+          .whereWithinDistance(
+            'location',
+            {'latitude': 0, 'longitude': 0},
+            100,
+          )
+          .build();
 
       expect(() => query.toSql(tableName), throwsA(isA<UnsupportedError>()));
     });
@@ -303,12 +295,11 @@ void main() {
     });
 
     test('uses customBuilder for unsupported operators', () {
-      final query =
-          (DatumQueryBuilder<TestEntity>().where(
-                'location',
-                matches: 'some_pattern',
-              )) // REGEXP is dialect-specific
-              .build();
+      final query = (DatumQueryBuilder<TestEntity>().where(
+        'location',
+        matches: 'some_pattern',
+      )) // REGEXP is dialect-specific
+          .build();
 
       final result = query.toSql(
         tableName,
@@ -348,8 +339,7 @@ void main() {
     test('builds a query with arrayContains and arrayContainsAny', () {
       final query = DatumQueryBuilder<TestEntity>()
           .where('tags', arrayContains: 'urgent')
-          .where('labels', arrayContainsAny: ['a', 'b'])
-          .build();
+          .where('labels', arrayContainsAny: ['a', 'b']).build();
 
       expect(query.filters, hasLength(2));
       final filter1 = query.filters[0] as Filter;
@@ -375,9 +365,8 @@ void main() {
 
     test('builds a query with whereRaw', () {
       const rawCondition = Filter('customField', FilterOperator.equals, true);
-      final query = DatumQueryBuilder<TestEntity>()
-          .whereRaw(rawCondition)
-          .build();
+      final query =
+          DatumQueryBuilder<TestEntity>().whereRaw(rawCondition).build();
 
       expect(query.filters, hasLength(1));
       expect(query.filters.first, same(rawCondition));
@@ -406,13 +395,12 @@ void main() {
     });
 
     test('reset clears all filters, sorting, limit, and offset', () {
-      final builder =
-          DatumQueryBuilder<TestEntity>()
-              .where('name', isEqualTo: 'test')
-              .orderBy('name')
-              .limit(10)
-              .offset(5)
-            ..logicalOperator = LogicalOperator.or;
+      final builder = DatumQueryBuilder<TestEntity>()
+          .where('name', isEqualTo: 'test')
+          .orderBy('name')
+          .limit(10)
+          .offset(5)
+        ..logicalOperator = LogicalOperator.or;
 
       final initialQuery = builder.build();
       expect(initialQuery.filters, isNotEmpty);

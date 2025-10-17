@@ -1,25 +1,30 @@
 import 'dart:async';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
-
-/// A mockable wrapper around the `connectivity_plus` package.
-class ConnectivityChecker {
-  final Connectivity _connectivity;
-
-  /// Creates a connectivity checker.
-  ConnectivityChecker({Connectivity? connectivity})
-    : _connectivity = connectivity ?? Connectivity();
-
+/// An abstract interface for checking network connectivity.
+///
+/// This allows the `datum` library to remain platform-agnostic. The user of
+/// the library is responsible for providing a concrete implementation.
+///
+/// ### Example Implementation for Flutter:
+/// ```dart
+/// import 'package:connectivity_plus/connectivity_plus.dart';
+///
+/// class MyConnectivityChecker implements ConnectivityChecker {
+///   final _connectivity = Connectivity();
+///
+///   @override
+///   Future<bool> get isConnected async =>
+///       !(await _connectivity.checkConnectivity()).contains(ConnectivityResult.none);
+///
+///   @override
+///   Stream<bool> get onStatusChange => _connectivity.onConnectivityChanged
+///       .map((results) => !results.contains(ConnectivityResult.none));
+/// }
+/// ```
+abstract class DatumConnectivityChecker {
   /// Checks if the device is connected to a network.
-  Future<bool> get isConnected async {
-    final result = await _connectivity.checkConnectivity();
-    return !result.contains(ConnectivityResult.none);
-  }
+  Future<bool> get isConnected;
 
   /// A stream that emits the connectivity status whenever it changes.
-  Stream<bool> get onStatusChange {
-    return _connectivity.onConnectivityChanged.map(
-      (results) => !results.contains(ConnectivityResult.none),
-    );
-  }
+  Stream<bool> get onStatusChange;
 }

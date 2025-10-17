@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 
@@ -315,9 +315,9 @@ void main() {
         // includes the remote-only field by checking what is sent to the remote.
         await manager.synchronize('u1');
 
-        final captured =
-            verify(() => remoteAdapter.create(captureAny())).captured.single
-                as ExcludableEntity;
+        final captured = verify(() => remoteAdapter.create(captureAny()))
+            .captured
+            .single as ExcludableEntity;
 
         final remoteMap = captured.toMap(target: MapTarget.remote);
         expect(remoteMap, containsPair('sessionToken', 'token-123'));
@@ -386,15 +386,13 @@ void main() {
       await manager.push(item: updated, userId: 'u1');
       await manager.synchronize('u1');
       // Assert that the map sent to the remote adapter for the patch includes the remote field
-      final captured =
-          verify(
-                () => remoteAdapter.patch(
-                  id: 'e-patch',
-                  userId: 'u1',
-                  delta: captureAny(named: 'delta'),
-                ),
-              ).captured.single
-              as Map<String, dynamic>;
+      final captured = verify(
+        () => remoteAdapter.patch(
+          id: 'e-patch',
+          userId: 'u1',
+          delta: captureAny(named: 'delta'),
+        ),
+      ).captured.single as Map<String, dynamic>;
 
       expect(captured, containsPair('sessionToken', 'token-456'));
       expect(captured, containsPair('name', 'Updated Name'));
@@ -426,9 +424,9 @@ void main() {
       await manager.synchronize('u1');
 
       // Assert: The data saved to the local adapter should contain the field.
-      final capturedLocal =
-          verify(() => localAdapter.create(captureAny())).captured.single
-              as ExcludableEntity;
+      final capturedLocal = verify(() => localAdapter.create(captureAny()))
+          .captured
+          .single as ExcludableEntity;
       final localMap = capturedLocal.toMap(target: MapTarget.local);
 
       expect(localMap, containsPair('localCacheKey', 'cache-data'));

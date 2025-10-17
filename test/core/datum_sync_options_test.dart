@@ -1,5 +1,5 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../mocks/test_entity.dart';
@@ -9,13 +9,13 @@ class MockConflictResolver<T extends DatumEntity> extends Mock
 
 class AnotherTestEntity extends TestEntity {
   AnotherTestEntity({required super.id, required super.userId})
-    : super(
-        name: 'Another',
-        value: 0,
-        modifiedAt: DateTime.now(),
-        createdAt: DateTime.now(),
-        version: 1,
-      );
+      : super(
+          name: 'Another',
+          value: 0,
+          modifiedAt: DateTime.now(),
+          createdAt: DateTime.now(),
+          version: 1,
+        );
 }
 
 void main() {

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 
@@ -13,7 +13,8 @@ class MockLocalAdapter<T extends DatumEntity> extends Mock
 class MockRemoteAdapter<T extends DatumEntity> extends Mock
     implements RemoteAdapter<T> {}
 
-class MockConnectivityChecker extends Mock implements ConnectivityChecker {}
+class MockConnectivityChecker extends Mock
+    implements DatumConnectivityChecker {}
 
 void main() {
   group('Advanced Sync Integration Tests', () {
@@ -173,9 +174,8 @@ void main() {
       ).thenAnswer((_) async => [localOnlyEntity, remoteEntity1]);
       await manager.push(item: localOnlyEntity, userId: 'user1');
 
-      final thirtyDaysAgo = DateTime.now()
-          .subtract(const Duration(days: 30))
-          .toIso8601String();
+      final thirtyDaysAgo =
+          DateTime.now().subtract(const Duration(days: 30)).toIso8601String();
       final scope = DatumSyncScope.filter({'minModifiedDate': thirtyDaysAgo});
       await manager.synchronize('user1', scope: scope);
 
@@ -187,7 +187,8 @@ void main() {
       expect(localItems.any((item) => item.id == 'local-only'), isTrue);
     });
 
-    test('per-operation retry logic increments retry count on failure', () async {
+    test('per-operation retry logic increments retry count on failure',
+        () async {
       // Re-initialize manager with retries enabled for this specific test.
       await manager.dispose();
       localAdapter = MockLocalAdapter<TestEntity>();

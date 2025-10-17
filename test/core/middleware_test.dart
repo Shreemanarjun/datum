@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
@@ -20,8 +20,6 @@ class MockObserver<T extends DatumEntity> extends Mock
     implements DatumObserver<T> {}
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
   group('DatumMiddleware', () {
     late DatumManager<TestEntity> manager;
     late MockLocalAdapter<TestEntity> localAdapter;
@@ -126,9 +124,7 @@ void main() {
 
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
-
         remoteAdapter: remoteAdapter,
-        conflictResolver: LastWriteWinsResolver<TestEntity>(),
         connectivity: MockConnectivityChecker(),
         datumConfig: DatumConfig(
           errorRecoveryStrategy: DatumErrorRecoveryStrategy(
@@ -314,6 +310,7 @@ void main() {
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
+        connectivity: MockConnectivityChecker(),
         middlewares: [middleware1, middleware2],
       );
       await manager.initialize();
@@ -346,8 +343,10 @@ void main() {
       verifyInOrder([
         () => middleware1.transformBeforeSave(original),
         () => middleware2.transformBeforeSave(
-          any(that: predicate((e) => (e as TestEntity).name == 'M1: Original')),
-        ),
+              any(
+                  that: predicate(
+                      (e) => (e as TestEntity).name == 'M1: Original')),
+            ),
       ]);
     });
 

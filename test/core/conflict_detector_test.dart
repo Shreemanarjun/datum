@@ -1,7 +1,7 @@
 import 'package:datum/source/core/engine/conflict_detector.dart';
 import 'package:datum/source/core/models/conflict_context.dart';
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
 

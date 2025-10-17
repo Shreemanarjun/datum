@@ -49,7 +49,7 @@ class DatumManager<T extends DatumEntity> {
   // Core dependencies
   final DatumConflictResolver<T> _conflictResolver;
   final DatumConfig<T> _config;
-  final ConnectivityChecker _connectivity;
+  final DatumConnectivityChecker _connectivity;
   final DatumLogger _logger;
   final List<DatumObserver<T>> _localObservers = [];
   final List<GlobalDatumObserver> _globalObservers = [];
@@ -101,23 +101,22 @@ class DatumManager<T extends DatumEntity> {
     required this.localAdapter,
     required this.remoteAdapter,
     DatumConflictResolver<T>? conflictResolver,
+    required DatumConnectivityChecker connectivity,
     DatumConfig<T>? datumConfig,
-    ConnectivityChecker? connectivity,
     DatumLogger? logger,
     List<DatumObserver<T>>? localObservers,
     List<DatumMiddleware<T>>? middlewares,
     List<GlobalDatumObserver>? globalObservers,
-  }) : _config = datumConfig ?? const DatumConfig(),
-       _connectivity = connectivity ?? ConnectivityChecker(),
-       _statusSubject = BehaviorSubject.seeded(
-         DatumSyncStatusSnapshot.initial(''),
-       ),
-       _logger =
-           logger ??
-           DatumLogger(
-             enabled: (datumConfig ?? const DatumConfig()).enableLogging,
-           ),
-       _conflictResolver = conflictResolver ?? LastWriteWinsResolver<T>() {
+  })  : _config = datumConfig ?? const DatumConfig(),
+        _connectivity = connectivity,
+        _statusSubject = BehaviorSubject.seeded(
+          DatumSyncStatusSnapshot.initial(''),
+        ),
+        _logger = logger ??
+            DatumLogger(
+              enabled: (datumConfig ?? const DatumConfig()).enableLogging,
+            ),
+        _conflictResolver = conflictResolver ?? LastWriteWinsResolver<T>() {
     _localObservers.addAll(localObservers ?? []);
     _globalObservers.addAll(globalObservers ?? []);
     _middlewares.addAll(middlewares ?? []);
@@ -738,8 +737,8 @@ class DatumManager<T extends DatumEntity> {
               direction: options.direction,
               conflictResolver:
                   options.conflictResolver is DatumConflictResolver<T>
-                  ? options.conflictResolver as DatumConflictResolver<T>
-                  : null,
+                      ? options.conflictResolver as DatumConflictResolver<T>
+                      : null,
             )
           : null;
 
@@ -757,11 +756,20 @@ class DatumManager<T extends DatumEntity> {
       );
       _processSyncEvents(events);
       return result;
-    } on SyncExceptionWithEvents<T> catch (e) {
+    } on Object catch (e, stack) {
       // This block handles a special case where the sync engine fails but
       // needs to communicate events (like DatumSyncErrorEvent) back to the
       // manager before the top-level Future completes with an error.
-      _processSyncEvents(e.events);
+
+      // If the error is already our special type, it came from the main
+      // isolate. If not, it likely came from a worker isolate and lost its
+      // type, so we need to re-wrap it.
+      final SyncExceptionWithEvents<T> wrappedException =
+          e is SyncExceptionWithEvents<T>
+              ? e
+              : SyncExceptionWithEvents(e, stack, []);
+
+      _processSyncEvents(wrappedException.events);
 
       // CRITICAL: Re-throw the original error asynchronously.
       // Using `return Future.error` instead of a synchronous `throw` is
@@ -772,7 +780,10 @@ class DatumManager<T extends DatumEntity> {
       // a test awaiting both the event and the thrown exception might see
       // the exception first and terminate before the event is received,
       // leading to a timeout.
-      return Future.error(e.originalError, e.originalStackTrace);
+      return Future.error(
+        wrappedException.originalError,
+        wrappedException.originalStackTrace,
+      );
     }
   }
 

@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
@@ -55,6 +55,7 @@ void main() {
         remoteAdapter: remoteAdapter,
         conflictResolver: LastWriteWinsResolver<TestEntity>(),
         datumConfig: const DatumConfig(), // Use default config
+        // connectivity is required
         connectivity: connectivityChecker,
       );
 

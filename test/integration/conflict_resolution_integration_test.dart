@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 
@@ -227,7 +227,8 @@ void main() {
       late TestEntity localPatch;
       final pendingOps = <DatumSyncOperation<TestEntity>>[];
 
-      test('LastWriteWinsResolver: remote wins, overwriting the local patch', () async {
+      test('LastWriteWinsResolver: remote wins, overwriting the local patch',
+          () async {
         // Arrange
         await setupManager(LastWriteWinsResolver<TestEntity>());
         // Use manager.push to correctly add the operation to the queue.
@@ -305,15 +306,13 @@ void main() {
         await manager.synchronize(userId);
 
         // Assert: The local patch was sent first during the push phase.
-        final capturedPatch =
-            verify(
-                  () => remoteAdapter.patch(
-                    id: localEntity.id,
-                    delta: captureAny(named: 'delta'),
-                    userId: userId,
-                  ),
-                ).captured.first
-                as Map<String, dynamic>;
+        final capturedPatch = verify(
+          () => remoteAdapter.patch(
+            id: localEntity.id,
+            delta: captureAny(named: 'delta'),
+            userId: userId,
+          ),
+        ).captured.first as Map<String, dynamic>;
         expect(capturedPatch['name'], 'Local Patch Update');
 
         // Then, the conflict was resolved, and the remote version was saved locally.
@@ -392,18 +391,16 @@ void main() {
 
         // Assert
         // The local patch was sent first.
-        final capturedPatch =
-            verify(
-                  () => remoteAdapter.patch(
-                    id: localEntity.id,
-                    delta: captureAny(
-                      named: 'delta',
-                      that: isA<Map<String, dynamic>>(),
-                    ),
-                    userId: userId,
-                  ),
-                ).captured.first
-                as Map<String, dynamic>;
+        final capturedPatch = verify(
+          () => remoteAdapter.patch(
+            id: localEntity.id,
+            delta: captureAny(
+              named: 'delta',
+              that: isA<Map<String, dynamic>>(),
+            ),
+            userId: userId,
+          ),
+        ).captured.first as Map<String, dynamic>;
         expect(capturedPatch['name'], 'Local Patch Update');
 
         // No subsequent update to the local adapter should have happened.

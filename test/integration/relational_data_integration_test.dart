@@ -1,5 +1,5 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import 'package:datum/datum.dart';
 
@@ -33,20 +33,20 @@ class User extends RelationalDatumEntity {
 
   @override
   Map<String, Relation> get relations => {
-    'posts': HasMany('userId'), // A user has many posts.
-    'profile': HasOne('userId'), // A user has one profile.
-  };
+        'posts': HasMany('userId'), // A user has many posts.
+        'profile': HasOne('userId'), // A user has one profile.
+      };
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'name': name,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-  };
+        'id': id,
+        'userId': userId,
+        'name': name,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+      };
 
   @override
   User copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) {
@@ -67,25 +67,24 @@ class User extends RelationalDatumEntity {
   bool operator ==(covariant User other) {
     if (identical(this, other)) return true;
 
-    return
-      other.id == id &&
-      other.userId == userId &&
-      other.name == name &&
-      other.modifiedAt == modifiedAt &&
-      other.createdAt == createdAt &&
-      other.version == version &&
-      other.isDeleted == isDeleted;
+    return other.id == id &&
+        other.userId == userId &&
+        other.name == name &&
+        other.modifiedAt == modifiedAt &&
+        other.createdAt == createdAt &&
+        other.version == version &&
+        other.isDeleted == isDeleted;
   }
 
   @override
   int get hashCode {
     return id.hashCode ^
-      userId.hashCode ^
-      name.hashCode ^
-      modifiedAt.hashCode ^
-      createdAt.hashCode ^
-      version.hashCode ^
-      isDeleted.hashCode;
+        userId.hashCode ^
+        name.hashCode ^
+        modifiedAt.hashCode ^
+        createdAt.hashCode ^
+        version.hashCode ^
+        isDeleted.hashCode;
   }
 }
 
@@ -118,20 +117,20 @@ class Post extends RelationalDatumEntity {
   // Define the relationships
   @override
   Map<String, Relation> get relations => {
-    'author': BelongsTo('userId'),
-    'tags': ManyToMany(PostTag.constInstance, 'postId', 'tagId'),
-  };
+        'author': BelongsTo('userId'),
+        'tags': ManyToMany(PostTag.constInstance, 'postId', 'tagId'),
+      };
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'title': title,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-  };
+        'id': id,
+        'userId': userId,
+        'title': title,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+      };
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
@@ -161,25 +160,24 @@ class Post extends RelationalDatumEntity {
   bool operator ==(covariant Post other) {
     if (identical(this, other)) return true;
 
-    return
-      other.id == id &&
-      other.userId == userId &&
-      other.title == title &&
-      other.modifiedAt == modifiedAt &&
-      other.createdAt == createdAt &&
-      other.version == version &&
-      other.isDeleted == isDeleted;
+    return other.id == id &&
+        other.userId == userId &&
+        other.title == title &&
+        other.modifiedAt == modifiedAt &&
+        other.createdAt == createdAt &&
+        other.version == version &&
+        other.isDeleted == isDeleted;
   }
 
   @override
   int get hashCode {
     return id.hashCode ^
-      userId.hashCode ^
-      title.hashCode ^
-      modifiedAt.hashCode ^
-      createdAt.hashCode ^
-      version.hashCode ^
-      isDeleted.hashCode;
+        userId.hashCode ^
+        title.hashCode ^
+        modifiedAt.hashCode ^
+        createdAt.hashCode ^
+        version.hashCode ^
+        isDeleted.hashCode;
   }
 }
 
@@ -211,19 +209,19 @@ class Tag extends RelationalDatumEntity {
 
   @override
   Map<String, Relation> get relations => {
-    'posts': ManyToMany(PostTag.constInstance, 'tagId', 'postId'),
-  };
+        'posts': ManyToMany(PostTag.constInstance, 'tagId', 'postId'),
+      };
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'name': name,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-  };
+        'id': id,
+        'userId': userId,
+        'name': name,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+      };
 
   @override
   Tag copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) => this;
@@ -235,25 +233,24 @@ class Tag extends RelationalDatumEntity {
   bool operator ==(covariant Tag other) {
     if (identical(this, other)) return true;
 
-    return
-      other.id == id &&
-      other.userId == userId &&
-      other.name == name &&
-      other.modifiedAt == modifiedAt &&
-      other.createdAt == createdAt &&
-      other.version == version &&
-      other.isDeleted == isDeleted;
+    return other.id == id &&
+        other.userId == userId &&
+        other.name == name &&
+        other.modifiedAt == modifiedAt &&
+        other.createdAt == createdAt &&
+        other.version == version &&
+        other.isDeleted == isDeleted;
   }
 
   @override
   int get hashCode {
     return id.hashCode ^
-      userId.hashCode ^
-      name.hashCode ^
-      modifiedAt.hashCode ^
-      createdAt.hashCode ^
-      version.hashCode ^
-      isDeleted.hashCode;
+        userId.hashCode ^
+        name.hashCode ^
+        modifiedAt.hashCode ^
+        createdAt.hashCode ^
+        version.hashCode ^
+        isDeleted.hashCode;
   }
 }
 
@@ -297,10 +294,10 @@ class PostTag extends RelationalDatumEntity {
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'postId': postId,
-    'tagId': tagId,
-  };
+        'id': id,
+        'postId': postId,
+        'tagId': tagId,
+      };
 
   @override
   PostTag copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) =>
@@ -342,14 +339,14 @@ class Profile extends RelationalDatumEntity {
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'bio': bio,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-  };
+        'id': id,
+        'userId': userId,
+        'bio': bio,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+      };
 
   @override
   Profile copyWith({

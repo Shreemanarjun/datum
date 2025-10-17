@@ -2,7 +2,7 @@ import 'package:datum/source/core/engine/queue_manager.dart';
 import 'package:datum/source/core/models/datum_operation.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
 import 'package:datum/source/utils/datum_logger.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import '../mocks/mock_adapters.dart';
 import '../mocks/test_entity.dart';

@@ -1,9 +1,10 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
-import 'package:flutter/foundation.dart';
+import 'package:equatable/equatable.dart';
+import 'package:meta/meta.dart';
 
 /// An immutable snapshot of the synchronization metrics for the entire Datum instance.
 @immutable
-class DatumMetrics {
+class DatumMetrics extends Equatable {
   /// The total number of synchronization cycles that have been started.
   final int totalSyncOperations;
 
@@ -64,31 +65,13 @@ class DatumMetrics {
   }
 
   @override
-  bool operator ==(covariant DatumMetrics other) {
-    if (identical(this, other)) return true;
-
-    return other.totalSyncOperations == totalSyncOperations &&
-        other.successfulSyncs == successfulSyncs &&
-        other.failedSyncs == failedSyncs &&
-        other.conflictsDetected == conflictsDetected &&
-        other.conflictsResolvedAutomatically ==
-            conflictsResolvedAutomatically &&
-        other.userSwitchCount == userSwitchCount &&
-        setEquals(other.activeUsers, activeUsers);
-  }
-
-  @override
-  int get hashCode {
-    // Use Object.hashAll on a sorted list of users for an order-independent hash.
-    final sortedUsers = activeUsers.toList()..sort();
-    return Object.hash(
-      totalSyncOperations,
-      successfulSyncs,
-      failedSyncs,
-      conflictsDetected,
-      conflictsResolvedAutomatically,
-      userSwitchCount,
-      Object.hashAll(sortedUsers),
-    );
-  }
+  List<Object?> get props => [
+        totalSyncOperations,
+        successfulSyncs,
+        failedSyncs,
+        conflictsDetected,
+        conflictsResolvedAutomatically,
+        userSwitchCount,
+        activeUsers,
+      ];
 }

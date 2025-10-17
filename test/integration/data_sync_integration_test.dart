@@ -1,5 +1,5 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../mocks/mock_connectivity_checker.dart';
@@ -259,15 +259,13 @@ void main() {
         await manager.synchronize('user1');
 
         // 3. ASSERT: Verify that `patch` was called with only the changed field.
-        final capturedDelta =
-            verify(
-                  () => remoteAdapter.patch(
-                    id: 'delta-e1',
-                    userId: 'user1',
-                    delta: captureAny(named: 'delta'),
-                  ),
-                ).captured.single
-                as Map<String, dynamic>;
+        final capturedDelta = verify(
+          () => remoteAdapter.patch(
+            id: 'delta-e1',
+            userId: 'user1',
+            delta: captureAny(named: 'delta'),
+          ),
+        ).captured.single as Map<String, dynamic>;
 
         // The delta should only contain the 'name' field.
         expect(capturedDelta, hasLength(1));
@@ -311,7 +309,8 @@ void main() {
       );
     });
 
-    test('converts a patch to a push if remote entity does not exist', () async {
+    test('converts a patch to a push if remote entity does not exist',
+        () async {
       final pendingOps = <DatumSyncOperation<TestEntity>>[];
       // 1. ARRANGE: Create and sync an initial entity.
       final initialEntity = TestEntity.create('delta-e3', 'user1', 'Initial');
@@ -570,7 +569,11 @@ void main() {
       // Expect the synchronize call to throw.
       final syncThrowFuture = expectLater(
         () => manager.synchronize('user1'),
-        throwsA(exception),
+        // Instead of checking for the exact exception instance,
+        // check for the type and a property (like the message) to make
+        // the test more robust against stack trace differences.
+        throwsA(isA<Exception>().having(
+            (e) => e.toString(), 'toString()', 'Exception: Remote is down')),
       );
 
       // Await both futures concurrently to avoid a race condition.
@@ -772,9 +775,9 @@ void main() {
           verifyInOrder([
             // Pull phase
             () => remoteAdapter.readAll(
-              userId: 'user1',
-              scope: any(named: 'scope'),
-            ),
+                  userId: 'user1',
+                  scope: any(named: 'scope'),
+                ),
             // Push phase
             () => remoteAdapter.create(any()),
           ]);

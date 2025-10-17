@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
@@ -263,6 +263,7 @@ void main() {
           ),
         ),
         connectivity: connectivityChecker,
+        // The key fix: pass the observer to the manager's constructor.
         globalObservers: [mockGlobalObserver],
       );
 

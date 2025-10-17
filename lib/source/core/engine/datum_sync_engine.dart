@@ -35,7 +35,7 @@ class DatumSyncEngine<T extends DatumEntity> {
   final DatumConflictDetector<T> conflictDetector;
   final DatumLogger logger;
   final DatumConfig config;
-  final ConnectivityChecker connectivityChecker;
+  final DatumConnectivityChecker connectivityChecker;
   final StreamController<DatumSyncEvent<T>> eventController;
   final BehaviorSubject<DatumSyncStatusSnapshot> statusSubject;
   final BehaviorSubject<DatumSyncMetadata> metadataSubject;
@@ -186,6 +186,12 @@ class DatumSyncEngine<T extends DatumEntity> {
       }
       return (result, generatedEvents);
     } catch (e, stack) {
+      // If the exception is already the type we use for event propagation,
+      // just re-throw it to avoid double-wrapping.
+      if (e is SyncExceptionWithEvents<T>) {
+        rethrow;
+      }
+
       logger.error('Synchronization failed for user $userId: $e', stack);
       if (!statusSubject.isClosed && !eventController.isClosed) {
         statusSubject.add(
@@ -323,9 +329,11 @@ class DatumSyncEngine<T extends DatumEntity> {
       // we must rethrow the exception to let the sync process know that this
       // operation has failed.
       rethrow;
+    } on SyncExceptionWithEvents<T> {
+      // If it's already the correct type, just rethrow it.
+      rethrow;
     } on Object catch (e, stackTrace) {
-      final isRetryable =
-          e is DatumException &&
+      final isRetryable = e is DatumException &&
           operation.retryCount < config.errorRecoveryStrategy.maxRetries &&
           await config.errorRecoveryStrategy.shouldRetry(e);
 
@@ -375,7 +383,10 @@ class DatumSyncEngine<T extends DatumEntity> {
       // strategies (like `ParallelStrategy` with `failFast: true`) to
       // stop processing and immediately propagate the failure up to the
       // main `synchronize` method's `try...catch` block.
-      rethrow;
+      // IMPORTANT: Wrap the raw error in SyncExceptionWithEvents before re-throwing.
+      // This ensures that when this code runs in an isolate, the main isolate
+      // receives the correctly typed exception, not just the raw `e`.
+      throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
     }
   }
 
@@ -566,8 +577,8 @@ class DatumSyncEngine<T extends DatumEntity> {
         for (final observer in globalObservers) {
           // We need to cast the resolution to the generic DatumEntity type
           // that the GlobalDatumObserver expects.
-          final genericResolution = resolvedEvent.resolution
-              .copyWithNewType<DatumEntity>();
+          final genericResolution =
+              resolvedEvent.resolution.copyWithNewType<DatumEntity>();
           observer.onConflictResolved(genericResolution);
         }
       case DatumSyncErrorEvent<T>():

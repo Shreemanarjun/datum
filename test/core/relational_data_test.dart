@@ -1,5 +1,5 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../mocks/mock_adapters.dart';
@@ -24,15 +24,15 @@ class User extends RelationalDatumEntity {
 
   @override
   List<Object?> get props => [
-    ...super.props,
-    id,
-    userId,
-    name,
-    modifiedAt,
-    createdAt,
-    version,
-    isDeleted,
-  ];
+        ...super.props,
+        id,
+        userId,
+        name,
+        modifiedAt,
+        createdAt,
+        version,
+        isDeleted,
+      ];
 
   const User({
     required this.id,
@@ -45,20 +45,20 @@ class User extends RelationalDatumEntity {
 
   @override
   Map<String, Relation> get relations => {
-    'posts': HasMany('userId'), // A user has many posts.
-    'profile': HasOne('userId'), // A user has one profile.
-  };
+        'posts': HasMany('userId'), // A user has many posts.
+        'profile': HasOne('userId'), // A user has one profile.
+      };
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'name': name,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-  };
+        'id': id,
+        'userId': userId,
+        'name': name,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+      };
 
   @override
   User copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) {
@@ -94,15 +94,15 @@ class Post extends RelationalDatumEntity {
 
   @override
   List<Object?> get props => [
-    ...super.props,
-    id,
-    userId,
-    title,
-    modifiedAt,
-    createdAt,
-    version,
-    isDeleted,
-  ];
+        ...super.props,
+        id,
+        userId,
+        title,
+        modifiedAt,
+        createdAt,
+        version,
+        isDeleted,
+      ];
 
   const Post({
     required this.id,
@@ -132,14 +132,14 @@ class Post extends RelationalDatumEntity {
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'title': title,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-  };
+        'id': id,
+        'userId': userId,
+        'title': title,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+      };
 
   @override
   Post copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) {
@@ -176,15 +176,15 @@ class Profile extends RelationalDatumEntity {
 
   @override
   List<Object?> get props => [
-    ...super.props,
-    id,
-    userId,
-    bio,
-    modifiedAt,
-    createdAt,
-    version,
-    isDeleted,
-  ];
+        ...super.props,
+        id,
+        userId,
+        bio,
+        modifiedAt,
+        createdAt,
+        version,
+        isDeleted,
+      ];
 
   const Profile({
     required this.id,
@@ -202,14 +202,14 @@ class Profile extends RelationalDatumEntity {
 
   @override
   Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'bio': bio,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-  };
+        'id': id,
+        'userId': userId,
+        'bio': bio,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+      };
 
   @override
   Profile copyWith({
@@ -284,7 +284,8 @@ class _UnimplementedLocalAdapter<T extends DatumEntity>
   @override
   Future<List<DatumSyncOperation<T>>> getPendingOperations(
     String userId,
-  ) async => [];
+  ) async =>
+      [];
   @override
   Future<int> getStoredSchemaVersion() async => 0;
   @override
@@ -301,7 +302,8 @@ class _UnimplementedLocalAdapter<T extends DatumEntity>
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<List<T>> query(DatumQuery query, {String? userId}) async => [];
   @override
@@ -312,12 +314,14 @@ class _UnimplementedLocalAdapter<T extends DatumEntity>
   Future<PaginatedResult<T>> readAllPaginated(
     PaginationConfig config, {
     String? userId,
-  }) async => PaginatedResult<T>.empty();
+  }) async =>
+      PaginatedResult<T>.empty();
   @override
   Future<Map<String, T>> readByIds(
     List<String> ids, {
     required String userId,
-  }) async => {};
+  }) async =>
+      {};
   @override
   Future<void> removePendingOperation(String operationId) async {}
   @override

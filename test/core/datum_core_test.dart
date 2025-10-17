@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import '../integration/observer_integration_test.dart'
     show MockedLocalAdapter, MockedRemoteAdapter;
@@ -143,7 +143,7 @@ void main() {
       // Arrange & Act: Initialize Datum with registrations.
       datum = await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
-        connectivityChecker: connectivityChecker,
+        connectivityChecker: connectivityChecker, // Now required
         registrations: [
           DatumRegistration<TestEntity>(
             localAdapter: localAdapter1,
@@ -170,7 +170,7 @@ void main() {
         // Arrange
         datum = await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
-          connectivityChecker: connectivityChecker,
+          connectivityChecker: connectivityChecker, // Now required
           registrations: [
             DatumRegistration<TestEntity>(
               localAdapter: localAdapter1,
@@ -199,7 +199,7 @@ void main() {
         // Arrange
         datum = await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
-          connectivityChecker: connectivityChecker,
+          connectivityChecker: connectivityChecker, // Now required
           registrations: [
             DatumRegistration<TestEntity>(
               localAdapter: localAdapter1,
@@ -223,7 +223,7 @@ void main() {
     test('uses default DatumLogger if none is provided', () async {
       datum = await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
-        connectivityChecker: connectivityChecker,
+        connectivityChecker: connectivityChecker, // Now required
         registrations: [
           DatumRegistration<TestEntity>(
             localAdapter: localAdapter1,
@@ -262,7 +262,7 @@ void main() {
       // Arrange
       datum = await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
-        connectivityChecker: connectivityChecker,
+        connectivityChecker: connectivityChecker, // Now required
         registrations: [
           DatumRegistration<TestEntity>(
             localAdapter: localAdapter1,
@@ -299,7 +299,7 @@ void main() {
         // Arrange
         datum = await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
-          connectivityChecker: connectivityChecker,
+          connectivityChecker: connectivityChecker, // Now required
           registrations: [
             DatumRegistration<TestEntity>(
               localAdapter: localAdapter1,
@@ -339,18 +339,17 @@ void main() {
 
     test('global observer is passed to managers and receives events', () async {
       // Arrange
-      datum =
-          await Datum.initialize(
-              config: const DatumConfig(enableLogging: false),
-              connectivityChecker: connectivityChecker,
-              registrations: [
-                DatumRegistration<TestEntity>(
-                  localAdapter: localAdapter1,
-                  remoteAdapter: remoteAdapter1,
-                ),
-              ],
-            )
-            ..addObserver(globalObserver);
+      datum = await Datum.initialize(
+        config: const DatumConfig(enableLogging: false), // Now required
+        connectivityChecker: connectivityChecker,
+        registrations: [
+          DatumRegistration<TestEntity>(
+            localAdapter: localAdapter1,
+            remoteAdapter: remoteAdapter1,
+          ),
+        ],
+      )
+        ..addObserver(globalObserver);
 
       // Act
       await Datum.instance.synchronize('user1');
@@ -367,7 +366,7 @@ void main() {
       // Arrange
       datum = await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
-        connectivityChecker: connectivityChecker,
+        connectivityChecker: connectivityChecker, // Now required
         registrations: [
           DatumRegistration<TestEntity>(
             localAdapter: localAdapter1,
@@ -433,7 +432,7 @@ void main() {
       // Arrange
       datum = await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
-        connectivityChecker: connectivityChecker,
+        connectivityChecker: connectivityChecker, // Now required
         registrations: [
           DatumRegistration<TestEntity>(
             localAdapter: localAdapter1,
@@ -476,7 +475,7 @@ void main() {
         // Arrange
         datum = await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
-          connectivityChecker: connectivityChecker,
+          connectivityChecker: connectivityChecker, // Now required
           registrations: [
             DatumRegistration<TestEntity>(
               localAdapter: localAdapter1,
@@ -514,7 +513,7 @@ void main() {
     group('global synchronize with different directions', () {
       setUp(() async {
         datum = await Datum.initialize(
-          config: const DatumConfig(enableLogging: false),
+          config: const DatumConfig(enableLogging: false), // Now required
           connectivityChecker: connectivityChecker,
           registrations: [
             DatumRegistration<TestEntity>(
@@ -574,9 +573,9 @@ void main() {
         verifyInOrder([
           () => remoteAdapter1.create(any()), // Push
           () => remoteAdapter2.readAll(
-            userId: 'user1',
-            scope: any(named: 'scope'),
-          ), // Pull
+                userId: 'user1',
+                scope: any(named: 'scope'),
+              ), // Pull
         ]);
       });
 
@@ -592,9 +591,9 @@ void main() {
         // Assert
         verifyInOrder([
           () => remoteAdapter2.readAll(
-            userId: 'user1',
-            scope: any(named: 'scope'),
-          ), // Pull
+                userId: 'user1',
+                scope: any(named: 'scope'),
+              ), // Pull
           () => remoteAdapter1.create(any()), // Push
         ]);
       });
@@ -639,7 +638,7 @@ void main() {
         // Arrange
         datum = await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
-          connectivityChecker: connectivityChecker,
+          connectivityChecker: connectivityChecker, // Now required
           registrations: [
             DatumRegistration<TestEntity>(
               localAdapter: localAdapter1,
@@ -668,7 +667,7 @@ void main() {
         final exception = Exception('Remote is down!');
         datum = await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
-          connectivityChecker: connectivityChecker,
+          connectivityChecker: connectivityChecker, // Now required
           registrations: [
             DatumRegistration<TestEntity>(
               localAdapter: localAdapter1,
@@ -693,14 +692,16 @@ void main() {
         // Make the remote adapter throw an error
         when(() => remoteAdapter1.create(any())).thenThrow(exception);
 
-        // Act & Assert
-        final syncFuture = Datum.instance.synchronize('user1');
-        await expectLater(syncFuture, throwsA(exception));
-
-        // Verify an error event was broadcast
-        expect(
-          Datum.instance.events,
-          emits(
+        // Act & Assert: Await both the thrown exception and the emitted event
+        // concurrently to avoid a race condition.
+        final syncThrowsFuture = expectLater(
+          () => Datum.instance.synchronize('user1'),
+          throwsA(exception),
+        );
+        final errorEventFuture = expectLater(
+          datum.events,
+          // Use `emitsThrough` to find the error event in the stream, ignoring others.
+          emitsThrough(
             isA<DatumSyncErrorEvent>().having(
               (e) => e.error,
               'error',
@@ -708,13 +709,14 @@ void main() {
             ),
           ),
         );
+        await Future.wait([syncThrowsFuture, errorEventFuture]);
       });
 
       test('dispose correctly cleans up managers and subscriptions', () async {
         // Arrange
         datum = await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
-          connectivityChecker: connectivityChecker,
+          connectivityChecker: connectivityChecker, // Now required
           registrations: [
             DatumRegistration<TestEntity>(
               localAdapter: localAdapter1,
@@ -738,7 +740,7 @@ void main() {
       // Arrange
       datum = await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
-        connectivityChecker: connectivityChecker,
+        connectivityChecker: connectivityChecker, // Now required
         registrations: [
           DatumRegistration<TestEntity>(
             localAdapter: localAdapter1,

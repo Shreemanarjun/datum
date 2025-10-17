@@ -1,6 +1,6 @@
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// Represents the outcome of a synchronization cycle.
 @immutable
@@ -47,34 +47,34 @@ class DatumSyncResult<T extends DatumEntity> {
 
   /// Creates a result for a sync cycle that was skipped.
   const DatumSyncResult.skipped(this.userId, int pendingCount)
-    : duration = Duration.zero,
-      syncedCount = 0,
-      failedCount = 0,
-      conflictsResolved = 0,
-      pendingOperations = const [],
-      wasSkipped = true,
-      wasCancelled = false,
-      error = null;
+      : duration = Duration.zero,
+        syncedCount = 0,
+        failedCount = 0,
+        conflictsResolved = 0,
+        pendingOperations = const [],
+        wasSkipped = true,
+        wasCancelled = false,
+        error = null;
 
   /// Creates a result for a sync cycle that was cancelled.
   const DatumSyncResult.cancelled(this.userId, this.syncedCount)
-    : duration = Duration.zero,
-      failedCount = 0,
-      conflictsResolved = 0,
-      pendingOperations = const [],
-      wasSkipped = false,
-      wasCancelled = true,
-      error = null;
+      : duration = Duration.zero,
+        failedCount = 0,
+        conflictsResolved = 0,
+        pendingOperations = const [],
+        wasSkipped = false,
+        wasCancelled = true,
+        error = null;
 
   /// Creates a result for a sync cycle that failed with an error.
   const DatumSyncResult.fromError(this.userId, this.error)
-    : duration = Duration.zero,
-      syncedCount = 0,
-      failedCount = 1,
-      conflictsResolved = 0,
-      pendingOperations = const [],
-      wasSkipped = false,
-      wasCancelled = false;
+      : duration = Duration.zero,
+        syncedCount = 0,
+        failedCount = 1,
+        conflictsResolved = 0,
+        pendingOperations = const [],
+        wasSkipped = false,
+        wasCancelled = false;
 
   /// Whether the sync completed successfully without any failures.
   bool get isSuccess =>

@@ -1,5 +1,5 @@
 import 'package:datum/source/core/health/datum_health.dart';
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// High-level states for the synchronization process.
 enum DatumSyncStatus {

@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:datum/source/core/models/datum_operation.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
 

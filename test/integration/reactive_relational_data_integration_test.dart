@@ -1,5 +1,5 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:fake_async/fake_async.dart';
 
 import '../mocks/mock_adapters.dart';
@@ -202,7 +202,8 @@ void main() {
       },
     );
 
-    test('watchRelated for "hasOne" reacts to changes in the related entity', () {
+    test('watchRelated for "hasOne" reacts to changes in the related entity',
+        () {
       fakeAsync((async) async {
         // Arrange
         await userManager.push(item: testUser, userId: testUser.id);

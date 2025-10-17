@@ -1,5 +1,5 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
 
@@ -45,7 +45,8 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   Future<void> addPendingOperation(
     String userId,
     DatumSyncOperation<TestEntity> operation,
-  ) => throw UnimplementedError();
+  ) =>
+      throw UnimplementedError();
   @override
   Stream<DatumChangeDetail<TestEntity>>? changeStream() =>
       throw UnimplementedError();
@@ -68,7 +69,8 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   @override
   Future<List<DatumSyncOperation<TestEntity>>> getPendingOperations(
     String userId,
-  ) => throw UnimplementedError();
+  ) =>
+      throw UnimplementedError();
   @override
   Future<int> getStoredSchemaVersion() => throw UnimplementedError();
   @override
@@ -80,13 +82,15 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   Future<void> overwriteAllRawData(
     List<Map<String, dynamic>> data, {
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<TestEntity> patch({
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<List<TestEntity>> query(DatumQuery query, {String? userId}) =>
       throw UnimplementedError();
@@ -100,12 +104,14 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   Future<PaginatedResult<TestEntity>> readAllPaginated(
     PaginationConfig config, {
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<Map<String, TestEntity>> readByIds(
     List<String> ids, {
     required String userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<void> removePendingOperation(String operationId) =>
       throw UnimplementedError();
@@ -126,7 +132,8 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
     RelationalDatumEntity parent,
     String relationName,
     LocalAdapter<R> relatedAdapter,
-  ) => throw UnimplementedError();
+  ) =>
+      throw UnimplementedError();
 }
 
 /// A minimal concrete implementation of [RemoteAdapter] for testing default behaviors.
@@ -151,7 +158,8 @@ class _TestRemoteAdapter extends RemoteAdapter<TestEntity> {
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<List<TestEntity>> query(DatumQuery query, {String? userId}) =>
       throw UnimplementedError();

@@ -1,5 +1,5 @@
 import 'package:datum/source/core/models/user_switch_models.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
 

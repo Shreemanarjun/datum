@@ -1,6 +1,6 @@
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_operation.dart';
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// Represents a change that occurred in a data source.
 /// This is used by adapters to notify the engine about external changes.

@@ -1,13 +1,13 @@
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_result.dart';
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 /// Base class for all synchronization-related events.
 @immutable
 abstract class DatumSyncEvent<T extends DatumEntity> {
   /// Creates a base sync event.
   DatumSyncEvent({required this.userId, DateTime? timestamp})
-    : timestamp = timestamp ?? DateTime.now();
+      : timestamp = timestamp ?? DateTime.now();
 
   /// The user ID associated with this event.
   final String userId;
