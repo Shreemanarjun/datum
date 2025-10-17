@@ -63,3 +63,6 @@ app.*.map.json
 /android/app/release
 
 /example/pubspec.lock
+
+.gemini/
+gha-creds-*.json

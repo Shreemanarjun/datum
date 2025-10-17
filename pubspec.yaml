@@ -1,16 +1,23 @@
 name: datum
 description:  A powerful, offline-first data synchronization engine for Flutter and Dart, featuring relational data support, real-time queries, and intelligent conflict resolution.
-
 version: 0.0.1
-homepage:
+homepage: https://www.shreeman.dev
+repository: https://github.com/Shreemanarjun/datum
+issue_tracker: https://github.com/Shreemanarjun/datum/issues
+license: MIT
+topics:
+  - offline-first
+  - synchronization
+  - database
+  - flutter
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
 
 dependencies:
   crypto: ^3.0.3
-  rxdart: ^0.28.0
   equatable: ^2.0.5
+  rxdart: ^0.28.0
   uuid: ^4.4.0
   collection: ^1.19.1
   meta: ^1.16.0
