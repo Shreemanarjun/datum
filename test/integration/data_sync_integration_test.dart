@@ -569,11 +569,13 @@ void main() {
       // Expect the synchronize call to throw.
       final syncThrowFuture = expectLater(
         () => manager.synchronize('user1'),
-        // Instead of checking for the exact exception instance,
-        // check for the type and a property (like the message) to make
-        // the test more robust against stack trace differences.
+        // Check the exception type and message instead of the instance
+        // for a more robust test.
         throwsA(isA<Exception>().having(
-            (e) => e.toString(), 'toString()', 'Exception: Remote is down')),
+          (e) => e.toString(),
+          'toString()',
+          exception.toString(),
+        )),
       );
 
       // Await both futures concurrently to avoid a race condition.

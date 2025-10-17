@@ -696,7 +696,13 @@ void main() {
         // concurrently to avoid a race condition.
         final syncThrowsFuture = expectLater(
           () => Datum.instance.synchronize('user1'),
-          throwsA(exception),
+          // Check the exception type and message instead of the instance
+          // for a more robust test, especially with isolates.
+          throwsA(isA<Exception>().having(
+            (e) => e.toString(),
+            'toString()',
+            exception.toString(),
+          )),
         );
         final errorEventFuture = expectLater(
           datum.events,
