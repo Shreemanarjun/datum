@@ -107,6 +107,29 @@ void main() {
         );
       },
     );
+
+    group('Equality and HashCode', () {
+      test('instances with same values are equal', () {
+        const config1 = DatumConfig(schemaVersion: 1, autoStartSync: true);
+        const config2 = DatumConfig(schemaVersion: 1, autoStartSync: true);
+        expect(config1, equals(config2));
+        expect(config1.hashCode, equals(config2.hashCode));
+      });
+
+      test('instances with different values are not equal', () {
+        const config1 = DatumConfig(schemaVersion: 1);
+        const config2 = DatumConfig(schemaVersion: 2);
+        expect(config1, isNot(equals(config2)));
+        expect(config1.hashCode, isNot(equals(config2.hashCode)));
+      });
+
+      test('instances with different strategies are not equal', () {
+        const config1 =
+            DatumConfig(syncExecutionStrategy: SequentialStrategy());
+        const config2 = DatumConfig(syncExecutionStrategy: ParallelStrategy());
+        expect(config1, isNot(equals(config2)));
+      });
+    });
   });
 }
 

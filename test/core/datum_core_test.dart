@@ -775,6 +775,68 @@ void main() {
       await Datum.instance.synchronize('user1');
       await statusFuture;
     });
+
+    group('allHealths stream', () {
+      test('emits a map of health statuses for all registered managers',
+          () async {
+        // Arrange
+        datum = await Datum.initialize(
+          config: const DatumConfig(enableLogging: false),
+          connectivityChecker: connectivityChecker,
+          registrations: [
+            DatumRegistration<TestEntity>(
+              localAdapter: localAdapter1,
+              remoteAdapter: remoteAdapter1,
+            ),
+            DatumRegistration<AnotherTestEntity>(
+              localAdapter: localAdapter2,
+              remoteAdapter: remoteAdapter2,
+            ),
+          ],
+        );
+
+        // Act & Assert
+        final healthsFuture = expectLater(
+          datum.allHealths,
+          emits(
+            isA<Map<Type, DatumHealth>>()
+                .having((m) => m.keys, 'keys', {TestEntity, AnotherTestEntity})
+                .having((m) => m[TestEntity]!.status, 'TestEntity status',
+                    DatumSyncHealth.healthy)
+                .having(
+                    (m) => m[AnotherTestEntity]!.status,
+                    'AnotherTestEntity status',
+                    DatumSyncHealth.healthy),
+          ),
+        );
+
+        await healthsFuture;
+      });
+    });
+
+    group('Initialization Logging', () {
+      test('does not log when enableLogging is false', () async {
+        // Arrange
+        final mockLogger = MockLogger();
+        when(() => mockLogger.info(any())).thenAnswer((_) {});
+
+        // Act
+        await Datum.initialize(
+          config: const DatumConfig(enableLogging: false),
+          connectivityChecker: connectivityChecker,
+          logger: mockLogger,
+          registrations: [
+            DatumRegistration<TestEntity>(
+              localAdapter: localAdapter1,
+              remoteAdapter: remoteAdapter1,
+            ),
+          ],
+        );
+
+        // Assert
+        verifyNever(() => mockLogger.info(any()));
+      });
+    });
   });
 }
 

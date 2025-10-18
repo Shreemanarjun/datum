@@ -29,10 +29,13 @@ void main() {
         final string = metrics1.toString();
 
         // Assert
-        expect(string, contains('totalSyncs: 10'));
-        expect(string, contains('successful: 8'));
-        expect(string, contains('failed: 2'));
-        expect(string, contains('conflicts: 3'));
+        expect(string, contains('Syncs: 10'));
+        expect(string, contains('✅: 8'));
+        expect(string, contains('❌: 2'));
+        expect(string, contains('Conflicts: 3'));
+        expect(string, contains('Resolved: 1'));
+        expect(string, contains('Users: 2'));
+        expect(string, contains('Switches: 4'));
       });
     });
 

@@ -76,7 +76,7 @@ void main() {
       expect(string, contains('synced: 10'));
       expect(string, contains('failed: 2'));
       expect(string, contains('conflicts: 1'));
-      expect(string, contains('duration: 0:00:00.123000'));
+      expect(string, contains('duration: 123ms'));
     });
   });
 }

@@ -418,6 +418,11 @@ void main() {
       profileManager = Datum.manager<Profile>();
     });
 
+    tearDown(() async {
+      // Reset the singleton instance to ensure test isolation.
+      await Datum.instance.dispose();
+    });
+
     test('fetches a "belongsTo" related entity successfully', () async {
       // Arrange: Add both the user and the post to the local store.
       await userManager.push(item: testUser, userId: testUser.id);
@@ -530,12 +535,20 @@ void main() {
     test(
       'throws UnimplementedError if local adapter does not implement fetchRelated',
       () async {
-        // Arrange: Register a manager with an adapter that lacks the implementation.
-        await Datum.instance.register(
-          registration: DatumRegistration<Post>(
-            localAdapter: _UnimplementedLocalAdapter<Post>(),
-            remoteAdapter: MockRemoteAdapter<Post>(),
-          ),
+        // Arrange: Initialize a fresh Datum instance with the special adapter.
+        await Datum.initialize(
+          config: const DatumConfig(enableLogging: false),
+          connectivityChecker: MockConnectivityChecker(),
+          registrations: [
+            DatumRegistration<Post>(
+              localAdapter: _UnimplementedLocalAdapter<Post>(),
+              remoteAdapter: MockRemoteAdapter<Post>(),
+            ),
+            DatumRegistration<User>(
+              localAdapter: MockLocalAdapter<User>(),
+              remoteAdapter: MockRemoteAdapter<User>(),
+            ),
+          ],
         );
         final postManagerWithUnimplementedAdapter = Datum.manager<Post>();
 
@@ -555,12 +568,20 @@ void main() {
     test(
       'throws UnimplementedError if local adapter does not implement watchRelated',
       () async {
-        // Arrange: Register a manager with an adapter that lacks the implementation.
-        await Datum.instance.register(
-          registration: DatumRegistration<Post>(
-            localAdapter: _UnimplementedLocalAdapter<Post>(),
-            remoteAdapter: MockRemoteAdapter<Post>(),
-          ),
+        // Arrange: Initialize a fresh Datum instance with the special adapter.
+        await Datum.initialize(
+          config: const DatumConfig(enableLogging: false),
+          connectivityChecker: MockConnectivityChecker(),
+          registrations: [
+            DatumRegistration<Post>(
+              localAdapter: _UnimplementedLocalAdapter<Post>(),
+              remoteAdapter: MockRemoteAdapter<Post>(),
+            ),
+            DatumRegistration<User>(
+              localAdapter: MockLocalAdapter<User>(),
+              remoteAdapter: MockRemoteAdapter<User>(),
+            ),
+          ],
         );
         final postManagerWithUnimplementedAdapter = Datum.manager<Post>();
 
