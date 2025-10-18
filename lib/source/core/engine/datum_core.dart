@@ -94,6 +94,12 @@ class Datum {
     List<DatumRegistration> registrations = const [],
     List<GlobalDatumObserver> observers = const [],
   }) async {
+    if (_instance != null) {
+      // Prevent re-initialization to avoid unpredictable behavior.
+      // If re-configuration is needed, a `Datum.dispose()` or `Datum.reset()`
+      // should be called first.
+      throw StateError('Datum has already been initialized.');
+    }
     // If logging is disabled in the config, we should not produce any logs,
     // even if a custom logger is provided.
     if (!config.enableLogging) {
@@ -146,7 +152,7 @@ class Datum {
     final datum = Datum._(
       config: config,
       connectivityChecker: connectivityChecker,
-      logger: logger,
+      logger: null, // Force a disabled logger when logging is off.
     );
     datum.globalObservers.addAll(observers);
 

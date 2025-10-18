@@ -46,6 +46,12 @@ class DatumManager<T extends DatumEntity> {
   bool _initialized = false;
   bool _disposed = false;
 
+  /// Returns true if the manager has been initialized.
+  bool get isInitialized => _initialized;
+
+  /// Returns true if the manager has been disposed.
+  bool get isDisposed => _disposed;
+
   // Core dependencies
   final DatumConflictResolver<T> _conflictResolver;
   final DatumConfig<T> _config;
@@ -830,6 +836,10 @@ class DatumManager<T extends DatumEntity> {
       // If the strategy succeeds, proceed with success-related logic.
       _emitUserSwitchedEvent(oldUserId, newUserId, hadUnsynced);
       _logger.info('User switched from $oldUserId to $newUserId');
+      // Stop auto-sync for the old user to prevent resource leaks.
+      if (oldUserId != null) {
+        stopAutoSync(userId: oldUserId);
+      }
 
       // Return the success result.
       final result = DatumUserSwitchResult.success(

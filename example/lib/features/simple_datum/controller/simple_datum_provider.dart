@@ -27,4 +27,5 @@ final simpleDatumProvider = FutureProvider.autoDispose<Datum>(
     );
     return datum;
   },
+  name: "simpleDatumProvider",
 );

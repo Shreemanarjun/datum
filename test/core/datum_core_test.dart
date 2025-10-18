@@ -803,10 +803,8 @@ void main() {
                 .having((m) => m.keys, 'keys', {TestEntity, AnotherTestEntity})
                 .having((m) => m[TestEntity]!.status, 'TestEntity status',
                     DatumSyncHealth.healthy)
-                .having(
-                    (m) => m[AnotherTestEntity]!.status,
-                    'AnotherTestEntity status',
-                    DatumSyncHealth.healthy),
+                .having((m) => m[AnotherTestEntity]!.status,
+                    'AnotherTestEntity status', DatumSyncHealth.healthy),
           ),
         );
 
@@ -818,10 +816,6 @@ void main() {
       test('does not log when enableLogging is false', () async {
         // Arrange
         final mockLogger = MockLogger();
-        when(() => mockLogger.info(any())).thenAnswer((_) {});
-        // Stub the copyWith method to return a valid logger instance.
-        when(() => mockLogger.copyWith(enabled: any(named: 'enabled')))
-            .thenReturn(mockLogger);
 
         // Act
         await Datum.initialize(

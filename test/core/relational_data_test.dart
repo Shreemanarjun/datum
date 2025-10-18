@@ -44,6 +44,9 @@ class User extends RelationalDatumEntity {
   }) : userId = id; // For users, userId is often the same as id
 
   @override
+  bool get isRelational => true;
+
+  @override
   Map<String, Relation> get relations => {
         'posts': HasMany('userId'), // A user has many posts.
         'profile': HasOne('userId'), // A user has one profile.
@@ -341,7 +344,6 @@ void main() {
   group('Relational Data: fetchRelated', () {
     late DatumManager<User> userManager;
     late DatumManager<Post> postManager;
-    late DatumManager<Profile> profileManager;
 
     final testUser = User(
       id: 'user-1',
@@ -394,39 +396,32 @@ void main() {
         ),
       );
     });
+
     setUp(() async {
+      // Initialization will be handled by each test individually.
+      Datum.resetForTesting();
+    });
+
+    test('fetches a "belongsTo" related entity successfully', () async {
+      // Initialize Datum for this test
       await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
         connectivityChecker: MockConnectivityChecker(),
         registrations: [
           DatumRegistration<User>(
-            localAdapter: MockLocalAdapter<User>(),
+            localAdapter: MockLocalAdapter<User>()
+              ..addLocalItem(testUser.id, testUser),
             remoteAdapter: MockRemoteAdapter<User>(),
           ),
           DatumRegistration<Post>(
-            localAdapter: MockLocalAdapter<Post>(),
+            localAdapter: MockLocalAdapter<Post>()
+              ..addLocalItem(testUser.id, testPost),
             remoteAdapter: MockRemoteAdapter<Post>(),
-          ),
-          DatumRegistration<Profile>(
-            localAdapter: MockLocalAdapter<Profile>(),
-            remoteAdapter: MockRemoteAdapter<Profile>(),
           ),
         ],
       );
       userManager = Datum.manager<User>();
       postManager = Datum.manager<Post>();
-      profileManager = Datum.manager<Profile>();
-    });
-
-    tearDown(() async {
-      // Reset the singleton instance to ensure test isolation.
-      await Datum.instance.dispose();
-    });
-
-    test('fetches a "belongsTo" related entity successfully', () async {
-      // Arrange: Add both the user and the post to the local store.
-      await userManager.push(item: testUser, userId: testUser.id);
-      await postManager.push(item: testPost, userId: testUser.id);
 
       // Act: Fetch the 'author' for the post.
       final authors = await postManager.fetchRelated<User>(testPost, 'author');
@@ -447,9 +442,27 @@ void main() {
         modifiedAt: DateTime(2023, 2),
         createdAt: DateTime(2023, 2),
       );
-      await userManager.push(item: testUser, userId: testUser.id);
-      await postManager.push(item: testPost, userId: testUser.id);
-      await postManager.push(item: post2, userId: testUser.id);
+
+      await Datum.initialize(
+        config: const DatumConfig(enableLogging: false),
+        connectivityChecker: MockConnectivityChecker(),
+        registrations: [
+          DatumRegistration<User>(
+            localAdapter: MockLocalAdapter<User>()
+              ..addLocalItem(testUser.id, testUser),
+            remoteAdapter: MockRemoteAdapter<User>(),
+          ),
+          DatumRegistration<Post>(
+            localAdapter: MockLocalAdapter<Post>()
+              ..addLocalItem(testUser.id, testPost)
+              ..addLocalItem(testUser.id, post2),
+            remoteAdapter: MockRemoteAdapter<Post>(),
+          ),
+        ],
+      );
+
+      userManager = Datum.manager<User>();
+      postManager = Datum.manager<Post>();
 
       // Act: Fetch the 'posts' for the user.
       final posts = await userManager.fetchRelated<Post>(testUser, 'posts');
@@ -465,9 +478,24 @@ void main() {
     });
 
     test('fetches a "hasOne" related entity successfully', () async {
-      // Arrange: Add both the user and their profile to the local store.
-      await userManager.push(item: testUser, userId: testUser.id);
-      await profileManager.push(item: testProfile, userId: testUser.id);
+      await Datum.initialize(
+        config: const DatumConfig(enableLogging: false),
+        connectivityChecker: MockConnectivityChecker(),
+        registrations: [
+          DatumRegistration<User>(
+            localAdapter: MockLocalAdapter<User>()
+              ..addLocalItem(testUser.id, testUser),
+            remoteAdapter: MockRemoteAdapter<User>(),
+          ),
+          DatumRegistration<Profile>(
+            localAdapter: MockLocalAdapter<Profile>()
+              ..addLocalItem(testUser.id, testProfile),
+            remoteAdapter: MockRemoteAdapter<Profile>(),
+          ),
+        ],
+      );
+
+      userManager = Datum.manager<User>();
 
       // Act: Fetch the 'profile' for the user.
       final profiles = await userManager.fetchRelated<Profile>(
@@ -483,8 +511,23 @@ void main() {
     });
 
     test('returns an empty list if related entity does not exist', () async {
-      // Arrange: Add only the post, but not the user it belongs to.
-      await postManager.push(item: testPost, userId: testUser.id);
+      await Datum.initialize(
+        config: const DatumConfig(enableLogging: false),
+        connectivityChecker: MockConnectivityChecker(),
+        registrations: [
+          DatumRegistration<User>(
+            localAdapter: MockLocalAdapter<User>(), // Empty user adapter
+            remoteAdapter: MockRemoteAdapter<User>(),
+          ),
+          DatumRegistration<Post>(
+            localAdapter: MockLocalAdapter<Post>()
+              ..addLocalItem(testUser.id, testPost),
+            remoteAdapter: MockRemoteAdapter<Post>(),
+          ),
+        ],
+      );
+
+      postManager = Datum.manager<Post>();
 
       // Act: Fetch the 'author' for the post.
       final authors = await postManager.fetchRelated<User>(testPost, 'author');
@@ -494,8 +537,23 @@ void main() {
     });
 
     test('throws an exception for an invalid relation name', () async {
-      // Arrange
-      await postManager.push(item: testPost, userId: testUser.id);
+      await Datum.initialize(
+        config: const DatumConfig(enableLogging: false),
+        connectivityChecker: MockConnectivityChecker(),
+        registrations: [
+          DatumRegistration<User>(
+            localAdapter: MockLocalAdapter<User>(), // Not needed for this test
+            remoteAdapter: MockRemoteAdapter<User>(),
+          ),
+          DatumRegistration<Post>(
+            localAdapter: MockLocalAdapter<Post>()
+              ..addLocalItem(testUser.id, testPost),
+            remoteAdapter: MockRemoteAdapter<Post>(),
+          ),
+        ],
+      );
+
+      postManager = Datum.manager<Post>();
 
       // Act & Assert
       expect(
@@ -513,7 +571,13 @@ void main() {
     test(
       'throws an ArgumentError if parent is not a RelationalDatumEntity',
       () async {
-        // Arrange: Create a manager for a non-relational entity type.
+        // Arrange: Initialize with a non-relational entity type.
+        await Datum.initialize(
+          config: const DatumConfig(enableLogging: false),
+          connectivityChecker: MockConnectivityChecker(),
+          registrations: [],
+        );
+
         await Datum.instance.register(
           registration: DatumRegistration<TestEntity>(
             localAdapter: MockLocalAdapter<TestEntity>(),
