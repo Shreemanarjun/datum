@@ -80,4 +80,33 @@ class DatumUserSwitchResult {
       errorMessage: errorMessage,
     );
   }
+
+  /// Aggregates multiple user switch results into a single summary.
+  factory DatumUserSwitchResult.aggregate(
+    List<DatumUserSwitchResult> results, {
+    required String? previousUserId,
+    required String newUserId,
+  }) {
+    if (results.isEmpty) {
+      return DatumUserSwitchResult.success(
+        previousUserId: previousUserId,
+        newUserId: newUserId,
+      );
+    }
+
+    final overallSuccess = results.every((r) => r.success);
+    final totalUnsyncedHandled = results
+        .map((r) => r.unsyncedOperationsHandled)
+        .fold(0, (a, b) => a + b);
+    final combinedErrors =
+        results.where((r) => !r.success).map((r) => r.errorMessage).join('; ');
+
+    return DatumUserSwitchResult(
+      success: overallSuccess,
+      previousUserId: previousUserId,
+      newUserId: newUserId,
+      unsyncedOperationsHandled: totalUnsyncedHandled,
+      errorMessage: combinedErrors.isNotEmpty ? combinedErrors : null,
+    );
+  }
 }

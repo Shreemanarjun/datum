@@ -18,7 +18,7 @@ enum MapTarget {
 /// to provide value-based equality on the entity's [id].
 abstract class DatumEntity extends Equatable {
   /// A unique identifier for the entity. Typically a UUID.
-  /// Creates a const [DatumEntity].
+  /// Creates a `const` [DatumEntity].
   const DatumEntity();
 
   String get id;
@@ -42,6 +42,12 @@ abstract class DatumEntity extends Equatable {
   /// synced to other clients.
   bool get isDeleted;
 
+  /// Indicates whether this entity supports relationships.
+  ///
+  /// This is `false` by default for [DatumEntity] and `true` for
+  /// [RelationalDatumEntity].
+  bool get isRelational => false;
+
   /// Serializes the entity to a map.
   ///
   /// The [target] parameter can be used to customize the output for different
@@ -60,11 +66,11 @@ abstract class DatumEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-    id,
-    userId,
-    modifiedAt,
-    createdAt,
-    version,
-    isDeleted,
-  ];
+        id,
+        userId,
+        modifiedAt,
+        createdAt,
+        version,
+        isDeleted,
+      ];
 }

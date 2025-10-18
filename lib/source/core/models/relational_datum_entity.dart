@@ -123,8 +123,12 @@ class ManyToMany extends Relation {
 /// Entities that have relationships with other syncable entities should extend this
 /// class instead of [DatumEntity] directly.
 abstract class RelationalDatumEntity extends DatumEntity {
-  /// Creates a const [RelationalDatumEntity].
+  /// Creates a `const` [RelationalDatumEntity].
   const RelationalDatumEntity();
+
+  /// Indicates whether this entity supports relationships. Always `true` for this class.
+  @override
+  bool get isRelational => true;
 
   /// A map defining all relationships for this entity.
   ///

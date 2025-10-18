@@ -97,6 +97,9 @@ class DatumManager<T extends DatumEntity> {
   /// A stream of the manager's current health status.
   Stream<DatumHealth> get health => _statusSubject.stream.map((s) => s.health);
 
+  /// The most recent snapshot of the manager's sync status.
+  DatumSyncStatusSnapshot get currentStatus => _statusSubject.value;
+
   DatumManager({
     required this.localAdapter,
     required this.remoteAdapter,
@@ -112,10 +115,8 @@ class DatumManager<T extends DatumEntity> {
         _statusSubject = BehaviorSubject.seeded(
           DatumSyncStatusSnapshot.initial(''),
         ),
-        _logger = logger ??
-            DatumLogger(
-              enabled: (datumConfig ?? const DatumConfig()).enableLogging,
-            ),
+        _logger =
+            logger ?? DatumLogger(enabled: datumConfig?.enableLogging ?? true),
         _conflictResolver = conflictResolver ?? LastWriteWinsResolver<T>() {
     _localObservers.addAll(localObservers ?? []);
     _globalObservers.addAll(globalObservers ?? []);
@@ -1013,5 +1014,12 @@ class DatumManager<T extends DatumEntity> {
   Future<int> getPendingCount(String userId) async {
     _ensureInitialized();
     return _queueManager.getPendingCount(userId);
+  }
+
+  /// Returns a list of pending synchronization operations for the user.
+  Future<List<DatumSyncOperation<T>>> getPendingOperations(
+      String userId) async {
+    _ensureInitialized();
+    return _queueManager.getPending(userId);
   }
 }

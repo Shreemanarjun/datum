@@ -1,0 +1,31 @@
+// ignore_for_file: public_member_api_docs, sort_constructors_first
+
+import 'package:datum/datum.dart';
+import 'package:example/main.dart';
+
+class CustomDatumLogger implements DatumLogger {
+  @override
+  final bool enabled;
+
+  CustomDatumLogger({this.enabled = true});
+
+  @override
+  void debug(String message) {
+    if (enabled) talker.debug(message);
+  }
+
+  @override
+  void error(String message, [StackTrace? stackTrace]) {
+    if (enabled) talker.error(message, stackTrace);
+  }
+
+  @override
+  void info(String message) {
+    if (enabled) talker.info(message);
+  }
+
+  @override
+  void warn(String message) {
+    if (enabled) talker.warning(message);
+  }
+}

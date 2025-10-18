@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   datum:
     path: ../
+  internet_connection_checker_plus: ^2.9.0
+  talker_flutter: ^5.0.2
 
 dev_dependencies:
   flutter_test:

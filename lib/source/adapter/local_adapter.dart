@@ -36,7 +36,8 @@ abstract class LocalAdapter<T extends DatumEntity> {
   Stream<PaginatedResult<T>>? watchAllPaginated(
     PaginationConfig config, {
     String? userId,
-  }) => null;
+  }) =>
+      null;
 
   /// Watch a subset of items matching a query.
   /// Return null if the adapter doesn't support reactive queries.
@@ -216,4 +217,11 @@ abstract class LocalAdapter<T extends DatumEntity> {
 
   /// Dispose of underlying resources (e.g., close database connections).
   Future<void> dispose();
+
+  /// Provides a sample, empty, or dummy instance of the entity.
+  /// This is used for reflection-like purposes, such as logging.
+  T get sampleInstance {
+    throw UnimplementedError(
+        'sampleInstance getter is not implemented for this adapter.');
+  }
 }

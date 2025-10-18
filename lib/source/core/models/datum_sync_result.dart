@@ -1,5 +1,6 @@
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/utils/duration_formatter.dart';
 import 'package:meta/meta.dart';
 
 /// Represents the outcome of a synchronization cycle.
@@ -86,6 +87,6 @@ class DatumSyncResult<T extends DatumEntity> {
     if (wasCancelled) {
       return 'DatumSyncResult(userId: $userId, status: cancelled)';
     }
-    return 'DatumSyncResult(userId: $userId, synced: $syncedCount, failed: $failedCount, conflicts: $conflictsResolved, duration: $duration)';
+    return 'DatumSyncResult(userId: $userId, synced: $syncedCount, failed: $failedCount, conflicts: $conflictsResolved, duration: ${formatDuration(duration)})';
   }
 }

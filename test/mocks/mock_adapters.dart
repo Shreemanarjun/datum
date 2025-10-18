@@ -32,6 +32,15 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   String get name => 'MockLocalAdapter';
 
   @override
+  T get sampleInstance {
+    // This is required to fulfill the LocalAdapter contract.
+    // Tests that rely on relational logging will need to stub this.
+    throw UnimplementedError(
+      'sampleInstance is not implemented for this mock adapter.',
+    );
+  }
+
+  @override
   Future<void> initialize() async {
     // No-op for mock
   }
