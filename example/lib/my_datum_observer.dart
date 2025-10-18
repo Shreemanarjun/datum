@@ -1,5 +1,5 @@
 import 'package:datum/datum.dart';
-import 'package:example/main.dart';
+import 'package:example/bootstrap.dart';
 
 /// A custom global observer to log key Datum events throughout the app.
 class MyDatumObserver extends GlobalDatumObserver {
