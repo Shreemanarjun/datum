@@ -98,7 +98,7 @@ class Datum {
       // Prevent re-initialization to avoid unpredictable behavior.
       // If re-configuration is needed, a `Datum.dispose()` or `Datum.reset()`
       // should be called first.
-      throw StateError('Datum has already been initialized.');
+      return _instance!;
     }
     // If logging is disabled in the config, we should not produce any logs,
     // even if a custom logger is provided.
@@ -613,7 +613,7 @@ class Datum {
 
     final results = <DatumSyncResult<DatumEntity>>[];
     for (final manager in _managers.values) {
-      // We call synchronize with pullOnly for each manager. 
+      // We call synchronize with pullOnly for each manager.
       results.add(await manager.synchronize(userId, options: pullOnlyOptions));
     }
     return results;

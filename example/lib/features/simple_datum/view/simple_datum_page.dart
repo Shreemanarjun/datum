@@ -17,12 +17,22 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage> {
   Widget build(BuildContext context) {
     final simpleDatumAsync = ref.watch(simpleDatumProvider);
 
-    return simpleDatumAsync.easyWhen(
-      data: (data) {
-        return Center(
-          child: Text(data.toString()),
-        );
-      },
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Simple Datum"),
+        centerTitle: true,
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {},
+        child: Icon(Icons.add),
+      ),
+      body: simpleDatumAsync.easyWhen(
+        data: (data) {
+          return Center(
+            child: Text(data.toString()),
+          );
+        },
+      ),
     );
   }
 }
