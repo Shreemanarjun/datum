@@ -613,7 +613,7 @@ class Datum {
 
     final results = <DatumSyncResult<DatumEntity>>[];
     for (final manager in _managers.values) {
-      // We call synchronize with pullOnly for each manager.
+      // We call synchronize with pullOnly for each manager. 
       results.add(await manager.synchronize(userId, options: pullOnlyOptions));
     }
     return results;
