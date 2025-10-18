@@ -5,7 +5,7 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:platform_info/platform_info.dart';
+
 import 'package:talker_flutter/talker_flutter.dart';
 
 // coverage:ignore-file
@@ -19,12 +19,6 @@ final talker = TalkerFlutter.init(
     // maxHistoryItems: null,
     useConsoleLogs: !kReleaseMode,
     enabled: !kReleaseMode,
-  ),
-  logger: TalkerLogger(
-    output: debugPrint,
-    settings: TalkerLoggerSettings(
-      enableColors: !Platform.I.iOS,
-    ),
   ),
 );
 
