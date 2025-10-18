@@ -1,5 +1,8 @@
-import 'package:datum/source/core/models/datum_entity.dart';
+// ignore_for_file: public_member_api_docs, sort_constructors_first
+import 'package:equatable/equatable.dart';
+
 import 'package:datum/source/core/migration/migration.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_exception.dart';
 import 'package:datum/source/core/models/error_strategy.dart';
 import 'package:datum/source/core/models/user_switch_models.dart';
@@ -7,8 +10,8 @@ import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart';
 
 /// A handler for migration errors.
-typedef MigrationErrorHandler =
-    Future<void> Function(Object error, StackTrace stackTrace);
+typedef MigrationErrorHandler = Future<void> Function(
+    Object error, StackTrace stackTrace);
 
 /// Defines the direction of a synchronization operation.
 /// Defines the order of operations during a synchronization cycle.
@@ -27,7 +30,7 @@ enum SyncDirection {
 }
 
 /// Configuration for the Datum engine and its managers.
-class DatumConfig<T extends DatumEntity> {
+class DatumConfig<T extends DatumEntity> extends Equatable {
   /// The interval for any automatic background synchronization.
   final Duration autoSyncInterval;
 
@@ -137,8 +140,7 @@ class DatumConfig<T extends DatumEntity> {
       syncTimeout: syncTimeout ?? this.syncTimeout,
       // Only copy the resolver if the new type E is assignable from the old type T.
       // This is safe when copyWith is called without a new generic type.
-      defaultConflictResolver:
-          defaultConflictResolver ??
+      defaultConflictResolver: defaultConflictResolver ??
           (this.defaultConflictResolver is DatumConflictResolver<E>
               ? this.defaultConflictResolver as DatumConflictResolver<E>
               : null),
@@ -158,6 +160,32 @@ class DatumConfig<T extends DatumEntity> {
           remoteEventDebounceTime ?? this.remoteEventDebounceTime,
       changeCacheDuration: changeCacheDuration ?? this.changeCacheDuration,
     );
+  }
+
+  @override
+  String toString() {
+    return 'DatumConfig(autoSyncInterval: $autoSyncInterval, autoStartSync: $autoStartSync, syncTimeout: $syncTimeout, defaultConflictResolver: $defaultConflictResolver, defaultUserSwitchStrategy: $defaultUserSwitchStrategy, initialUserId: $initialUserId, enableLogging: $enableLogging, defaultSyncDirection: $defaultSyncDirection, schemaVersion: $schemaVersion, migrations: $migrations, syncExecutionStrategy: $syncExecutionStrategy, onMigrationError: $onMigrationError, errorRecoveryStrategy: $errorRecoveryStrategy, remoteEventDebounceTime: $remoteEventDebounceTime, changeCacheDuration: $changeCacheDuration)';
+  }
+
+  @override
+  List<Object?> get props {
+    return [
+      autoSyncInterval,
+      autoStartSync,
+      syncTimeout,
+      defaultConflictResolver,
+      defaultUserSwitchStrategy,
+      initialUserId,
+      enableLogging,
+      defaultSyncDirection,
+      schemaVersion,
+      migrations,
+      syncExecutionStrategy,
+      onMigrationError,
+      errorRecoveryStrategy,
+      remoteEventDebounceTime,
+      changeCacheDuration,
+    ];
   }
 }
 

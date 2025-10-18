@@ -746,6 +746,8 @@ class DatumManager<T extends DatumEntity> {
       // we can skip the sync entirely for this manager.
       if (typedOptions?.direction == SyncDirection.pushOnly &&
           await getPendingCount(userId) == 0) {
+        _logger.info(
+            'Push-only sync for user $userId skipped: no pending operations.');
         return DatumSyncResult.skipped(userId, 0);
       }
 

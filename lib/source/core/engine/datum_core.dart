@@ -46,6 +46,26 @@ class Datum {
   Stream<DatumMetrics> get metrics => _metricsSubject.stream;
   DatumMetrics get currentMetrics => _metricsSubject.value;
 
+  /// A stream that aggregates the health status of all registered managers.
+  ///
+  /// It emits a map where the key is the entity [Type] and the value is the
+  /// latest [DatumHealth] for that manager. This is useful for building a
+  /// global health dashboard.
+  Stream<Map<Type, DatumHealth>> get allHealths {
+    if (_managers.isEmpty) {
+      return Stream.value({});
+    }
+    // Extract the streams and their corresponding types (keys).
+    final healthStreams = _managers.values.map((m) => m.health).toList();
+    final types = _managers.keys.toList();
+
+    // Combine the latest values from all health streams into a single list.
+    return CombineLatestStream.list(healthStreams).map((healthList) {
+      // Reconstruct the map from the types and the emitted health list.
+      return Map.fromIterables(types, healthList);
+    });
+  }
+
   Datum._({
     required this.config,
     required this.connectivityChecker,
@@ -61,6 +81,29 @@ class Datum {
     DatumLogger? logger,
     List<DatumRegistration> registrations = const [],
   }) async {
+    // Initialize logger early to use it for initialization logging.
+    final initLogger = logger ?? DatumLogger(enabled: config.enableLogging);
+    initLogger.info('Initializing Datum...');
+    initLogger.info('Configuration:');
+    initLogger.info('  - Logging: ${config.enableLogging}');
+    initLogger.info('  - Auto-start Sync: ${config.autoStartSync}');
+    initLogger.info('  - Auto-sync Interval: ${config.autoSyncInterval}');
+    initLogger.info('  - Schema Version: ${config.schemaVersion}');
+    initLogger
+        .info('  - Connectivity Checker: ${connectivityChecker.runtimeType}');
+    initLogger.info(
+      '  - Default Sync Direction: ${config.defaultSyncDirection.name}',
+    );
+    initLogger.info(
+      '  - Sync Execution Strategy: ${config.syncExecutionStrategy.runtimeType}',
+    );
+    initLogger.info(
+      '  - Error Recovery: ${config.errorRecoveryStrategy.runtimeType} (Max Retries: ${config.errorRecoveryStrategy.maxRetries})',
+    );
+    initLogger.info(
+      '  - Migrations Provided: ${config.migrations.length}',
+    );
+
     final datum = Datum._(
       config: config,
       connectivityChecker: connectivityChecker,
@@ -75,6 +118,7 @@ class Datum {
       );
     }
     await datum._initializeManagers();
+    initLogger.info('Datum initialized successfully.');
     datum._listenToEventsForMetrics();
     return _instance = datum;
   }
@@ -101,6 +145,20 @@ class Datum {
     if (_managers.containsKey(T)) {
       logger.warn('Entity type $T is already registered. Overwriting.');
     }
+    logger.info('Registering entity: $T');
+    logger.info('  - Local Adapter: ${registration.localAdapter.runtimeType}');
+    logger
+        .info('  - Remote Adapter: ${registration.remoteAdapter.runtimeType}');
+    logger.info(
+      '  - Conflict Resolver: ${registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)'}',
+    );
+    logger.info('  - Custom Config: ${registration.config != null}');
+    if (registration.middlewares?.isNotEmpty ?? false) {
+      logger.info('  - Middlewares: ${registration.middlewares!.length}');
+    }
+    if (registration.observers?.isNotEmpty ?? false) {
+      logger.info('  - Observers: ${registration.observers!.length}');
+    }
     _adapterPairs[T] = AdapterPairImpl<T>.fromRegistration(registration);
   }
 
@@ -124,6 +182,7 @@ class Datum {
 
     // The generic factory helps create the correctly typed manager.
     final manager = adapters.createManager(this);
+    logger.info('Initializing manager for $type...');
     _managers[type] = manager;
     // Subscribe to the manager's event stream and pipe events to the global controller.
     final subscription = manager.eventStream.listen(
@@ -213,7 +272,9 @@ class Datum {
   }) async {
     final snapshot = _getSnapshot(userId);
     if (snapshot.status == DatumSyncStatus.syncing) {
-      logger.info('Sync already in progress for user $userId. Skipping.');
+      logger.info(
+        '[Global] Sync for user $userId skipped: another global sync is already in progress.',
+      );
       return DatumSyncResult.skipped(userId, snapshot.pendingOperations);
     }
 
