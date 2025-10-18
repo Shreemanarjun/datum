@@ -1,7 +1,8 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 
-import 'package:datum/datum.dart';
 import 'package:example/main.dart';
+
+import 'package:datum/datum.dart';
 
 class CustomDatumLogger implements DatumLogger {
   @override
@@ -27,5 +28,10 @@ class CustomDatumLogger implements DatumLogger {
   @override
   void warn(String message) {
     if (enabled) talker.warning(message);
+  }
+
+  @override
+  CustomDatumLogger copyWith({bool? enabled}) {
+    return CustomDatumLogger(enabled: enabled ?? this.enabled);
   }
 }

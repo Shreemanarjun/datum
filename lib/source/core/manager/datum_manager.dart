@@ -115,8 +115,9 @@ class DatumManager<T extends DatumEntity> {
         _statusSubject = BehaviorSubject.seeded(
           DatumSyncStatusSnapshot.initial(''),
         ),
-        _logger =
-            logger ?? DatumLogger(enabled: datumConfig?.enableLogging ?? true),
+        // The logger's enabled status should always respect the config.
+        _logger = (logger ?? DatumLogger())
+            .copyWith(enabled: datumConfig?.enableLogging ?? true),
         _conflictResolver = conflictResolver ?? LastWriteWinsResolver<T>() {
     _localObservers.addAll(localObservers ?? []);
     _globalObservers.addAll(globalObservers ?? []);

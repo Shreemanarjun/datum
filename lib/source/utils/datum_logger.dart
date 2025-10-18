@@ -1,3 +1,4 @@
+// ignore_for_file: public_member_api_docs, sort_constructors_first
 /// A simple logger for the Datum package.
 class DatumLogger {
   final bool enabled;
@@ -29,5 +30,13 @@ class DatumLogger {
     if (enabled) {
       print('[Datum WARN]: $message');
     }
+  }
+
+  DatumLogger copyWith({
+    bool? enabled,
+  }) {
+    return DatumLogger(
+      enabled: enabled ?? this.enabled,
+    );
   }
 }

@@ -819,6 +819,9 @@ void main() {
         // Arrange
         final mockLogger = MockLogger();
         when(() => mockLogger.info(any())).thenAnswer((_) {});
+        // Stub the copyWith method to return a valid logger instance.
+        when(() => mockLogger.copyWith(enabled: any(named: 'enabled')))
+            .thenReturn(mockLogger);
 
         // Act
         await Datum.initialize(
