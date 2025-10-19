@@ -6,17 +6,18 @@ import 'package:datum/datum.dart';
 import 'package:example/custom_connectivity_checker.dart';
 import 'package:example/data/user/entity/user.dart';
 
-class UserRemoteAdapter extends RemoteAdapter<User> {
-  final Map<String, Map<String, User>> _remoteStorage = {};
+class UserRemoteAdapter extends RemoteAdapter<UserEntity> {
+  final Map<String, Map<String, UserEntity>> _remoteStorage = {};
   final Map<String, DatumSyncMetadata?> _remoteMetadata = {};
   final _changeController =
-      StreamController<DatumChangeDetail<User>>.broadcast();
+      StreamController<DatumChangeDetail<UserEntity>>.broadcast();
 
   @override
-  Stream<DatumChangeDetail<User>>? get changeStream => _changeController.stream;
+  Stream<DatumChangeDetail<UserEntity>>? get changeStream =>
+      _changeController.stream;
 
   @override
-  Future<void> create(User entity) {
+  Future<void> create(UserEntity entity) {
     _remoteStorage.putIfAbsent(entity.userId, () => {})[entity.id] = entity;
     _changeController.add(
       DatumChangeDetail(
@@ -63,7 +64,7 @@ class UserRemoteAdapter extends RemoteAdapter<User> {
   }
 
   @override
-  Future<User> patch({
+  Future<UserEntity> patch({
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
@@ -76,20 +77,20 @@ class UserRemoteAdapter extends RemoteAdapter<User> {
     }
 
     final json = existing.toDatumMap()..addAll(delta);
-    final patchedItem = User.fromMap(json);
+    final patchedItem = UserEntity.fromMap(json);
     update(patchedItem);
     return Future.value(patchedItem);
   }
 
   @override
-  Future<List<User>> query(DatumQuery query, {String? userId}) {
+  Future<List<UserEntity>> query(DatumQuery query, {String? userId}) {
     // This is a simplified query for an in-memory adapter.
     // A real implementation would parse the query object.
     return readAll(userId: userId);
   }
 
   @override
-  Future<User?> read(String id, {String? userId}) {
+  Future<UserEntity?> read(String id, {String? userId}) {
     if (userId != null) {
       return Future.value(_remoteStorage[userId]?[id]);
     }
@@ -100,7 +101,7 @@ class UserRemoteAdapter extends RemoteAdapter<User> {
   }
 
   @override
-  Future<List<User>> readAll({String? userId, DatumSyncScope? scope}) {
+  Future<List<UserEntity>> readAll({String? userId, DatumSyncScope? scope}) {
     if (userId != null) {
       return Future.value(_remoteStorage[userId]?.values.toList() ?? []);
     }
@@ -110,7 +111,7 @@ class UserRemoteAdapter extends RemoteAdapter<User> {
   }
 
   @override
-  Future<void> update(User entity) {
+  Future<void> update(UserEntity entity) {
     _remoteStorage.putIfAbsent(entity.userId, () => {})[entity.id] = entity;
     _changeController.add(
       DatumChangeDetail(

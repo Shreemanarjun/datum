@@ -1,34 +1,35 @@
-import 'package:datum/source/core/models/datum_sync_scope.dart';
+import 'package:datum/datum.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('DatumSyncScope', () {
-    test('default constructor has correct default values', () {
+    test('default constructor creates a scope with a default (empty) query',
+        () {
       // Arrange & Act
       const scope = DatumSyncScope();
 
       // Assert
-      expect(scope.filters, isEmpty);
-      expect(scope.trigger, DatumSyncTrigger.user);
+      expect(scope.query, isA<DatumQuery>());
+      expect(scope.query.filters, isEmpty);
+      expect(scope.query.sorting, isEmpty);
     });
 
-    test('filter constructor sets filters and default trigger', () {
+    test('constructor correctly assigns the provided query', () {
       // Arrange & Act
-      const filters = {'minDate': '2023-01-01'};
-      const scope = DatumSyncScope.filter(filters);
+      final query = DatumQuery(
+        filters: const [Filter('status', FilterOperator.equals, 'active')],
+        sorting: const [SortDescriptor('createdAt', descending: true)],
+      );
+      final scope = DatumSyncScope(query: query);
 
       // Assert
-      expect(scope.filters, filters);
-      expect(scope.trigger, DatumSyncTrigger.user);
-    });
-
-    test('trigger constructor sets trigger and default filters', () {
-      // Arrange & Act
-      const scope = DatumSyncScope.trigger(DatumSyncTrigger.entity);
-
-      // Assert
-      expect(scope.filters, isEmpty);
-      expect(scope.trigger, DatumSyncTrigger.entity);
+      expect(scope.query, same(query));
+      expect(scope.query.filters, hasLength(1));
+      expect(
+        (scope.query.filters.first as Filter).field,
+        'status',
+      );
+      expect(scope.query.sorting, hasLength(1));
     });
   });
 }

@@ -53,10 +53,11 @@ void main() {
 
     test('synchronize with scope passes filters to remote adapter', () async {
       // Arrange
-      final scope = DatumSyncScope.filter({
-        'status': 'active',
-        'minDate': '2023-01-01',
-      });
+      final query = DatumQuery(filters: [
+        const Filter('status', FilterOperator.equals, 'active'),
+        const Filter('minDate', FilterOperator.equals, '2023-01-01'),
+      ]);
+      final scope = DatumSyncScope(query: query);
 
       // Act
       await manager.synchronize(userId, scope: scope);
@@ -73,10 +74,7 @@ void main() {
       final capturedScope = captured.first as DatumSyncScope?;
       expect(capturedScope, isNotNull);
       expect(capturedScope, scope);
-      expect(capturedScope!.filters, {
-        'status': 'active',
-        'minDate': '2023-01-01',
-      });
+      expect(capturedScope!.query.filters, hasLength(2));
     });
 
     test(
@@ -102,7 +100,7 @@ void main() {
     test('synchronize with empty filter scope passes empty map to remote',
         () async {
       // Arrange
-      const scope = DatumSyncScope.filter({});
+      const scope = DatumSyncScope(query: DatumQuery(filters: []));
 
       // Act
       await manager.synchronize(userId, scope: scope);
@@ -118,28 +116,7 @@ void main() {
       expect(captured, hasLength(1));
       final capturedScope = captured.first as DatumSyncScope?;
       expect(capturedScope, isNotNull);
-      expect(capturedScope!.filters, isEmpty);
-    });
-
-    test('synchronize with trigger scope passes empty filters to remote',
-        () async {
-      // Arrange
-      const scope = DatumSyncScope.trigger(DatumSyncTrigger.entity);
-
-      // Act
-      await manager.synchronize(userId, scope: scope);
-
-      // Assert
-      final captured = verify(
-        () => remoteAdapter.readAll(
-          userId: userId,
-          scope: captureAny(named: 'scope'),
-        ),
-      ).captured;
-
-      final capturedScope = captured.first as DatumSyncScope?;
-      expect(capturedScope, isNotNull);
-      expect(capturedScope!.filters, isEmpty);
+      expect(capturedScope!.query.filters, isEmpty);
     });
   });
 }

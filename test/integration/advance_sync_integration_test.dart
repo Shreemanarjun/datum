@@ -156,13 +156,17 @@ void main() {
           scope: any(named: 'scope'),
         ),
       ).thenAnswer((inv) {
+        // Simulate the remote adapter filtering based on the scope's query.
         final scope = inv.namedArguments[#scope] as DatumSyncScope?;
-        if (scope?.filters['minModifiedDate'] != null) {
+        final hasMinDateFilter = scope?.query.filters.any(
+              (f) => (f as Filter).field == 'minModifiedDate',
+            ) ??
+            false;
+        if (hasMinDateFilter) {
           return Future.value([remoteEntity1]);
         }
         return Future.value([remoteEntity1, remoteEntity2]);
       });
-
       final localOnlyEntity = TestEntity.create(
         'local-only',
         'user1',
@@ -176,7 +180,13 @@ void main() {
 
       final thirtyDaysAgo =
           DateTime.now().subtract(const Duration(days: 30)).toIso8601String();
-      final scope = DatumSyncScope.filter({'minModifiedDate': thirtyDaysAgo});
+      // Create a query and pass it to the scope.
+      final query = DatumQuery(
+        filters: [
+          Filter('minModifiedDate', FilterOperator.greaterThan, thirtyDaysAgo),
+        ],
+      );
+      final scope = DatumSyncScope(query: query);
       await manager.synchronize('user1', scope: scope);
 
       final localItems = await manager.readAll(userId: 'user1');

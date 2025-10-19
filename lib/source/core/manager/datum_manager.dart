@@ -471,6 +471,42 @@ class DatumManager<T extends DatumEntity> {
     return transformed;
   }
 
+  /// Saves an entity locally and immediately triggers a synchronization.
+  ///
+  /// This is useful for operations that require immediate confirmation from the
+  /// remote server. It combines `push()` and `synchronize()` into a single call.
+  ///
+  /// Returns a tuple containing the locally saved entity and the sync result.
+  Future<(T, DatumSyncResult)> pushAndSync({
+    required T item,
+    required String userId,
+    DatumSyncOptions? syncOptions,
+  }) async {
+    _ensureInitialized();
+    final savedItem = await push(item: item, userId: userId);
+    final syncResult = await synchronize(userId, options: syncOptions);
+    return (savedItem, syncResult);
+  }
+
+  /// Updates an entity locally and immediately triggers a synchronization.
+  ///
+  /// This is an alias for [pushAndSync] and is provided for semantic clarity.
+  /// It's useful for operations that require immediate confirmation from the
+  /// remote server.
+  ///
+  /// Returns a tuple containing the locally saved entity and the sync result.
+  Future<(T, DatumSyncResult)> updateAndSync({
+    required T item,
+    required String userId,
+    DatumSyncOptions? syncOptions,
+  }) async {
+    _ensureInitialized();
+    // `push` handles both create and update, so this is equivalent to pushAndSync.
+    final savedItem = await push(item: item, userId: userId);
+    final syncResult = await synchronize(userId, options: syncOptions);
+    return (savedItem, syncResult);
+  }
+
   /// Reads a single entity by its ID from the primary local adapter.
   Future<T?> read(String id, {String? userId}) async {
     _ensureInitialized();
@@ -487,11 +523,15 @@ class DatumManager<T extends DatumEntity> {
   }
 
   /// Watches all entities from the local adapter, emitting a new list on any change.
+  ///
+  /// The [includeInitialData] parameter controls whether the stream should
+  /// immediately emit the current list of all items. Defaults to `true`.
+  /// If `false`, the stream will only emit when a change occurs.
   /// Returns null if the adapter does not support reactive queries.
-  Stream<List<T>>? watchAll({String? userId}) {
+  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) {
     _ensureInitialized();
     return localAdapter
-        .watchAll(userId: userId)
+        .watchAll(userId: userId, includeInitialData: includeInitialData)
         ?.asyncMap((list) => Future.wait(list.map(_applyPostFetchTransforms)));
   }
 
@@ -607,6 +647,24 @@ class DatumManager<T extends DatumEntity> {
     );
 
     return true;
+  }
+
+  /// Deletes an entity locally and immediately triggers a synchronization.
+  ///
+  /// This is useful for ensuring a delete operation is persisted to the remote
+  /// server as soon as possible.
+  ///
+  /// Returns a tuple containing a boolean indicating if the local delete was
+  /// successful and the result of the subsequent synchronization.
+  Future<(bool, DatumSyncResult)> deleteAndSync({
+    required String id,
+    required String userId,
+    DatumSyncOptions? syncOptions,
+  }) async {
+    _ensureInitialized();
+    final wasDeleted = await delete(id: id, userId: userId);
+    final syncResult = await synchronize(userId, options: syncOptions);
+    return (wasDeleted, syncResult);
   }
 
   /// Fetches related entities for a given parent entity.

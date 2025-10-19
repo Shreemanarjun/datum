@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:collection/collection.dart';
 import 'package:datum/datum.dart';
 import 'package:rxdart/rxdart.dart' show MergeStream, Rx, SwitchMapExtension;
 
@@ -255,17 +256,20 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   }
 
   @override
-  Stream<List<T>>? watchAll({String? userId}) {
+  Stream<List<T>>? watchAll({String? userId, bool? includeInitialData}) {
     // Use the external stream if provided, otherwise fall back to the internal one.
     final stream = externalChangeStream;
     if (stream == null) return null;
 
-    final initialDataStream = Stream.fromFuture(readAll(userId: userId));
     final updateStream = stream
         .where((event) => userId == null || event.userId == userId)
         .asyncMap((_) => readAll(userId: userId));
 
-    return Rx.merge([initialDataStream, updateStream]).asBroadcastStream();
+    if (includeInitialData ?? true) {
+      final initialDataStream = Stream.fromFuture(readAll(userId: userId));
+      return Rx.merge([initialDataStream, updateStream]).asBroadcastStream();
+    }
+    return updateStream;
   }
 
   @override
@@ -677,11 +681,17 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
             ? _remoteStorage[userId]?.values.toList()
             : _remoteStorage.values.expand((map) => map.values).toList()) ??
         [];
-    if (scope?.filters['minModifiedDate'] != null) {
-      final minDate = DateTime.parse(
-        scope!.filters['minModifiedDate'] as String,
-      );
-      items = items.where((item) => item.modifiedAt.isAfter(minDate)).toList();
+    if (scope != null) {
+      // Find if a 'minModifiedDate' filter exists in the query.
+      final minDateFilter = scope.query.filters.firstWhereOrNull(
+        (f) => f is Filter && f.field == 'minModifiedDate',
+      ) as Filter?;
+
+      if (minDateFilter != null) {
+        final minDate = DateTime.parse(minDateFilter.value as String);
+        items =
+            items.where((item) => item.modifiedAt.isAfter(minDate)).toList();
+      }
     }
     return items;
   }

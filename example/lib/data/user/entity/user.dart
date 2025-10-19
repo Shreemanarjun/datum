@@ -4,7 +4,7 @@ import 'dart:convert';
 
 import 'package:datum/datum.dart';
 
-class User extends DatumEntity {
+class UserEntity extends DatumEntity {
   @override
   final String id;
   @override
@@ -19,7 +19,7 @@ class User extends DatumEntity {
   @override
   final bool isDeleted;
 
-  const User({
+  const UserEntity({
     required this.userId,
     required this.id,
     required this.name,
@@ -31,7 +31,7 @@ class User extends DatumEntity {
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) {
-    if (oldVersion is! User) return toDatumMap();
+    if (oldVersion is! UserEntity) return toDatumMap();
 
     final Map<String, dynamic> diffMap = {};
 
@@ -63,7 +63,7 @@ class User extends DatumEntity {
   }
 
   @override
-  User copyWith({
+  UserEntity copyWith({
     String? id,
     String? userId,
     String? name,
@@ -72,7 +72,7 @@ class User extends DatumEntity {
     int? version,
     bool? isDeleted,
   }) {
-    return User(
+    return UserEntity(
       id: id ?? this.id,
       userId: userId ?? this.userId,
       name: name ?? this.name,
@@ -83,8 +83,8 @@ class User extends DatumEntity {
     );
   }
 
-  factory User.fromMap(Map<String, dynamic> map) {
-    return User(
+  factory UserEntity.fromMap(Map<String, dynamic> map) {
+    return UserEntity(
       id: (map['id'] ?? '') as String,
       userId: (map['userId'] ?? '') as String,
       name: (map['name'] ?? '') as String,
@@ -101,8 +101,8 @@ class User extends DatumEntity {
 
   String toJson() => json.encode(toDatumMap());
 
-  factory User.fromJson(String source) =>
-      User.fromMap(json.decode(source) as Map<String, dynamic>);
+  factory UserEntity.fromJson(String source) =>
+      UserEntity.fromMap(json.decode(source) as Map<String, dynamic>);
 
   @override
   String toString() {
@@ -110,27 +110,26 @@ class User extends DatumEntity {
   }
 
   @override
-  bool operator ==(covariant User other) {
+  bool operator ==(covariant UserEntity other) {
     if (identical(this, other)) return true;
 
-    return
-      other.id == id &&
-      other.userId == userId &&
-      other.name == name &&
-      other.modifiedAt == modifiedAt &&
-      other.createdAt == createdAt &&
-      other.version == version &&
-      other.isDeleted == isDeleted;
+    return other.id == id &&
+        other.userId == userId &&
+        other.name == name &&
+        other.modifiedAt == modifiedAt &&
+        other.createdAt == createdAt &&
+        other.version == version &&
+        other.isDeleted == isDeleted;
   }
 
   @override
   int get hashCode {
     return id.hashCode ^
-      userId.hashCode ^
-      name.hashCode ^
-      modifiedAt.hashCode ^
-      createdAt.hashCode ^
-      version.hashCode ^
-      isDeleted.hashCode;
+        userId.hashCode ^
+        name.hashCode ^
+        modifiedAt.hashCode ^
+        createdAt.hashCode ^
+        version.hashCode ^
+        isDeleted.hashCode;
   }
 }

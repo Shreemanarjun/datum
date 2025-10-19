@@ -8,16 +8,19 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class SupabaseRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
   final String tableName;
   final T Function(Map<String, dynamic>) fromMap;
+  final SupabaseClient? _clientOverride;
 
   SupabaseRemoteAdapter({
     required this.tableName,
     required this.fromMap,
-  });
+    // This is for testing purposes only.
+    SupabaseClient? clientOverride,
+  }) : _clientOverride = clientOverride;
 
   RealtimeChannel? _channel;
   StreamController<DatumChangeDetail<T>>? _streamController;
 
-  SupabaseClient get _client => Supabase.instance.client;
+  SupabaseClient get _client => _clientOverride ?? Supabase.instance.client;
   String get _metadataTableName => 'sync_metadata';
 
   @override
@@ -30,10 +33,20 @@ class SupabaseRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
 
   @override
   Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) async {
-    // Note: The 'scope' parameter is not used in this implementation.
-    // You can extend this to support scoped fetching if needed.
-    final response =
-        await _client.from(tableName).select().eq('user_id', userId ?? '');
+    PostgrestFilterBuilder queryBuilder = _client.from(tableName).select();
+
+    if (userId != null) {
+      queryBuilder = queryBuilder.eq('user_id', userId);
+    }
+
+    // Apply filters from the sync scope, if provided.
+    if (scope != null) {
+      for (final condition in scope.query.filters) {
+        queryBuilder = _applyFilter(queryBuilder, condition);
+      }
+    }
+
+    final response = await queryBuilder;
     return response.map<T>((json) => fromMap(_toCamelCase(json))).toList();
   }
 
@@ -231,39 +244,7 @@ class SupabaseRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
     }
 
     for (final condition in query.filters) {
-      if (condition is Filter) {
-        final field = condition.field.snakeCase;
-        final value = condition.value;
-
-        switch (condition.operator) {
-          case FilterOperator.equals:
-            queryBuilder = queryBuilder.eq(field, value);
-            break;
-          case FilterOperator.notEquals:
-            queryBuilder = queryBuilder.neq(field, value);
-            break;
-          case FilterOperator.lessThan:
-            queryBuilder = queryBuilder.lt(field, value);
-            break;
-          case FilterOperator.lessThanOrEqual:
-            queryBuilder = queryBuilder.lte(field, value);
-            break;
-          case FilterOperator.greaterThan:
-            queryBuilder = queryBuilder.gt(field, value);
-            break;
-          case FilterOperator.greaterThanOrEqual:
-            queryBuilder = queryBuilder.gte(field, value);
-            break;
-          case FilterOperator.arrayContains:
-            queryBuilder = queryBuilder.contains(field, value);
-            break;
-          case FilterOperator.isIn:
-            queryBuilder = queryBuilder.inFilter(field, value as List);
-            break;
-          default:
-            talker.warning('Unsupported query operator: ${condition.operator}');
-        }
-      }
+      queryBuilder = _applyFilter(queryBuilder, condition);
     }
 
     final response = await queryBuilder;
@@ -273,29 +254,53 @@ class SupabaseRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
 
   @override
   Future<void> update(T entity) async {
-    // To perform a diff update, we need the previous version of the entity.
-    // We'll fetch it from the local adapter.
-    final localAdapter = Datum.manager<T>().localAdapter;
-    final oldEntity = await localAdapter.read(entity.id, userId: entity.userId);
+    // The sync engine calls `update` for full-data updates.
+    // We can use `upsert` to handle both creating and replacing the entity.
+    // This is simpler and more robust than calculating a diff here.
+    final data = _toSnakeCase(entity.toDatumMap(target: MapTarget.remote));
+    data['user_id'] = entity.userId;
+    await _client.from(tableName).upsert(data, onConflict: 'id');
+  }
 
-    Map<String, dynamic>? delta;
-    if (oldEntity != null) {
-      // Calculate the difference between the new and old entity.
-      delta = entity.diff(oldEntity);
-    } else {
-      // If the old entity doesn't exist locally, send the full entity.
-      talker.warning(
-          'Old version of ${entity.id} not found locally. Performing a full update.');
-      delta = entity.toDatumMap(target: MapTarget.remote);
+  PostgrestFilterBuilder _applyFilter(
+    PostgrestFilterBuilder builder,
+    FilterCondition condition,
+  ) {
+    if (condition is Filter) {
+      final field = condition.field.snakeCase;
+      final value = condition.value;
+
+      switch (condition.operator) {
+        case FilterOperator.equals:
+          return builder.eq(field, value);
+        case FilterOperator.notEquals:
+          return builder.neq(field, value);
+        case FilterOperator.lessThan:
+          return builder.lt(field, value);
+        case FilterOperator.lessThanOrEqual:
+          return builder.lte(field, value);
+        case FilterOperator.greaterThan:
+          return builder.gt(field, value);
+        case FilterOperator.greaterThanOrEqual:
+          return builder.gte(field, value);
+        case FilterOperator.arrayContains:
+          return builder.contains(field, value);
+        case FilterOperator.isIn:
+          return builder.inFilter(field, value as List);
+        default:
+          talker.warning('Unsupported query operator: ${condition.operator}');
+      }
+    } else if (condition is CompositeFilter) {
+      // Note: Supabase PostgREST builder doesn't directly support nested OR/AND
+      // in this fluent way. This is a simplified implementation. For complex
+      // nested logic, you might need to use `rpc` calls to database functions.
+      final filters = condition.conditions.map((c) {
+        // This is a simplified conversion and might not work for all cases.
+        return '${(c as Filter).field.snakeCase}.${(c).operator.name}.${c.value}';
+      }).join(',');
+      return builder.filter(condition.operator.name, 'any', filters);
     }
-
-    if (delta == null || delta.isEmpty) {
-      talker.info('No changes detected for ${entity.id}. Skipping update.');
-      return;
-    }
-
-    // Use the existing patch method to send only the changed data.
-    await patch(id: entity.id, delta: delta, userId: entity.userId);
+    return builder;
   }
 }
 

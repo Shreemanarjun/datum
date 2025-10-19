@@ -1,3 +1,5 @@
+import 'package:datum/source/core/query/datum_query.dart';
+
 /// Defines the scope of a synchronization operation triggered after a local change.
 enum DatumSyncTrigger {
   /// Syncs only the specific entity that was just modified.
@@ -14,29 +16,22 @@ enum DatumSyncTrigger {
 
 /// Defines a scope for a synchronization operation, allowing for partial syncs.
 class DatumSyncScope {
-  /// A map of key-value pairs used to filter the data fetched from the remote.
-  /// The interpretation of these filters is up to the `RemoteAdapter` implementation.
-  final Map<String, dynamic> filters;
-
-  /// Defines the scope of a synchronization operation triggered after a
-  /// local change.
-  final DatumSyncTrigger trigger;
+  /// A query used to filter the data fetched from the remote source.
+  /// The interpretation of this query is up to the `RemoteAdapter` implementation.
+  final DatumQuery query;
 
   /// Creates a [DatumSyncScope].
   ///
-  /// [filters] are passed to the remote adapter's `readAll` method for
+  /// The [query] is passed to the remote adapter's `readAll` method for
   /// filtering pulled data.
-  /// [trigger] defines the scope of a sync triggered after a local change.
   const DatumSyncScope({
-    this.filters = const {},
-    this.trigger = DatumSyncTrigger.user,
+    this.query = const DatumQuery(),
   });
 
-  /// A scope that applies filters to a pull operation.
+  /// A scope that applies a query to a pull operation.
   ///
-  /// Example: `DatumSyncScope.filter({'minModifiedDate': '2023-01-01T00:00:00Z'})`
-  const DatumSyncScope.filter(this.filters) : trigger = DatumSyncTrigger.user;
-
-  /// A scope that defines the trigger behavior for a sync after a local change.
-  const DatumSyncScope.trigger(this.trigger) : filters = const {};
+  /// Example:
+  /// ```dart
+  /// DatumSyncScope(query: DatumQuery(filters: [Filter('isActive', isEqualTo: true)]))
+  /// ```
 }

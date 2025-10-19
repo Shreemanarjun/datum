@@ -266,12 +266,16 @@ class TaskLocalAdapter extends LocalAdapter<Task> {
   }
 
   @override
-  Stream<List<Task>>? watchAll({String? userId}) {
+  Stream<List<Task>>? watchAll({String? userId, bool? includeInitialData}) {
     final changes = _taskBox.watch().asyncMap((_) => readAll(userId: userId));
 
     return changes.transform(
       StreamTransformer.fromBind((stream) async* {
-        yield await readAll(userId: userId);
+        // 1. Yield the initial data first, if requested.
+        if (includeInitialData ?? true) {
+          yield await readAll(userId: userId);
+        }
+        // 2. Then, yield all subsequent updates from the stream.
         yield* stream;
       }),
     );

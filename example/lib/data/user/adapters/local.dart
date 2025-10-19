@@ -4,7 +4,7 @@ import 'package:datum/datum.dart';
 import 'package:example/data/user/entity/user.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
-class UserLocalAdapter extends LocalAdapter<User> {
+class UserLocalAdapter extends LocalAdapter<UserEntity> {
   // Storing as Map<String, dynamic> to avoid needing a TypeAdapter for User
   late Box<Map> _userBox;
   late Box<List> _pendingOpsBox;
@@ -14,12 +14,12 @@ class UserLocalAdapter extends LocalAdapter<User> {
   int _schemaVersion = 0;
 
   @override
-  User get sampleInstance => User.fromMap({'id': '', 'userId': ''});
+  UserEntity get sampleInstance => UserEntity.fromMap({'id': '', 'userId': ''});
 
   @override
   Future<void> addPendingOperation(
     String userId,
-    DatumSyncOperation<User> operation,
+    DatumSyncOperation<UserEntity> operation,
   ) {
     final opsList = (_pendingOpsBox.get(userId) ?? []).cast<Map>().toList();
     final existingIndex =
@@ -34,11 +34,11 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }
 
   @override
-  Stream<DatumChangeDetail<User>>? changeStream() {
+  Stream<DatumChangeDetail<UserEntity>>? changeStream() {
     return _userBox.watch().map((event) {
       final userMap = event.value;
       final user =
-          userMap != null ? User.fromMap(_normalizeMap(userMap)) : null;
+          userMap != null ? UserEntity.fromMap(_normalizeMap(userMap)) : null;
       return DatumChangeDetail(
         entityId: event.key as String,
         userId: user?.userId ?? '',
@@ -70,7 +70,7 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }
 
   @override
-  Future<void> create(User entity) {
+  Future<void> create(UserEntity entity) {
     return _userBox.put(entity.id, entity.toDatumMap(target: MapTarget.local));
   }
 
@@ -112,7 +112,8 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }
 
   @override
-  Future<List<DatumSyncOperation<User>>> getPendingOperations(String userId) {
+  Future<List<DatumSyncOperation<UserEntity>>> getPendingOperations(
+      String userId) {
     final opsList = _pendingOpsBox.get(userId);
     if (opsList == null) {
       return Future.value([]);
@@ -121,7 +122,7 @@ class UserLocalAdapter extends LocalAdapter<User> {
       final m =
           _normalizeMap(raw); // This correctly creates a Map<String, dynamic>
       return DatumSyncOperation.fromMap(
-          m, User.fromMap); // Use the normalized map 'm' here
+          m, UserEntity.fromMap); // Use the normalized map 'm' here
     }).toList();
     return Future.value(ops);
   }
@@ -160,14 +161,14 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }) {
     clear();
     for (final rawItem in data) {
-      final user = User.fromMap(rawItem);
+      final user = UserEntity.fromMap(rawItem);
       create(user);
     }
     return Future.value();
   }
 
   @override
-  Future<User> patch({
+  Future<UserEntity> patch({
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
@@ -177,26 +178,26 @@ class UserLocalAdapter extends LocalAdapter<User> {
       throw Exception('Entity with id $id not found for user ${userId ?? ''}.');
     }
 
-    final json = User.fromMap(_normalizeMap(existing))
+    final json = UserEntity.fromMap(_normalizeMap(existing))
         .toDatumMap(target: MapTarget.local)
       ..addAll(delta);
-    final patchedItem = User.fromMap(json);
+    final patchedItem = UserEntity.fromMap(json);
     update(patchedItem);
     return Future.value(patchedItem);
   }
 
   @override
-  Future<List<User>> query(DatumQuery query, {String? userId}) {
+  Future<List<UserEntity>> query(DatumQuery query, {String? userId}) {
     // This is a simplified query for an in-memory adapter.
     // A real implementation would parse the query object.
     return readAll(userId: userId);
   }
 
   @override
-  Future<User?> read(String id, {String? userId}) {
+  Future<UserEntity?> read(String id, {String? userId}) {
     final userMap = _userBox.get(id);
     if (userMap == null) return Future.value(null);
-    final user = User.fromMap(_normalizeMap(userMap));
+    final user = UserEntity.fromMap(_normalizeMap(userMap));
     // If a userId is provided, ensure the found user matches.
     if (userId == null || user.userId == userId) {
       return Future.value(user);
@@ -205,15 +206,15 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }
 
   @override
-  Future<List<User>> readAll({String? userId}) {
+  Future<List<UserEntity>> readAll({String? userId}) {
     final maps = _userBox.values
         .where((map) => userId == null || map['userId'] == userId);
     return Future.value(
-        maps.map((map) => User.fromMap(_normalizeMap(map))).toList());
+        maps.map((map) => UserEntity.fromMap(_normalizeMap(map))).toList());
   }
 
   @override
-  Future<PaginatedResult<User>> readAllPaginated(
+  Future<PaginatedResult<UserEntity>> readAllPaginated(
     PaginationConfig config, {
     String? userId,
   }) {
@@ -223,17 +224,17 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }
 
   @override
-  Future<Map<String, User>> readByIds(
+  Future<Map<String, UserEntity>> readByIds(
     List<String> ids, {
     required String userId,
   }) {
     final userMaps = _userBox.values.where((map) => map['userId'] == userId);
-    final results = <String, User>{};
+    final results = <String, UserEntity>{};
     for (final id in ids) {
       final userMap =
           userMaps.firstWhere((map) => map['id'] == id, orElse: () => {});
       if (userMap.isNotEmpty) {
-        results[id] = User.fromMap(_normalizeMap(userMap));
+        results[id] = UserEntity.fromMap(_normalizeMap(userMap));
       }
     }
     return Future.value(results);
@@ -275,7 +276,7 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }
 
   @override
-  Future<void> update(User entity) {
+  Future<void> update(UserEntity entity) {
     return _userBox.put(entity.id, entity.toDatumMap(target: MapTarget.local));
   }
 
@@ -285,15 +286,18 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }
 
   @override
-  Stream<List<User>>? watchAll({String? userId}) {
+  Stream<List<UserEntity>>? watchAll(
+      {String? userId, bool? includeInitialData}) {
     // Use box.watch() for efficient reactive queries.
     // We use a transformer to combine the initial data with subsequent changes.
     final changes = _userBox.watch().asyncMap((_) => readAll(userId: userId));
 
     return changes.transform(
       StreamTransformer.fromBind((stream) async* {
-        // 1. Yield the initial data first.
-        yield await readAll(userId: userId);
+        // 1. Yield the initial data first, if requested.
+        if (includeInitialData ?? true) {
+          yield await readAll(userId: userId);
+        }
         // 2. Then, yield all subsequent updates from the stream.
         yield* stream;
       }),
@@ -301,7 +305,7 @@ class UserLocalAdapter extends LocalAdapter<User> {
   }
 
   @override
-  Stream<User?>? watchById(String id, {String? userId}) {
+  Stream<UserEntity?>? watchById(String id, {String? userId}) {
     // Watch for changes only to the specific key (id).
     final changes = _userBox.watch(key: id).asyncMap((event) async {
       // After a change, re-read the item to ensure we get the correct state.

@@ -369,7 +369,10 @@ void main() {
 
       final streamController = StreamController<List<TestEntity>>.broadcast();
       when(
-        () => localAdapter.watchAll(userId: userId),
+        () => localAdapter.watchAll(
+          userId: userId,
+          includeInitialData: any(named: 'includeInitialData'),
+        ),
       ).thenAnswer((_) => streamController.stream);
 
       // Act & Assert
