@@ -52,6 +52,16 @@ void main() {
           timestamp: DateTime(0),
         ),
       );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     Future<void> setupManager(
@@ -121,6 +131,12 @@ void main() {
       when(
         () => localAdapter.readAll(userId: any(named: 'userId')),
       ).thenAnswer((_) async => []);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,

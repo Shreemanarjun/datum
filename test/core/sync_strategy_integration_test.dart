@@ -52,6 +52,25 @@ void main() {
       registerFallbackValue(
         const DatumSyncMetadata(userId: 'fallback', dataHash: 'fallback'),
       );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
+      registerFallbackValue(
+        DatumSyncOperation<TestEntity>(
+          id: 'fallback-op',
+          userId: 'fallback-user',
+          entityId: 'fallback-entity',
+          type: DatumOperationType.create,
+          timestamp: DateTime(0),
+        ),
+      );
     });
 
     setUp(() async {
@@ -113,6 +132,12 @@ void main() {
           scope: any(named: 'scope'),
         ),
       ).thenAnswer((_) async => []);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
 
       // Default manager setup
       manager = DatumManager<TestEntity>(
@@ -384,6 +409,11 @@ void main() {
         when(
           () => isolatedConnectivityChecker.isConnected,
         ).thenAnswer((_) async => true);
+        // Add the missing stubs for the sync lifecycle
+        when(() => isolatedLocalAdapter.getLastSyncResult(any()))
+            .thenAnswer((_) async => null);
+        when(() => isolatedLocalAdapter.saveLastSyncResult(any(), any()))
+            .thenAnswer((_) async {});
 
         final exception = Exception('Isolate push failed');
         final processedIds = <String>{};

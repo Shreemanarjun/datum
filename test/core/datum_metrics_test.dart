@@ -47,9 +47,6 @@ void main() {
       );
       registerFallbackValue(const DatumConfig());
       registerFallbackValue(
-        const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'),
-      );
-      registerFallbackValue(
         DatumConflictContext(
           userId: 'fb',
           entityId: 'fb',
@@ -68,6 +65,22 @@ void main() {
           createdAt: now,
           version: 1,
         ),
+      );
+      // Add the missing fallback for DatumSyncResult<TestEntity>.
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
+      // Add the missing fallback for DatumSyncMetadata.
+      registerFallbackValue(
+        const DatumSyncMetadata(
+            userId: 'fallback-user', dataHash: 'fallback-hash'),
       );
     });
 
@@ -111,6 +124,12 @@ void main() {
       ).thenAnswer((_) async {});
       when(
         () => remoteAdapter.updateSyncMetadata(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
       ).thenAnswer((_) async {});
 
       datum = await Datum.initialize(
@@ -326,6 +345,22 @@ void main() {
         ),
       ).thenAnswer((_) async => []);
       when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
 
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,

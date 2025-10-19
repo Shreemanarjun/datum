@@ -68,6 +68,18 @@ void main() {
       registerFallbackValue(
         const DatumSyncMetadata(userId: 'fallback', dataHash: 'fallback'),
       );
+
+      // Add the missing fallback for DatumSyncResult<TestEntity>.
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() {
@@ -124,6 +136,9 @@ void main() {
       when(
         () => localAdapter.getPendingOperations(any()),
       ).thenAnswer((_) async => pendingOpsForUser);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
 
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
@@ -464,86 +479,114 @@ void main() {
     );
 
     test(
-      'handles external change arriving during a pull operation for the same entity',
-      () async {
-        // This test simulates a race condition: a sync starts, pulling v2 of an
-        // entity. While the sync is running, a real-time event for v3 arrives.
-        // The expected outcome is that v3, the latest version, should be the
-        // final state in the local database.
+        'handles external change arriving during a pull operation for the same entity',
+        () async {
+      // This test simulates a race condition: a sync starts, pulling v2 of an
+      // entity. While the sync is running, a real-time event for v3 arrives.
+      // The expected outcome is that v3, the latest version, should be the
+      // final state in the local database.
 
-        // ARRANGE
-        final (remote: remoteStreamController, local: _) = setupStreams();
-        await manager.initialize();
+      // ARRANGE
+      // Create a completer to signal when the final patch operation is done.
+      final patchCompleter = Completer<void>();
 
-        final localV1 = entity.copyWith(version: 1, name: 'Version 1');
-        final remoteV2 = entity.copyWith(version: 2, name: 'Version 2');
-        final externalV3 = entity.copyWith(version: 3, name: 'Version 3');
+      final (remote: remoteStreamController, local: _) = setupStreams();
+      await manager.initialize();
 
-        // The sync will pull remoteV2 and see localV1, creating a conflict.
-        when(
-          () => remoteAdapter.readAll(
-            userId: userId,
-            scope: any(named: 'scope'),
-          ),
-        ).thenAnswer((_) async => [remoteV2]);
-        when(
-          () => localAdapter.readByIds([remoteV2.id], userId: userId),
-        ).thenAnswer((_) async => {remoteV2.id: localV1});
+      final localV1 = entity.copyWith(version: 1, name: 'Version 1');
+      final remoteV2 = entity.copyWith(version: 2, name: 'Version 2');
+      final externalV3 = entity.copyWith(version: 3, name: 'Version 3');
 
-        // Stub the update call that the conflict resolver will trigger.
-        // Also, when the external change's `push` calls `read`, it should find
-        // the version that the sync is about to save, so it correctly performs an update.
-        when(
-          () => localAdapter.read(remoteV2.id, userId: userId),
-        ).thenAnswer((_) async => remoteV2);
-        when(() => localAdapter.update(any())).thenAnswer((_) async {});
+      // The sync will pull remoteV2 and see localV1, creating a conflict.
+      when(
+        () => remoteAdapter.readAll(
+          userId: userId,
+          scope: any(named: 'scope'),
+        ),
+      ).thenAnswer((_) async => [remoteV2]);
+      when(
+        () => localAdapter.readByIds([remoteV2.id], userId: userId),
+      ).thenAnswer((_) async => {remoteV2.id: localV1});
 
-        // Stub metadata calls
-        when(
-          () => localAdapter.getSyncMetadata(any()),
-        ).thenAnswer((_) async => null);
-        when(
-          () => localAdapter.updateSyncMetadata(any(), any()),
-        ).thenAnswer((_) async {});
-        when(
-          () => remoteAdapter.updateSyncMetadata(any(), any()),
-        ).thenAnswer((_) async {});
+      // When the external change handler calls `push`, it will read the entity
+      // to determine if it's a create or update. We must stub this read to
+      // return the version that the sync process just saved (v2), so that
+      // the handler correctly performs a patch to get to v3.
+      when(() => localAdapter.read(remoteV2.id, userId: userId))
+          .thenAnswer((_) async => remoteV2);
 
-        // Stub for the final metadata generation step after all writes are done.
-        when(
-          () => localAdapter.readAll(userId: userId),
-        ).thenAnswer((_) async => [externalV3]);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
+      when(() => localAdapter.update(any())).thenAnswer((_) async {});
 
-        // ACT
-        // Start the sync but don't await it yet.
-        final syncFuture = manager.synchronize(userId);
+      // Stub metadata calls
+      when(
+        () => localAdapter.getSyncMetadata(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.updateSyncMetadata(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
+        () => remoteAdapter.updateSyncMetadata(any(), any()),
+      ).thenAnswer((_) async {});
 
-        // Immediately after, simulate the v3 external change arriving.
-        remoteStreamController.add(
-          DatumChangeDetail(
-            type: DatumOperationType.update,
-            entityId: externalV3.id,
-            userId: userId,
-            timestamp: DateTime.now(),
-            data: externalV3,
-          ),
-        );
+      // Stub for the final metadata generation step after all writes are done.
+      when(
+        () => localAdapter.readAll(userId: userId),
+      ).thenAnswer((_) async => [externalV3]);
 
-        // Await the completion of the sync.
-        await syncFuture;
+      // When the final patch for v3 happens, complete the completer.
+      when(
+        () => localAdapter.patch(
+          id: externalV3.id,
+          delta: any(named: 'delta', that: equals({'name': 'Version 3'})),
+          userId: userId,
+        ),
+      ).thenAnswer((_) async {
+        if (!patchCompleter.isCompleted) {
+          patchCompleter.complete();
+        }
+        // Return a simulated patched entity.
+        return externalV3;
+      });
 
-        // ASSERT
-        // The sync engine will resolve the conflict and save remoteV2.
-        // Then, the external change handler will process externalV3.
-        // The final call should be a `patch` with the delta for v3.
-        verify(
-          () => localAdapter.patch(
-            id: externalV3.id,
-            delta: any(named: 'delta', that: equals({'name': 'Version 3'})),
-            userId: userId,
-          ),
-        ).called(1);
-      },
-    );
+      // ACT
+      // Start the sync but don't await it yet.
+      final syncFuture = manager.synchronize(userId);
+
+      // Give the sync a moment to start its pull operation.
+      // This ensures the race condition is more likely to occur as intended.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Immediately after, simulate the v3 external change arriving.
+      remoteStreamController.add(
+        DatumChangeDetail(
+          type: DatumOperationType.update,
+          entityId: externalV3.id,
+          userId: userId,
+          timestamp: DateTime.now(),
+          data: externalV3,
+        ),
+      );
+
+      // Await the completion of the sync.
+      await syncFuture;
+
+      // Explicitly wait for the patch operation to be called.
+      await patchCompleter.future;
+
+      // ASSERT
+      // The sync engine will resolve the conflict and save remoteV2.
+      // Then, the external change handler will process externalV3.
+      // The final call should be a `patch` with the delta for v3.
+      verify(
+        () => localAdapter.patch(
+          id: externalV3.id,
+          delta: any(named: 'delta', that: equals({'name': 'Version 3'})),
+          userId: userId,
+        ),
+      ).called(1);
+    }, timeout: const Timeout(Duration(seconds: 2)));
   });
 }

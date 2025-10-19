@@ -39,6 +39,16 @@ void main() {
           timestamp: DateTime(0),
         ),
       );
+      registerFallbackValue(
+        const DatumSyncResult<ExcludableEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() async {
@@ -121,6 +131,12 @@ void main() {
       ) async {
         pendingOps.removeWhere((op) => op.id == inv.positionalArguments.first);
       });
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
 
       manager = DatumManager<ExcludableEntity>(
         localAdapter: localAdapter,

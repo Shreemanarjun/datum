@@ -44,6 +44,16 @@ void main() {
       registerFallbackValue(
         UserSwitchStrategy.keepLocal,
       ); // Add fallback for the enum
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() {
@@ -104,6 +114,12 @@ void main() {
       ).thenAnswer((_) async {});
       when(
         () => remoteAdapter.updateSyncMetadata(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
       ).thenAnswer((_) async {});
     });
 

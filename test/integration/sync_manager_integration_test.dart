@@ -41,6 +41,16 @@ void main() {
       );
       registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
       registerFallbackValue(DatumQueryBuilder<TestEntity>().build());
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() async {
@@ -435,6 +445,53 @@ void main() {
         verify(() => localAdapter.create(remoteEntity)).called(1);
       },
     );
+
+    test('health stream reflects adapter health', () async {
+      // Arrange: Stub the adapter's health check
+      when(() => localAdapter.checkHealth())
+          .thenAnswer((_) async => AdapterHealthStatus.unhealthy);
+      when(() => remoteAdapter.checkHealth())
+          .thenAnswer((_) async => AdapterHealthStatus.ok);
+
+      // Act & Assert
+      // The health stream should emit a DatumHealth object reflecting the adapters' statuses.
+      // Since the local adapter is unhealthy, the overall status should become degraded.
+      expect(
+        manager.health,
+        emitsInOrder([
+          // The stream first emits its initial 'healthy' state.
+          isA<DatumHealth>()
+              .having((h) => h.status, 'status', DatumSyncHealth.healthy),
+          // Then, after the health check runs, it emits the 'degraded' state.
+          isA<DatumHealth>()
+              .having((h) => h.status, 'status', DatumSyncHealth.degraded)
+              .having((h) => h.localAdapterStatus, 'localAdapterStatus',
+                  AdapterHealthStatus.unhealthy)
+              .having((h) => h.remoteAdapterStatus, 'remoteAdapterStatus',
+                  AdapterHealthStatus.ok),
+        ]),
+      );
+
+      // Act: Trigger the health check, which will cause the stream to emit.
+      await manager.checkHealth();
+    });
+
+    test('watchStorageSize stream emits size updates', () async {
+      // Arrange
+      // Stub the watchStorageSize to return a stream of values.
+      when(() => localAdapter.watchStorageSize(userId: 'user1')).thenAnswer(
+        (_) => Stream.fromIterable([1024, 2048]),
+      );
+
+      // Act
+      final stream = manager.watchStorageSize(userId: 'user1');
+
+      // Assert
+      // The manager's stream should emit the values from the adapter's stream.
+      await expectLater(stream, emitsInOrder([1024, 2048]));
+
+      verify(() => localAdapter.watchStorageSize(userId: 'user1')).called(1);
+    });
   });
 }
 
@@ -515,5 +572,12 @@ void _stubDefaultBehaviors(
   when(() => localAdapter.getSyncMetadata(any())).thenAnswer((_) async => null);
   when(
     () => remoteAdapter.getSyncMetadata(any()),
+  ).thenAnswer((_) async => null);
+  when(
+    () => localAdapter.saveLastSyncResult(any(), any()),
+  ).thenAnswer((_) async {});
+  // Add missing stub for getLastSyncResult
+  when(
+    () => localAdapter.getLastSyncResult(any()),
   ).thenAnswer((_) async => null);
 }

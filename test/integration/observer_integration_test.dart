@@ -478,6 +478,12 @@ void _stubDefaultBehaviors(
   when(
     () => remoteAdapter.updateSyncMetadata(any(), any()),
   ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.saveLastSyncResult(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
 
   // Delete
   when(

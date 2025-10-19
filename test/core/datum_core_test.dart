@@ -75,6 +75,16 @@ void main() {
         ),
       );
       registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fb',
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: <DatumSyncOperation<TestEntity>>[],
+          duration: Duration.zero,
+        ),
+      );
+      registerFallbackValue(
         AnotherTestEntity(
           id: 'fb',
           userId: 'fb',
@@ -113,6 +123,16 @@ void main() {
         const DatumSyncMetadata(
           userId: 'fallback-user',
           dataHash: 'fallback-hash',
+        ),
+      );
+      registerFallbackValue(
+        const DatumSyncResult<AnotherTestEntity>(
+          userId: 'fb',
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: <DatumSyncOperation<AnotherTestEntity>>[],
+          duration: Duration.zero,
         ),
       );
     });
@@ -882,4 +902,14 @@ void _stubAdapterBehaviors<T extends DatumEntity>(
   when(
     () => remoteAdapter.updateSyncMetadata(any(), any()),
   ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
+  when(
+    () => localAdapter.saveLastSyncResult(any(), any()),
+  ).thenAnswer((_) async {});
+  // Add missing stub for getLastSyncResult
+  when(
+    () => localAdapter.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
 }

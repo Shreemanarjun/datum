@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:collection/collection.dart';
+
 import 'package:datum/source/core/events/conflict_detected_event.dart';
+import 'package:datum/source/core/manager/disposable.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
 
@@ -40,18 +42,14 @@ import 'package:datum/source/core/resolver/last_write_wins_resolver.dart';
 import 'package:datum/source/utils/connectivity_checker.dart';
 import 'package:datum/source/utils/datum_logger.dart';
 
-class DatumManager<T extends DatumEntity> {
+class DatumManager<T extends DatumEntity> with Disposable {
   final LocalAdapter<T> localAdapter;
   final RemoteAdapter<T> remoteAdapter;
 
   bool _initialized = false;
-  bool _disposed = false;
 
   /// Returns true if the manager has been initialized.
   bool get isInitialized => _initialized;
-
-  /// Returns true if the manager has been disposed.
-  bool get isDisposed => _disposed;
 
   // Core dependencies
   final DatumConflictResolver<T> _conflictResolver;
@@ -63,13 +61,7 @@ class DatumManager<T extends DatumEntity> {
   final List<DatumMiddleware<T>> _middlewares = [];
 
   // Internal state management
-  final StreamController<DatumSyncEvent<T>> _eventController =
-      StreamController.broadcast();
-  final BehaviorSubject<DatumSyncStatusSnapshot> _statusSubject;
-  final BehaviorSubject<DatumSyncMetadata> _metadataSubject = BehaviorSubject();
   final Map<String, Timer> _autoSyncTimers = {};
-  final BehaviorSubject<DateTime?> _nextSyncTimeSubject =
-      BehaviorSubject.seeded(null);
 
   Stream<DateTime?> get onNextSyncTimeChanged => _nextSyncTimeSubject.stream;
 
@@ -81,12 +73,13 @@ class DatumManager<T extends DatumEntity> {
   late final IsolateHelper _isolateHelper;
   late final DatumConflictDetector<T> _conflictDetector;
   late final DatumSyncEngine<T> _syncEngine;
+  late final StreamController<DatumSyncEvent<T>> _eventController;
+  late final BehaviorSubject<DatumSyncStatusSnapshot> _statusSubject;
+  late final BehaviorSubject<DatumSyncMetadata> _metadataSubject;
+  late final BehaviorSubject<DateTime?> _nextSyncTimeSubject;
 
   /// Exposes the queue manager for central orchestration.
   QueueManager<T> get queueManager => _queueManager;
-
-  StreamSubscription<DatumChangeDetail<T>>? _localChangeSubscription;
-  StreamSubscription<dynamic>? _remoteChangeSubscription;
 
   /// Public event streams
   Stream<DatumSyncEvent<T>> get eventStream => _eventController.stream;
@@ -123,9 +116,6 @@ class DatumManager<T extends DatumEntity> {
     List<GlobalDatumObserver>? globalObservers,
   })  : _config = datumConfig ?? const DatumConfig(),
         _connectivity = connectivity,
-        _statusSubject = BehaviorSubject.seeded(
-          DatumSyncStatusSnapshot.initial(''),
-        ),
         // The logger's enabled status should always respect the config.
         _logger = (logger ?? DatumLogger())
             .copyWith(enabled: datumConfig?.enableLogging ?? true),
@@ -138,6 +128,17 @@ class DatumManager<T extends DatumEntity> {
   }
 
   void _initializeInternalComponents() {
+    // Initialize controllers and manage them for automatic disposal.
+    _eventController = StreamController.broadcast();
+    _statusSubject =
+        BehaviorSubject.seeded(DatumSyncStatusSnapshot.initial(''));
+    _metadataSubject = BehaviorSubject();
+    _nextSyncTimeSubject = BehaviorSubject.seeded(null);
+    manageController(_eventController);
+    manageController(_statusSubject);
+    manageController(_metadataSubject);
+    manageController(_nextSyncTimeSubject);
+
     _conflictDetector = DatumConflictDetector<T>();
     _isolateHelper = IsolateHelper();
     _queueManager = QueueManager<T>(
@@ -165,7 +166,7 @@ class DatumManager<T extends DatumEntity> {
   /// Initializes the manager and its adapters. Must be called before any other methods.
   Future<void> initialize() async {
     if (_initialized) return;
-    if (_disposed) throw StateError('Cannot initialize a disposed manager.');
+    ensureNotDisposed();
 
     await localAdapter.initialize();
     await _runSchemaMigrations();
@@ -255,18 +256,20 @@ class DatumManager<T extends DatumEntity> {
 
   void _subscribeToChangeStreams() {
     // Subscribe to local changes
-    _localChangeSubscription = localAdapter.changeStream()?.listen((change) {
+    final localSub = localAdapter.changeStream()?.listen((change) {
       // Wrap the single local change in a list to match the handler's signature.
       _handleExternalChange([change], DataSource.local);
     }, onError: (e, s) => _logger.error('Error in local change stream', s));
+    if (localSub != null) manageSubscription(localSub);
 
     // Subscribe to remote changes.
     final remoteStream = remoteAdapter.changeStream;
     if (remoteStream == null) return;
+    late StreamSubscription remoteSub;
 
     // If a debounce time is configured, buffer events for performance.
     if (_config.remoteEventDebounceTime > Duration.zero) {
-      _remoteChangeSubscription = remoteStream
+      remoteSub = remoteStream
           .bufferTime(_config.remoteEventDebounceTime)
           .where((batch) => batch.isNotEmpty)
           .listen(
@@ -277,10 +280,11 @@ class DatumManager<T extends DatumEntity> {
           );
     } else {
       // Otherwise, process events individually. This is better for tests.
-      _remoteChangeSubscription = remoteStream.listen((change) {
+      remoteSub = remoteStream.listen((change) {
         _handleExternalChange([change], DataSource.remote);
       }, onError: (e, s) => _logger.error('Error in remote change stream', s));
     }
+    manageSubscription(remoteSub);
   }
 
   /// Handles changes originating from outside the manager's direct control.
@@ -288,7 +292,12 @@ class DatumManager<T extends DatumEntity> {
     List<DatumChangeDetail<T>> changes,
     DataSource source,
   ) async {
-    if (_disposed) return;
+    if (isDisposed) {
+      _logger.warn(
+        'Dropping ${changes.length} external change(s) from $source because the manager is disposed.',
+      );
+      return;
+    }
 
     // 1. Clean up the cache to remove old entries.
     _cleanupChangeCache();
@@ -362,6 +371,12 @@ class DatumManager<T extends DatumEntity> {
           // If the change is from remote, it contributes to bytesPulled.
           final payload = change.data!.toDatumMap(target: MapTarget.local);
           final size = (await _isolateHelper.computeJsonEncode(payload)).length;
+          if (_eventController.isClosed) {
+            _logger.warn(
+              'Cannot emit sync progress event; manager is disposed.',
+            );
+            return;
+          }
           _eventController.add(
             DatumSyncProgressEvent<T>(
               userId: change.userId,
@@ -384,7 +399,12 @@ class DatumManager<T extends DatumEntity> {
 
   void _processSyncEvents(List<DatumSyncEvent<T>> events) {
     for (final event in events) {
-      if (_eventController.isClosed) return;
+      if (isDisposed) {
+        _logger.warn(
+          'Cannot process sync event ${event.runtimeType}; manager is disposed.',
+        );
+        return;
+      }
       _eventController.add(event);
     }
   }
@@ -795,11 +815,10 @@ class DatumManager<T extends DatumEntity> {
 
   void _ensureInitialized() {
     if (!_initialized) {
-      throw StateError('DatumManager must be initialized before use.');
+      throw StateError(
+          'DatumManager must be initialized before use. Call initialize() first.');
     }
-    if (_disposed) {
-      throw StateError('Cannot operate on a disposed manager.');
-    }
+    ensureNotDisposed();
   }
 
   Future<DatumSyncResult<T>> synchronize(
@@ -912,7 +931,7 @@ class DatumManager<T extends DatumEntity> {
     required String newUserId,
     UserSwitchStrategy? strategy,
   }) async {
-    _ensureInitialized();
+    ensureNotDisposed();
 
     if (newUserId.isEmpty) {
       throw ArgumentError.value(newUserId, 'newUserId', 'Must not be empty');
@@ -1050,20 +1069,15 @@ class DatumManager<T extends DatumEntity> {
   }
 
   /// Releases all resources held by the manager and its adapters.
+  @override
   Future<void> dispose() async {
-    if (_disposed) return;
-    _disposed = true;
-    await _localChangeSubscription?.cancel();
-    await _remoteChangeSubscription?.cancel();
-    await _eventController.close();
-    await _statusSubject.close();
-    await _metadataSubject.close();
-    await _nextSyncTimeSubject.close();
-    await _queueManager.dispose();
+    if (isDisposed) return;
     stopAutoSync();
+    await _queueManager.dispose();
     _isolateHelper.dispose();
     await localAdapter.dispose();
     await remoteAdapter.dispose();
+    await super.dispose(); // Call the mixin's dispose
   }
 
   Future<T> _applyPreSaveTransforms(T entity) async {
@@ -1155,5 +1169,12 @@ class DatumManager<T extends DatumEntity> {
   Future<DatumSyncResult<T>?> getLastSyncResult(String userId) async {
     _ensureInitialized();
     return localAdapter.getLastSyncResult(userId);
+  }
+
+  /// Performs a health check on the local and remote adapters and updates the
+  /// [health] stream with the result.
+  Future<DatumHealth> checkHealth() async {
+    _ensureInitialized();
+    return _syncEngine.checkHealth();
   }
 }

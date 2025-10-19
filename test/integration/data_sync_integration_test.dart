@@ -110,6 +110,15 @@ void main() {
         () => localAdapter.readAll(userId: any(named: 'userId')),
       ).thenAnswer((_) async => []);
       when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
         () => localAdapter.changeStream(),
       ).thenAnswer((_) => const Stream<DatumChangeDetail<TestEntity>>.empty());
       when(

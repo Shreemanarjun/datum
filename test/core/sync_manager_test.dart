@@ -63,6 +63,16 @@ void main() async {
           timestamp: DateTime(0),
         ),
       );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() async {
@@ -132,6 +142,12 @@ void main() async {
       when(
         () => localAdapter.addPendingOperation(any(), any()),
       ).thenAnswer((_) async {});
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
       when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
 
       manager = DatumManager<TestEntity>(
@@ -147,9 +163,8 @@ void main() async {
       test('initializes adapters and starts auto-sync if configured', () async {
         // Arrange
         // This test needs a custom manager, so we create it here.
-        when(
-          () => localAdapter.getAllUserIds(),
-        ).thenAnswer((_) async => ['user1']);
+        // Use a completer to reliably wait for the async synchronize call.
+        final syncStartedCompleter = Completer<void>();
 
         // Create a new manager instance for this specific test.
         final autoSyncManager = DatumManager<TestEntity>(
@@ -163,6 +178,18 @@ void main() async {
           ),
         );
 
+        // When the synchronize call eventually happens, complete the completer.
+        when(
+          () => remoteAdapter.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer((_) async {
+          if (!syncStartedCompleter.isCompleted) {
+            syncStartedCompleter.complete();
+          }
+          return [];
+        });
         // Act
         await autoSyncManager.initialize();
 
@@ -170,10 +197,8 @@ void main() async {
         verify(() => localAdapter.initialize()).called(1);
         verify(() => remoteAdapter.initialize()).called(1);
 
-        // Allow time for the unawaited synchronize call in initialize to start.
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-
-        // Verify that an initial sync (pull phase) was triggered for the initial user.
+        // Wait for the unawaited synchronize call in initialize to start.
+        await syncStartedCompleter.future;
         verify(
           () => remoteAdapter.readAll(
             userId: 'user1',

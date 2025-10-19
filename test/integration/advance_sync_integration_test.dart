@@ -47,6 +47,16 @@ void main() {
       registerFallbackValue(
         DatumSyncMetadata(userId: 'fb', dataHash: 'fallback'),
       );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() async {
@@ -422,5 +432,12 @@ void _stubDefaultBehaviors(
   ).thenAnswer((_) async {});
   when(
     () => remoteAdapter.updateSyncMetadata(any(), any()),
+  ).thenAnswer((_) async {});
+  // Add missing stub for getLastSyncResult
+  when(
+    () => localAdapter.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
+  when(
+    () => localAdapter.saveLastSyncResult(any(), any()),
   ).thenAnswer((_) async {});
 }

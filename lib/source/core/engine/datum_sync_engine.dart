@@ -160,6 +160,9 @@ class DatumSyncEngine<T extends DatumEntity> {
       // After operations, check if the sync was cancelled by a dispose call.
       // The status subject would be closed in this case.
       if (statusSubject.isClosed) {
+        logger.warn(
+          'Sync for user $userId was cancelled mid-process due to manager disposal.',
+        );
         return (
           DatumSyncResult<T>.cancelled(userId, statusSubject.value.syncedCount),
           generatedEvents,
@@ -186,8 +189,10 @@ class DatumSyncEngine<T extends DatumEntity> {
       // might have been disposed during the sync operation.
       if (!statusSubject.isClosed) {
         statusSubject.add(
+          // The final status should be idle, not completed.
+          // 'completed' is a transient status for the event, not the final state.
           statusSubject.value.copyWith(
-            status: DatumSyncStatus.idle,
+            status: DatumSyncStatus.idle, // The manager is now idle
             health: const DatumHealth(status: DatumSyncHealth.healthy),
           ),
         );
@@ -210,9 +215,11 @@ class DatumSyncEngine<T extends DatumEntity> {
 
       logger.error('Synchronization failed for user $userId: $e', stack);
       if (!statusSubject.isClosed && !eventController.isClosed) {
+        // The final status is 'failed', not 'error'.
+        // 'error' is a health status, not a sync cycle status.
         statusSubject.add(
           statusSubject.value.copyWith(
-            status: DatumSyncStatus.failed,
+            status: DatumSyncStatus.failed, // The sync cycle failed
             health: const DatumHealth(status: DatumSyncHealth.error),
             errors: [e],
           ),
@@ -263,8 +270,12 @@ class DatumSyncEngine<T extends DatumEntity> {
       () => statusSubject.value.status != DatumSyncStatus.syncing,
       (completed, total) {
         if (!statusSubject.isClosed && !eventController.isClosed) {
+          // The status should remain 'syncing' while progress is being reported.
+          // Only the progress value within the snapshot is updated.
           final progress = total > 0 ? completed / total : 1.0;
-          statusSubject.add(statusSubject.value.copyWith(progress: progress));
+          statusSubject.add(
+            statusSubject.value.copyWith(progress: progress),
+          );
           final progressEvent = DatumSyncProgressEvent<T>(
             userId: userId,
             completed: completed,
@@ -688,6 +699,38 @@ class DatumSyncEngine<T extends DatumEntity> {
       // Re-throw to allow the main sync loop's error handler to catch it.
       rethrow;
     }
+  }
+
+  /// Performs a health check on the local and remote adapters.
+  ///
+  /// This method checks the connectivity and the individual health of both
+  /// adapters, combines them into a [DatumHealth] object, updates the
+  /// status stream, and returns the result.
+  Future<DatumHealth> checkHealth() async {
+    final localStatus = await localAdapter.checkHealth();
+    final remoteStatus = await remoteAdapter.checkHealth();
+    final isConnected = await connectivityChecker.isConnected;
+
+    DatumSyncHealth overallStatus;
+    if (!isConnected) {
+      overallStatus = DatumSyncHealth.offline;
+    } else if (localStatus == AdapterHealthStatus.unhealthy ||
+        remoteStatus == AdapterHealthStatus.unhealthy) {
+      overallStatus = DatumSyncHealth.degraded;
+    } else {
+      overallStatus = DatumSyncHealth.healthy;
+    }
+
+    final health = DatumHealth(
+      status: overallStatus,
+      localAdapterStatus: localStatus,
+      remoteAdapterStatus: remoteStatus,
+    );
+
+    // Update the health status in the main status snapshot.
+    statusSubject.add(statusSubject.value.copyWith(health: health));
+
+    return health;
   }
 }
 

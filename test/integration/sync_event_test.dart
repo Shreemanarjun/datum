@@ -47,7 +47,7 @@ void main() {
       expect(event.progress, 0.5);
       expect(
         event.toString(),
-        'DatumSyncEvent(userId: $userId, timestamp: $timestamp): DatumSyncProgressEvent(completed: 5, total: 10, progress: 0.5)',
+        'DatumSyncEvent(userId: $userId, timestamp: $timestamp): DatumSyncProgressEvent(completed: 5, total: 10, progress: 0.5, pushed: 0, pulled: 0)',
       );
     });
 

@@ -27,6 +27,16 @@ void main() {
         const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'),
       );
       registerFallbackValue(TestEntity.create('fb', 'fb', 'fb'));
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() async {
@@ -150,4 +160,12 @@ void _stubDefaultBehaviors(
   ).thenAnswer((_) async => []);
   when(() => local.changeStream()).thenAnswer((_) => const Stream.empty());
   when(() => remote.changeStream).thenAnswer((_) => const Stream.empty());
+
+
+  when(
+    () => local.saveLastSyncResult(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => local.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
 }

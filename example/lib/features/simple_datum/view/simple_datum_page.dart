@@ -419,12 +419,12 @@ class SyncInfoWidget extends ConsumerWidget {
                 healthAsync.easyWhen(
                   data: (healthMap) {
                     final health = healthMap[Task];
-                    return Row(
-                      children: [
-                        Text(health?.status.name ?? 'Unknown'),
-                        const SizedBox(width: 4),
-                        const HealthStatusWidget(),
-                      ],
+                    return Tooltip(
+                      message:
+                          'Local: ${health?.localAdapterStatus.name ?? '??'} | Remote: ${health?.remoteAdapterStatus.name ?? '??'}',
+                      child: Row(
+                        children: [const HealthStatusWidget()],
+                      ),
                     );
                   },
                   loadingWidget: () => const Text('Checking...'),

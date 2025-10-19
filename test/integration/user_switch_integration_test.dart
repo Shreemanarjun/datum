@@ -35,6 +35,16 @@ void main() {
       registerFallbackValue(
         const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'),
       );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() async {
@@ -310,6 +320,12 @@ void _stubDefaultBehaviors(
   when(
     () => remoteAdapter.updateSyncMetadata(any(), any()),
   ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.saveLastSyncResult(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
 }
 
 /// Helper function to create a test operation.

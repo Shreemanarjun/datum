@@ -164,6 +164,9 @@ void main() {
       when(
         () => localAdapter.getSyncMetadata(any()),
       ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
       when(() => localAdapter.update(any())).thenAnswer((_) async {});
       when(() => localAdapter.create(any())).thenAnswer((inv) async {
         final item = inv.positionalArguments.first as TestEntity;

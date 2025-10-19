@@ -86,15 +86,15 @@ class DatumMetrics extends Equatable {
   @override
   String toString() {
     return 'DatumMetrics('
-        'totalSyncs: $totalSyncOperations, '
-        'successful: $successfulSyncs, '
-        'failed: $failedSyncs, '
-        'conflicts: $conflictsDetected, '
-        'resolved: $conflictsResolvedAutomatically, '
-        'userSwitches: $userSwitchCount, '
-        'activeUsers: ${activeUsers.length}, '
-        'pushed: ${(totalBytesPushed / 1024).toStringAsFixed(2)} KB, '
-        'pulled: ${(totalBytesPulled / 1024).toStringAsFixed(2)} KB'
+        'Syncs: $totalSyncOperations, '
+        '✅: $successfulSyncs, '
+        '❌: $failedSyncs, '
+        'Conflicts: $conflictsDetected, '
+        'Resolved: $conflictsResolvedAutomatically, '
+        'Users: ${activeUsers.length}, '
+        'Switches: $userSwitchCount, '
+        'Pushed: ${(totalBytesPushed / 1024).toStringAsFixed(2)} KB, '
+        'Pulled: ${(totalBytesPulled / 1024).toStringAsFixed(2)} KB'
         ')';
   }
 }

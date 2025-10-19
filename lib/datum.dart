@@ -21,6 +21,7 @@ export 'source/core/events/initial_sync_event.dart';
 export 'source/core/events/user_switched_event.dart';
 export 'source/core/health/datum_health.dart';
 export 'source/core/manager/datum_manager.dart';
+export 'source/core/manager/disposable.dart';
 export 'source/core/middleware/datum_middleware.dart';
 export 'source/core/migration/migration.dart';
 export 'source/core/migration/migration_executor.dart';
