@@ -165,11 +165,11 @@ void main() {
           remoteOnlyFields: const {'remote': 'xyz'},
         );
 
-        final localMap = entity.toMap();
+        final localMap = entity.toDatumMap();
         expect(localMap, containsPair('local', 'abc'));
         expect(localMap.containsKey('remote'), isFalse);
 
-        final remoteMap = entity.toMap(target: MapTarget.remote);
+        final remoteMap = entity.toDatumMap(target: MapTarget.remote);
         expect(remoteMap, containsPair('remote', 'xyz'));
         expect(remoteMap.containsKey('local'), isFalse);
       });
@@ -319,7 +319,7 @@ void main() {
             .captured
             .single as ExcludableEntity;
 
-        final remoteMap = captured.toMap(target: MapTarget.remote);
+        final remoteMap = captured.toDatumMap(target: MapTarget.remote);
         expect(remoteMap, containsPair('sessionToken', 'token-123'));
         expect(remoteMap.containsKey('localOnlyFields'), isFalse);
       },
@@ -427,7 +427,7 @@ void main() {
       final capturedLocal = verify(() => localAdapter.create(captureAny()))
           .captured
           .single as ExcludableEntity;
-      final localMap = capturedLocal.toMap(target: MapTarget.local);
+      final localMap = capturedLocal.toDatumMap(target: MapTarget.local);
 
       expect(localMap, containsPair('localCacheKey', 'cache-data'));
       // Assert: The data pushed to the remote adapter should NOT contain the field.
@@ -435,7 +435,8 @@ void main() {
         () => remoteAdapter.create(captureAny()),
       ).captured;
       expect(
-        (captured.first as ExcludableEntity).toMap(target: MapTarget.remote),
+        (captured.first as ExcludableEntity)
+            .toDatumMap(target: MapTarget.remote),
         isNot(contains('localCacheKey')),
       );
     });

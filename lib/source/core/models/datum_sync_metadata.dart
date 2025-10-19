@@ -57,7 +57,7 @@ class DatumSyncMetadata extends Equatable {
   });
 
   /// Creates SyncMetadata from JSON.
-  factory DatumSyncMetadata.fromJson(Map<String, dynamic> json) {
+  factory DatumSyncMetadata.fromMap(Map<String, dynamic> json) {
     return DatumSyncMetadata(
       userId: json['userId'] as String,
       lastSyncTime: json['lastSyncTime'] != null

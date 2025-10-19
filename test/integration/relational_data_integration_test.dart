@@ -38,7 +38,7 @@ class User extends RelationalDatumEntity {
       };
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
         'id': id,
         'userId': userId,
         'name': name,
@@ -122,7 +122,7 @@ class Post extends RelationalDatumEntity {
       };
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
         'id': id,
         'userId': userId,
         'title': title,
@@ -213,7 +213,7 @@ class Tag extends RelationalDatumEntity {
       };
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
         'id': id,
         'userId': userId,
         'name': name,
@@ -293,7 +293,7 @@ class PostTag extends RelationalDatumEntity {
   Map<String, Relation> get relations => {};
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
         'id': id,
         'postId': postId,
         'tagId': tagId,
@@ -338,7 +338,7 @@ class Profile extends RelationalDatumEntity {
   Map<String, Relation> get relations => {'user': BelongsTo('userId')};
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
         'id': id,
         'userId': userId,
         'bio': bio,

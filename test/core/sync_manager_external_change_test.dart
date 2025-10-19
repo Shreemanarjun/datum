@@ -110,7 +110,7 @@ void main() {
         // The first argument is the ID (String), the second is the delta (Map).
         // We simulate the patch by applying the delta to the original entity.
         final delta = inv.namedArguments[#delta] as Map<String, dynamic>;
-        final originalMap = entity.toMap();
+        final originalMap = entity.toDatumMap();
         return TestEntity.fromJson(originalMap..addAll(delta));
       });
 

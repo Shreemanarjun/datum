@@ -16,18 +16,18 @@ class TestEntity extends DatumEntity {
   });
 
   factory TestEntity.fromJson(Map<String, dynamic> json) => TestEntity(
-    id: json['id'] as String? ?? '',
-    userId: json['userId'] as String? ?? '',
-    name: json['name'] as String? ?? json['title'] as String? ?? '',
-    value: json['value'] as int? ?? 0,
-    modifiedAt:
-        DateTime.tryParse(json['modifiedAt'] as String? ?? '') ?? DateTime(0),
-    createdAt:
-        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime(0),
-    version: json['version'] as int? ?? 1,
-    isDeleted: json['isDeleted'] as bool? ?? false,
-    completed: json['completed'] as bool? ?? false,
-  );
+        id: json['id'] as String? ?? '',
+        userId: json['userId'] as String? ?? '',
+        name: json['name'] as String? ?? json['title'] as String? ?? '',
+        value: json['value'] as int? ?? 0,
+        modifiedAt: DateTime.tryParse(json['modifiedAt'] as String? ?? '') ??
+            DateTime(0),
+        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+            DateTime(0),
+        version: json['version'] as int? ?? 1,
+        isDeleted: json['isDeleted'] as bool? ?? false,
+        completed: json['completed'] as bool? ?? false,
+      );
 
   /// Creates a new [TestEntity] with default values for testing.
   factory TestEntity.create(String id, String userId, String name) =>
@@ -65,17 +65,17 @@ class TestEntity extends DatumEntity {
   final bool completed;
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'name': name,
-    'value': value,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-    'completed': completed,
-  };
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
+        'id': id,
+        'userId': userId,
+        'name': name,
+        'value': value,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+        'completed': completed,
+      };
 
   @override
   TestEntity copyWith({
@@ -88,17 +88,18 @@ class TestEntity extends DatumEntity {
     int? version,
     bool? isDeleted,
     bool? completed,
-  }) => TestEntity(
-    id: id ?? this.id,
-    userId: userId ?? this.userId,
-    name: name ?? this.name,
-    value: value ?? this.value,
-    modifiedAt: modifiedAt ?? this.modifiedAt,
-    createdAt: createdAt ?? this.createdAt,
-    version: version ?? this.version,
-    isDeleted: isDeleted ?? this.isDeleted,
-    completed: completed ?? this.completed,
-  );
+  }) =>
+      TestEntity(
+        id: id ?? this.id,
+        userId: userId ?? this.userId,
+        name: name ?? this.name,
+        value: value ?? this.value,
+        modifiedAt: modifiedAt ?? this.modifiedAt,
+        createdAt: createdAt ?? this.createdAt,
+        version: version ?? this.version,
+        isDeleted: isDeleted ?? this.isDeleted,
+        completed: completed ?? this.completed,
+      );
 
   @override
   List<Object?> get props => [...super.props, name, value, completed];
@@ -107,7 +108,7 @@ class TestEntity extends DatumEntity {
   Map<String, dynamic>? diff(DatumEntity oldVersion) {
     if (oldVersion is! TestEntity) {
       // If types don't match, return the full object as a "diff"
-      return toMap(target: MapTarget.remote);
+      return toDatumMap(target: MapTarget.remote);
     }
 
     final diffMap = <String, dynamic>{};

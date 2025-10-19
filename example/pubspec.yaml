@@ -31,6 +31,7 @@ dependencies:
   platform_info: ^5.0.0
   responsive_framework:
     git: https://github.com/Shreemanarjun/ResponsiveFramework.git
+  rxdart: ^0.28.0
   slang: ^4.9.1
   slang_flutter: ^4.9.0
   talker_dio_logger: ^5.0.2

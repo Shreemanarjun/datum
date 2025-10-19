@@ -61,7 +61,7 @@ class ExcludableEntity extends DatumEntity {
   }
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
     final map = <String, dynamic>{
       'id': id,
       'userId': userId,
@@ -105,11 +105,11 @@ class ExcludableEntity extends DatumEntity {
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) {
     if (oldVersion is! ExcludableEntity) {
-      return toMap(target: MapTarget.remote);
+      return toDatumMap(target: MapTarget.remote);
     }
 
-    final remoteMap = toMap(target: MapTarget.remote);
-    final oldRemoteMap = oldVersion.toMap(target: MapTarget.remote);
+    final remoteMap = toDatumMap(target: MapTarget.remote);
+    final oldRemoteMap = oldVersion.toDatumMap(target: MapTarget.remote);
     final diff = <String, dynamic>{};
 
     for (final key in remoteMap.keys) {
@@ -121,11 +121,11 @@ class ExcludableEntity extends DatumEntity {
 
   @override
   List<Object?> get props => [
-    ...super.props,
-    name,
-    localOnlyFields,
-    remoteOnlyFields,
-  ];
+        ...super.props,
+        name,
+        localOnlyFields,
+        remoteOnlyFields,
+      ];
 
   @override
   // Setting stringify to true provides a more descriptive toString() output.

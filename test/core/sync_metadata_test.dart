@@ -59,7 +59,7 @@ void main() {
       final map = metadata.toMap();
 
       // Act
-      final fromMap = DatumSyncMetadata.fromJson(map);
+      final fromMap = DatumSyncMetadata.fromMap(map);
 
       // Assert
       expect(fromMap, metadata);
@@ -74,7 +74,7 @@ void main() {
       final map = minimalMetadata.toMap();
 
       // Act
-      final fromMap = DatumSyncMetadata.fromJson(map);
+      final fromMap = DatumSyncMetadata.fromMap(map);
 
       // Assert
       expect(fromMap.userId, 'user-456');

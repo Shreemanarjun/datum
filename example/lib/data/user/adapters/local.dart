@@ -2,109 +2,128 @@ import 'dart:async';
 
 import 'package:datum/datum.dart';
 import 'package:example/data/user/entity/user.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
 
 class UserLocalAdapter extends LocalAdapter<User> {
-  final Map<String, Map<String, User>> _storage = {};
-  final Map<String, List<DatumSyncOperation<User>>> _pendingOps = {};
-  final Map<String, DatumSyncMetadata?> _metadata = {};
-  final _changeController =
-      StreamController<DatumChangeDetail<User>>.broadcast();
+  // Storing as Map<String, dynamic> to avoid needing a TypeAdapter for User
+  late Box<Map> _userBox;
+  late Box<List> _pendingOpsBox;
+  // Store metadata as Map to avoid requiring a Hive TypeAdapter for DatumSyncMetadata.
+  late Box<Map> _metadataBox;
+
   int _schemaVersion = 0;
 
   @override
-  User get sampleInstance => User.fromMap({'id': '', 'userId': ''}); // Dummy instance for reflection
+  User get sampleInstance => User.fromMap({'id': '', 'userId': ''});
 
   @override
   Future<void> addPendingOperation(
     String userId,
     DatumSyncOperation<User> operation,
   ) {
-    final userOps = _pendingOps.putIfAbsent(userId, () => []);
-    final existingIndex = userOps.indexWhere((op) => op.id == operation.id);
+    final opsList = (_pendingOpsBox.get(userId) ?? []).cast<Map>().toList();
+    final existingIndex =
+        opsList.indexWhere((map) => map['id'] == operation.id);
+
     if (existingIndex != -1) {
-      userOps[existingIndex] = operation;
+      opsList[existingIndex] = operation.toMap();
     } else {
-      userOps.add(operation);
+      opsList.add(operation.toMap());
     }
-    return Future.value();
+    return _pendingOpsBox.put(userId, opsList);
   }
 
   @override
   Stream<DatumChangeDetail<User>>? changeStream() {
-    return _changeController.stream;
+    return _userBox.watch().map((event) {
+      final userMap = event.value;
+      final user =
+          userMap != null ? User.fromMap(_normalizeMap(userMap)) : null;
+      return DatumChangeDetail(
+        entityId: event.key as String,
+        userId: user?.userId ?? '',
+        type: event.deleted
+            ? DatumOperationType.delete
+            : DatumOperationType.update,
+        timestamp: DateTime.now(),
+        data: user,
+      );
+    });
   }
 
   @override
   Future<void> clear() {
-    _storage.clear();
-    _pendingOps.clear();
-    _metadata.clear();
-    return Future.value();
+    return _userBox.clear();
   }
 
   @override
   Future<void> clearUserData(String userId) {
-    _storage.remove(userId);
-    _pendingOps.remove(userId);
-    _metadata.remove(userId);
-    return Future.value();
+    final userKeys = _userBox.values
+        .where((map) => map['userId'] == userId)
+        .map((map) => map['id'] as String);
+
+    return Future.wait([
+      _userBox.deleteAll(userKeys),
+      _pendingOpsBox.delete(userId),
+      _metadataBox.delete(userId),
+    ]);
   }
 
   @override
   Future<void> create(User entity) {
-    _storage.putIfAbsent(entity.userId, () => {})[entity.id] = entity;
-    _changeController.add(
-      DatumChangeDetail(
-        entityId: entity.id,
-        userId: entity.userId,
-        type: DatumOperationType.create,
-        timestamp: DateTime.now(),
-        data: entity,
-      ),
-    );
-    return Future.value();
+    return _userBox.put(entity.id, entity.toDatumMap(target: MapTarget.local));
   }
 
   @override
   Future<bool> delete(String id, {String? userId}) {
-    final item = _storage[userId ?? '']?.remove(id);
-    if (item != null) {
-      _changeController.add(
-        DatumChangeDetail(
-          entityId: id,
-          userId: userId ?? '',
-          type: DatumOperationType.delete,
-          timestamp: DateTime.now(),
-        ),
-      );
-      return Future.value(true);
+    // Hive's delete doesn't tell us if it was successful, but we can check first.
+    if (_userBox.containsKey(id)) {
+      return _userBox.delete(id).then((_) => true);
     }
     return Future.value(false);
   }
 
   @override
   Future<void> dispose() {
-    return _changeController.close();
+    // In a real app, you might not close boxes here if they are used elsewhere.
+    // For this example, we assume the adapter owns the boxes.
+    return Future.wait([
+      _userBox.close(),
+      _pendingOpsBox.close(),
+      _metadataBox.close(),
+    ]);
   }
 
   @override
   Future<List<Map<String, dynamic>>> getAllRawData({String? userId}) {
-    return Future.value(
-      _storage.values
-          .expand((map) => map.values)
-          .map((e) => e.toMap())
-          .toList(),
-    );
+    final maps = _userBox.values
+        .where((map) => userId == null || map['userId'] == userId);
+    return Future.value(maps.map((e) => _normalizeMap(e)).toList());
   }
 
   @override
   Future<List<String>> getAllUserIds() {
-    return Future.value(_storage.keys.toList());
+    // Get all unique userIds from the stored users.
+    final userIds = _userBox.values
+        .map((map) => _normalizeMap(map)['userId'] as String)
+        .toSet()
+        .toList();
+    return Future.value(userIds);
   }
 
   @override
   Future<List<DatumSyncOperation<User>>> getPendingOperations(String userId) {
-    return Future.value(List.from(_pendingOps[userId] ?? []));
+    final opsList = _pendingOpsBox.get(userId);
+    if (opsList == null) {
+      return Future.value([]);
+    }
+    final ops = opsList.cast<Map>().map((raw) {
+      final m =
+          _normalizeMap(raw); // This correctly creates a Map<String, dynamic>
+      return DatumSyncOperation.fromMap(
+          m, User.fromMap); // Use the normalized map 'm' here
+    }).toList();
+    return Future.value(ops);
   }
 
   @override
@@ -114,13 +133,24 @@ class UserLocalAdapter extends LocalAdapter<User> {
 
   @override
   Future<DatumSyncMetadata?> getSyncMetadata(String userId) {
-    return Future.value(_metadata[userId]);
+    final map = _metadataBox.get(userId);
+    if (map == null) return Future.value(null);
+    final m = _normalizeMap(map);
+    return Future.value(DatumSyncMetadata(
+      userId: m['userId'] as String? ?? userId,
+      dataHash: m['dataHash'] as String? ?? '',
+    ));
   }
 
   @override
   Future<void> initialize() {
-    // No-op for in-memory adapter
-    return Future.value();
+    return Future.wait([
+      Hive.openBox<Map>('users').then((box) => _userBox = box),
+      Hive.openBox<List>('pending_user_ops')
+          .then((box) => _pendingOpsBox = box),
+      // Open metadata box as Map to avoid needing a registered adapter.
+      Hive.openBox<Map>('user_metadata').then((box) => _metadataBox = box),
+    ]);
   }
 
   @override
@@ -142,12 +172,14 @@ class UserLocalAdapter extends LocalAdapter<User> {
     required Map<String, dynamic> delta,
     String? userId,
   }) {
-    final existing = _storage[userId ?? '']?[id];
+    final existing = _userBox.get(id);
     if (existing == null) {
       throw Exception('Entity with id $id not found for user ${userId ?? ''}.');
     }
 
-    final json = existing.toMap()..addAll(delta);
+    final json = User.fromMap(_normalizeMap(existing))
+        .toDatumMap(target: MapTarget.local)
+      ..addAll(delta);
     final patchedItem = User.fromMap(json);
     update(patchedItem);
     return Future.value(patchedItem);
@@ -162,21 +194,22 @@ class UserLocalAdapter extends LocalAdapter<User> {
 
   @override
   Future<User?> read(String id, {String? userId}) {
-    if (userId != null) {
-      return Future.value(_storage[userId]?[id]);
-    }
-    for (final userStorage in _storage.values) {
-      if (userStorage.containsKey(id)) return Future.value(userStorage[id]);
+    final userMap = _userBox.get(id);
+    if (userMap == null) return Future.value(null);
+    final user = User.fromMap(_normalizeMap(userMap));
+    // If a userId is provided, ensure the found user matches.
+    if (userId == null || user.userId == userId) {
+      return Future.value(user);
     }
     return Future.value(null);
   }
 
   @override
   Future<List<User>> readAll({String? userId}) {
-    if (userId != null) {
-      return Future.value(_storage[userId]?.values.toList() ?? []);
-    }
-    return Future.value(_storage.values.expand((map) => map.values).toList());
+    final maps = _userBox.values
+        .where((map) => userId == null || map['userId'] == userId);
+    return Future.value(
+        maps.map((map) => User.fromMap(_normalizeMap(map))).toList());
   }
 
   @override
@@ -194,20 +227,32 @@ class UserLocalAdapter extends LocalAdapter<User> {
     List<String> ids, {
     required String userId,
   }) {
-    final userStorage = _storage[userId];
-    if (userStorage == null) return Future.value({});
-
+    final userMaps = _userBox.values.where((map) => map['userId'] == userId);
     final results = <String, User>{};
     for (final id in ids) {
-      if (userStorage.containsKey(id)) results[id] = userStorage[id]!;
+      final userMap =
+          userMaps.firstWhere((map) => map['id'] == id, orElse: () => {});
+      if (userMap.isNotEmpty) {
+        results[id] = User.fromMap(_normalizeMap(userMap));
+      }
     }
     return Future.value(results);
   }
 
   @override
   Future<void> removePendingOperation(String operationId) {
-    for (final ops in _pendingOps.values) {
-      ops.removeWhere((op) => op.id == operationId);
+    // This is more efficient as it avoids iterating over every user's pending ops.
+    // It assumes the operationId contains enough info to find the user,
+    // or that we find the first user with that op.
+    // For this example, we'll iterate, but in a cleaner way.
+    for (final userId in _pendingOpsBox.keys) {
+      final ops = (_pendingOpsBox.get(userId))?.toList();
+      if (ops == null) continue;
+
+      final initialLength = ops.length;
+      ops.removeWhere((op) => (op as Map)['id'] == operationId);
+
+      if (ops.length < initialLength) _pendingOpsBox.put(userId, ops);
     }
     return Future.value();
   }
@@ -220,28 +265,75 @@ class UserLocalAdapter extends LocalAdapter<User> {
 
   @override
   Future<R> transaction<R>(Future<R> Function() action) {
-    // In-memory doesn't have real transactions, but we can simulate it for API compatibility.
-    return action();
+    try {
+      return action();
+    } catch (e) {
+      // In a real DB with transactions, you would roll back here.
+      // For Hive, we rethrow to signal the failure.
+      rethrow;
+    }
   }
 
   @override
   Future<void> update(User entity) {
-    _storage.putIfAbsent(entity.userId, () => {})[entity.id] = entity;
-    _changeController.add(
-      DatumChangeDetail(
-        entityId: entity.id,
-        userId: entity.userId,
-        type: DatumOperationType.update,
-        timestamp: DateTime.now(),
-        data: entity,
-      ),
-    );
-    return Future.value();
+    return _userBox.put(entity.id, entity.toDatumMap(target: MapTarget.local));
   }
 
   @override
   Future<void> updateSyncMetadata(DatumSyncMetadata metadata, String userId) {
-    _metadata[userId] = metadata;
-    return Future.value();
+    return _metadataBox.put(userId, metadata.toMap());
+  }
+
+  @override
+  Stream<List<User>>? watchAll({String? userId}) {
+    // Use box.watch() for efficient reactive queries.
+    // We use a transformer to combine the initial data with subsequent changes.
+    final changes = _userBox.watch().asyncMap((_) => readAll(userId: userId));
+
+    return changes.transform(
+      StreamTransformer.fromBind((stream) async* {
+        // 1. Yield the initial data first.
+        yield await readAll(userId: userId);
+        // 2. Then, yield all subsequent updates from the stream.
+        yield* stream;
+      }),
+    );
+  }
+
+  @override
+  Stream<User?>? watchById(String id, {String? userId}) {
+    // Watch for changes only to the specific key (id).
+    final changes = _userBox.watch(key: id).asyncMap((event) async {
+      // After a change, re-read the item to ensure we get the correct state.
+      return read(id, userId: userId);
+    });
+
+    return changes.transform(StreamTransformer.fromBind((stream) async* {
+      // 1. Yield the initial state of the item.
+      yield await read(id, userId: userId);
+      // 2. Then, yield all subsequent updates.
+      yield* stream;
+    }));
+  }
+
+  // Normalize a Map<dynamic, dynamic> (from Hive) into Map<String, dynamic>.
+  Map<String, dynamic> _normalizeMap(dynamic maybeMap) {
+    if (maybeMap == null) return <String, dynamic>{};
+    if (maybeMap is Map) {
+      final out = <String, dynamic>{};
+      maybeMap.forEach((k, v) {
+        final key = k == null ? '' : k.toString();
+        if (v is Map) {
+          out[key] = _normalizeMap(v); // Recurse for nested maps
+        } else if (v is List) {
+          // Also handle lists of maps
+          out[key] = v.map(_normalizeMap).toList();
+        } else {
+          out[key] = v;
+        }
+      });
+      return out;
+    }
+    return <String, dynamic>{};
   }
 }

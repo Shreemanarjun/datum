@@ -160,8 +160,7 @@ void main() {
               posts.length == 2 &&
               posts.any((p) => p.id == 'post-1') &&
               posts.any((p) => p.id == 'post-2'),
-          (List<Post> posts) =>
-              posts.length == 1 && posts.first.id == 'post-2',
+          (List<Post> posts) => posts.length == 1 && posts.first.id == 'post-2',
         ]),
       );
 
@@ -294,7 +293,7 @@ void main() {
             (List<Profile> profiles) {
               // ignore: avoid_print
               print(
-                'watchRelated emitted [create]: ${profiles.map((e) => e.toMap()).toList()}',
+                'watchRelated emitted [create]: ${profiles.map((e) => e.toDatumMap()).toList()}',
               );
               return profiles.length == 1 &&
                   profiles.first.id == testProfile.id;
@@ -302,7 +301,7 @@ void main() {
             (List<Profile> profiles) {
               // ignore: avoid_print
               print(
-                'watchRelated emitted [update]: ${profiles.map((e) => e.toMap()).toList()}',
+                'watchRelated emitted [update]: ${profiles.map((e) => e.toDatumMap()).toList()}',
               );
               return profiles.length == 1 &&
                   profiles.first.bio == 'Expert in reactive programming.';

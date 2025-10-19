@@ -31,11 +31,26 @@ class User extends DatumEntity {
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) {
-    return null;
+    if (oldVersion is! User) return toDatumMap();
+
+    final Map<String, dynamic> diffMap = {};
+
+    if (name != oldVersion.name) {
+      diffMap['name'] = name;
+    }
+    if (isDeleted != oldVersion.isDeleted) {
+      diffMap['isDeleted'] = isDeleted;
+    }
+
+    // Always include modifiedAt and version in a diff.
+    diffMap['modifiedAt'] = modifiedAt.millisecondsSinceEpoch;
+    diffMap['version'] = version;
+
+    return diffMap;
   }
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
     return <String, dynamic>{
       'id': id,
       'userId': userId,
@@ -84,8 +99,38 @@ class User extends DatumEntity {
     );
   }
 
-  String toJson() => json.encode(toMap());
+  String toJson() => json.encode(toDatumMap());
 
   factory User.fromJson(String source) =>
       User.fromMap(json.decode(source) as Map<String, dynamic>);
+
+  @override
+  String toString() {
+    return 'User(id: $id, userId: $userId, name: $name, modifiedAt: $modifiedAt, createdAt: $createdAt, version: $version, isDeleted: $isDeleted)';
+  }
+
+  @override
+  bool operator ==(covariant User other) {
+    if (identical(this, other)) return true;
+
+    return
+      other.id == id &&
+      other.userId == userId &&
+      other.name == name &&
+      other.modifiedAt == modifiedAt &&
+      other.createdAt == createdAt &&
+      other.version == version &&
+      other.isDeleted == isDeleted;
+  }
+
+  @override
+  int get hashCode {
+    return id.hashCode ^
+      userId.hashCode ^
+      name.hashCode ^
+      modifiedAt.hashCode ^
+      createdAt.hashCode ^
+      version.hashCode ^
+      isDeleted.hashCode;
+  }
 }

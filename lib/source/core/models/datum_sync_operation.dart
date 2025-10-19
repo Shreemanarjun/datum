@@ -61,12 +61,16 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
       userId: map['userId'] as String,
       entityId: map['entityId'] as String,
       type: DatumOperationType.values.byName(map['type'] as String),
-      data: map['data'] != null
-          ? fromJsonT(map['data'] as Map<String, dynamic>)
-          : null,
-      delta: map['delta'] != null
-          ? Map<String, dynamic>.from(map['delta'] as Map<String, dynamic>)
-          : null,
+      data: map['data'] == null
+          ? null
+          : fromJsonT(
+              Map<String, dynamic>.from(map['data'] as Map),
+            ),
+      delta: map['delta'] == null
+          ? null
+          : Map<String, dynamic>.from(
+              map['delta'] as Map,
+            ),
       timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
       retryCount: map['retryCount'] as int? ?? 0,
     );
@@ -102,7 +106,7 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
       'userId': userId,
       'entityId': entityId,
       'type': type.name,
-      'data': data?.toMap(),
+      'data': data?.toDatumMap(),
       'delta': delta,
       'timestamp': timestamp.millisecondsSinceEpoch,
       'retryCount': retryCount,
@@ -114,15 +118,15 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
 
   @override
   List<Object?> get props => [
-    id,
-    userId,
-    entityId,
-    type,
-    timestamp,
-    data,
-    delta,
-    retryCount,
-  ];
+        id,
+        userId,
+        entityId,
+        type,
+        timestamp,
+        data,
+        delta,
+        retryCount,
+      ];
 
   @override
   bool get stringify => true;

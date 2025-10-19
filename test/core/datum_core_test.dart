@@ -43,7 +43,7 @@ class AnotherTestEntity extends DatumEntity {
   }
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
     return {'id': id, 'userId': userId};
   }
 }

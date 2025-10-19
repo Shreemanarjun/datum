@@ -70,12 +70,12 @@ class UserRemoteAdapter extends RemoteAdapter<User> {
   }) {
     final existing = _remoteStorage[userId ?? '']?[id];
     if (existing == null) {
-      throw Exception(
+      throw EntityNotFoundException(
         'Entity with id $id not found for user ${userId ?? ''} on remote.',
       );
     }
 
-    final json = existing.toMap()..addAll(delta);
+    final json = existing.toDatumMap()..addAll(delta);
     final patchedItem = User.fromMap(json);
     update(patchedItem);
     return Future.value(patchedItem);

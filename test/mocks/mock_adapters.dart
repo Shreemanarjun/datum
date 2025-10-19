@@ -132,7 +132,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
       throw Exception('Entity with id $id not found for user ${userId ?? ''}.');
     }
 
-    final json = existing.toMap()..addAll(delta);
+    final json = existing.toDatumMap()..addAll(delta);
     final patchedItem = fromJson!(json);
     // Delegate to the push method to ensure atomicity.
     await push(patchedItem);
@@ -445,7 +445,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
       return _rawStorage.values.expand((map) => map.values).toList();
     }
     final items = await readAll(userId: userId);
-    return items.map((item) => item.toMap()).toList();
+    return items.map((item) => item.toDatumMap()).toList();
   }
 
   @override
@@ -484,7 +484,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     switch (relation) {
       case BelongsTo():
         final foreignKeyField = relation.foreignKey;
-        final parentMap = parent.toMap();
+        final parentMap = parent.toDatumMap();
         final foreignKeyValue = parentMap[foreignKeyField] as String?;
 
         if (foreignKeyValue == null) {
@@ -517,7 +517,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
             Filter(
               relation.thisForeignKey,
               FilterOperator.equals,
-              parent.toMap()[relation.thisLocalKey],
+              parent.toDatumMap()[relation.thisLocalKey],
             ),
           ],
         );
@@ -529,7 +529,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
         // 3. Extract the IDs of the "other" side of the relationship.
         final otherIds = pivotEntries
-            .map((e) => e.toMap()[relation.otherForeignKey] as String)
+            .map((e) => e.toDatumMap()[relation.otherForeignKey] as String)
             .where((id) => id.isNotEmpty)
             .toList();
 
@@ -546,7 +546,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         );
       case HasOne():
         final foreignKeyField = relation.foreignKey;
-        final localKeyValue = parent.toMap()[relation.localKey];
+        final localKeyValue = parent.toDatumMap()[relation.localKey];
         final query = DatumQuery(
           filters: [
             Filter(foreignKeyField, FilterOperator.equals, localKeyValue),
@@ -572,7 +572,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     switch (relation) {
       case BelongsTo():
         final foreignKeyField = relation.foreignKey;
-        final parentMap = parent.toMap();
+        final parentMap = parent.toDatumMap();
         final foreignKeyValue = parentMap[foreignKeyField] as String?;
 
         if (foreignKeyValue == null) {
@@ -601,7 +601,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
             Filter(
               relation.thisForeignKey,
               FilterOperator.equals,
-              parent.toMap()[relation.thisLocalKey],
+              parent.toDatumMap()[relation.thisLocalKey],
             ),
           ],
         );
@@ -609,7 +609,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         return pivotAdapter.watchQuery(pivotQuery)?.switchMap((pivotEntries) {
           if (pivotEntries.isEmpty) return Stream.value([]);
           final otherIds = pivotEntries
-              .map((e) => e.toMap()[relation.otherForeignKey] as String?)
+              .map((e) => e.toDatumMap()[relation.otherForeignKey] as String?)
               .where((id) => id != null && id.isNotEmpty)
               .cast<String>()
               .toList();
@@ -623,7 +623,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         });
       case HasOne():
         final foreignKeyField = relation.foreignKey;
-        final localKeyValue = parent.toMap()[relation.localKey];
+        final localKeyValue = parent.toDatumMap()[relation.localKey];
         final query = DatumQuery(
           filters: [
             Filter(foreignKeyField, FilterOperator.equals, localKeyValue),
@@ -673,8 +673,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
   @override
   Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) async {
     if (!isConnectedValue) throw Exception('No connection');
-    var items =
-        (userId != null
+    var items = (userId != null
             ? _remoteStorage[userId]?.values.toList()
             : _remoteStorage.values.expand((map) => map.values).toList()) ??
         [];
@@ -755,7 +754,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
       throw Exception('Entity not found for patching in mock remote adapter.');
     }
 
-    final json = existing.toMap()..addAll(delta);
+    final json = existing.toDatumMap()..addAll(delta);
     final patchedItem = fromJson!(json);
     _remoteStorage.putIfAbsent(userId ?? '', () => {})[id] = patchedItem;
     return patchedItem;
@@ -892,7 +891,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
     switch (relation) {
       case BelongsTo():
         final foreignKeyField = relation.foreignKey;
-        final parentMap = parent.toMap();
+        final parentMap = parent.toDatumMap();
         final foreignKeyValue = parentMap[foreignKeyField] as String?;
 
         if (foreignKeyValue == null) {
@@ -919,7 +918,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
             Filter(
               relation.thisForeignKey,
               FilterOperator.equals,
-              parent.toMap()[relation.thisLocalKey],
+              parent.toDatumMap()[relation.thisLocalKey],
             ),
           ],
         );
@@ -931,7 +930,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
 
         // 3. Extract the IDs of the "other" side of the relationship.
         final otherIds = pivotEntries
-            .map((e) => e.toMap()[relation.otherForeignKey] as String?)
+            .map((e) => e.toDatumMap()[relation.otherForeignKey] as String?)
             .where((id) => id != null && id.isNotEmpty)
             .cast<String>()
             .toList();
@@ -948,7 +947,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
         );
       case HasOne():
         final foreignKeyField = relation.foreignKey;
-        final localKeyValue = parent.toMap()[relation.localKey];
+        final localKeyValue = parent.toDatumMap()[relation.localKey];
         final query = DatumQuery(
           filters: [
             Filter(foreignKeyField, FilterOperator.equals, localKeyValue),
@@ -962,7 +961,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
 /// A helper function to apply query filters and sorting to a list of items.
 List<T> applyQuery<T extends DatumEntity>(List<T> items, DatumQuery query) {
   var filteredItems = items.where((item) {
-    final json = item.toMap();
+    final json = item.toDatumMap();
     if (query.logicalOperator == LogicalOperator.and) {
       return query.filters.every((filter) => _matches(json, filter));
     } else {
@@ -973,8 +972,8 @@ List<T> applyQuery<T extends DatumEntity>(List<T> items, DatumQuery query) {
   if (query.sorting.isNotEmpty) {
     filteredItems.sort((a, b) {
       for (final sort in query.sorting) {
-        final valA = a.toMap()[sort.field];
-        final valB = b.toMap()[sort.field];
+        final valA = a.toDatumMap()[sort.field];
+        final valB = b.toDatumMap()[sort.field];
 
         if (valA == null && valB == null) continue;
         if (valA == null) {
@@ -1043,8 +1042,8 @@ bool _matches(Map<String, dynamic> json, FilterCondition condition) {
         return value is String &&
             condition.value is String &&
             value.toLowerCase().contains(
-              (condition.value as String).toLowerCase(),
-            );
+                  (condition.value as String).toLowerCase(),
+                );
       case FilterOperator.startsWith:
         return value is String &&
             condition.value is String &&
@@ -1106,8 +1105,7 @@ double _haversineDistance(double lat1, double lon1, double lat2, double lon2) {
   final deltaPhi = (lat2 - lat1) * pi / 180;
   final deltaLambda = (lon2 - lon1) * pi / 180;
 
-  final a =
-      sin(deltaPhi / 2) * sin(deltaPhi / 2) +
+  final a = sin(deltaPhi / 2) * sin(deltaPhi / 2) +
       cos(phi1) * cos(phi2) * sin(deltaLambda / 2) * sin(deltaLambda / 2);
   final c = 2 * atan2(sqrt(a), sqrt(1 - a));
   return r * c;

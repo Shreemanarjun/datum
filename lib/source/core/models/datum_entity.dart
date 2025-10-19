@@ -52,7 +52,7 @@ abstract class DatumEntity extends Equatable {
   ///
   /// The [target] parameter can be used to customize the output for different
   /// destinations (e.g., omitting certain fields for the remote API).
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local});
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local});
 
   /// Creates a copy of the entity with updated fields.
   ///

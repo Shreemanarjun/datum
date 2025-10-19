@@ -11,13 +11,13 @@ class AppRouter extends RootStackRouter {
       path: '/counter',
     ),
     AutoRoute(
-      initial: true,
       page: HomeRoute.page,
       path: '/home',
     ),
     AutoRoute(
       page: SimpleDatumRoute.page,
       path: '/simple_datum',
+      initial: true,
     ),
   ];
 }

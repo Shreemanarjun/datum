@@ -32,7 +32,7 @@ class User extends RelationalDatumEntity {
   Map<String, Relation> get relations => {'posts': HasMany('userId')};
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {};
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {};
   @override
   User copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) => this;
   @override
