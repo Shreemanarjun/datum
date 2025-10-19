@@ -43,6 +43,8 @@ class DatumSyncProgressEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
     required super.userId,
     required this.completed,
     required this.total,
+    this.bytesPushed = 0,
+    this.bytesPulled = 0,
     super.timestamp,
   });
 
@@ -52,12 +54,18 @@ class DatumSyncProgressEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   /// The total number of operations in this sync cycle.
   final int total;
 
+  /// The number of bytes pushed to the remote in this event.
+  final int bytesPushed;
+
+  /// The number of bytes pulled from the remote in this event.
+  final int bytesPulled;
+
   /// The progress of the sync as a value between 0.0 and 1.0.
   double get progress => total > 0 ? completed / total : 0.0;
 
   @override
   String toString() =>
-      '${super.toString()}: DatumSyncProgressEvent(completed: $completed, total: $total, progress: $progress)';
+      '${super.toString()}: DatumSyncProgressEvent(completed: $completed, total: $total, progress: $progress, pushed: $bytesPushed, pulled: $bytesPulled)';
 }
 
 /// Event fired when a synchronization cycle completes.

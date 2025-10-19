@@ -1,3 +1,4 @@
+import 'package:datum/source/core/health/datum_health.dart';
 import 'package:datum/source/core/models/datum_change_detail.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/relational_datum_entity.dart';
@@ -91,4 +92,10 @@ abstract class RemoteAdapter<T extends DatumEntity> {
 
   /// Dispose of any resources used by the adapter (e.g., network connections).
   Future<void> dispose() async {}
+
+  /// Checks the health of the remote adapter.
+  ///
+  /// Returns [AdapterHealthStatus.ok] by default. Adapters should override
+  /// this to provide a meaningful health check (e.g., ping a server endpoint).
+  Future<AdapterHealthStatus> checkHealth() async => AdapterHealthStatus.ok;
 }

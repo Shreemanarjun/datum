@@ -1,10 +1,6 @@
-import 'package:datum/source/core/models/datum_change_detail.dart';
-import 'package:datum/source/core/models/datum_entity.dart';
-import 'package:datum/source/core/models/datum_pagination.dart';
-import 'package:datum/source/core/models/relational_datum_entity.dart';
-import 'package:datum/source/core/query/datum_query.dart';
-import 'package:datum/source/core/models/datum_sync_metadata.dart';
-import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'dart:async';
+
+import 'package:datum/datum.dart';
 
 /// Local storage adapter abstraction that provides access to offline data.
 abstract class LocalAdapter<T extends DatumEntity> {
@@ -228,4 +224,43 @@ abstract class LocalAdapter<T extends DatumEntity> {
     throw UnimplementedError(
         'sampleInstance getter is not implemented for this adapter.');
   }
+
+  /// Checks the health of the local adapter.
+  ///
+  /// Returns [AdapterHealthStatus.ok] by default. Adapters should override
+  /// this to provide a meaningful health check (e.g., check if a database
+  /// file is accessible).
+  Future<AdapterHealthStatus> checkHealth() async => AdapterHealthStatus.ok;
+
+  /// Returns the storage size in bytes for a given user.
+  Future<int> getStorageSize({String? userId});
+
+  /// Reactively watches the storage size in bytes for a given user.
+  ///
+  /// Emits the current size immediately and then a new size whenever the
+  /// underlying data changes. Adapters can override this for a more efficient
+  /// implementation if their storage engine supports it.
+  Stream<int> watchStorageSize({String? userId}) {
+    final changes = changeStream()
+        // Filter changes to only include the relevant user.
+        ?.where((event) => userId == null || event.userId == userId)
+        // When a change occurs, recalculate the size.
+        .asyncMap((_) => getStorageSize(userId: userId));
+
+    if (changes == null) return Stream.value(0);
+
+    // Use a transformer to emit the initial value first, then subsequent changes.
+    return changes.transform(
+      StreamTransformer.fromBind((stream) async* {
+        yield await getStorageSize(userId: userId);
+        yield* stream;
+      }),
+    );
+  }
+
+  /// Saves the result of the last synchronization for a user.
+  Future<void> saveLastSyncResult(String userId, DatumSyncResult<T> result);
+
+  /// Retrieves the result of the last synchronization for a user.
+  Future<DatumSyncResult<T>?> getLastSyncResult(String userId);
 }

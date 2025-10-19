@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:datum/source/core/health/datum_health.dart';
 import 'package:datum/source/adapter/local_adapter.dart';
@@ -246,6 +247,11 @@ class DatumSyncEngine<T extends DatumEntity> {
             userId: userId,
             completed: completed,
             total: total,
+            // Note: byte counts are now emitted from _processPendingOperation
+            // and aggregated in the main synchronize method. This onProgress
+            // callback is now only for operation counts.
+            bytesPushed: 0,
+            bytesPulled: 0,
           );
           generatedEvents.add(progressEvent);
           _notifyObservers(progressEvent);
@@ -304,6 +310,16 @@ class DatumSyncEngine<T extends DatumEntity> {
             syncedCount: statusSubject.value.syncedCount + 1,
           ),
         );
+        // Emit a progress event with the byte count for this successful operation.
+        final progressEvent = DatumSyncProgressEvent<T>(
+          userId: operation.userId,
+          completed: 1,
+          total: 1, // This event represents a single operation's completion
+          bytesPushed: operation.sizeInBytes,
+          bytesPulled: 0,
+        );
+        generatedEvents.add(progressEvent);
+        _notifyObservers(progressEvent);
         _notifyPostOperationObservers(operation, success: true);
       }
     } on EntityNotFoundException catch (e, stackTrace) {
@@ -419,9 +435,25 @@ class DatumSyncEngine<T extends DatumEntity> {
 
       if (context == null) {
         if (localItem == null) {
+          // This is a new item from remote.
           await localAdapter.create(remoteItem);
+          final size = jsonEncode(remoteItem.toDatumMap()).length;
+          final progressEvent = DatumSyncProgressEvent<T>(
+            userId: userId,
+            completed: 1,
+            total: remoteItems.length,
+            bytesPulled: size,
+          );
+          generatedEvents.add(progressEvent);
+          _notifyObservers(progressEvent);
         } else {
+          // This is an update from remote for an existing item.
           await localAdapter.update(remoteItem);
+          final size = jsonEncode(remoteItem.toDatumMap()).length;
+          final progressEvent = DatumSyncProgressEvent<T>(
+              userId: userId, completed: 1, total: remoteItems.length, bytesPulled: size);
+          generatedEvents.add(progressEvent);
+          _notifyObservers(progressEvent);
         }
         continue;
       }

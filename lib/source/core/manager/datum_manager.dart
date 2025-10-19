@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:collection/collection.dart';
+import 'package:datum/source/core/events/conflict_detected_event.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
 
@@ -13,7 +14,7 @@ import 'package:datum/source/core/engine/datum_observer.dart';
 import 'package:datum/source/core/engine/datum_sync_engine.dart';
 import 'package:datum/source/core/engine/isolate_helper.dart';
 import 'package:datum/source/core/engine/queue_manager.dart';
-import 'package:datum/source/core/events/conflict_detected_event.dart';
+import 'package:datum/source/core/health/datum_health.dart';
 import 'package:datum/source/core/events/data_change_event.dart';
 import 'package:datum/source/core/events/datum_event.dart';
 import 'package:datum/source/core/events/user_switched_event.dart';
@@ -67,6 +68,10 @@ class DatumManager<T extends DatumEntity> {
   final BehaviorSubject<DatumSyncStatusSnapshot> _statusSubject;
   final BehaviorSubject<DatumSyncMetadata> _metadataSubject = BehaviorSubject();
   final Map<String, Timer> _autoSyncTimers = {};
+  final BehaviorSubject<DateTime?> _nextSyncTimeSubject =
+      BehaviorSubject.seeded(null);
+
+  Stream<DateTime?> get onNextSyncTimeChanged => _nextSyncTimeSubject.stream;
 
   /// A cache to track recently processed external change IDs to prevent echoes
   /// and de-duplicate events. The key is the entity ID.
@@ -212,9 +217,9 @@ class DatumManager<T extends DatumEntity> {
         _logger.info('Auto-sync starting for initial user: $userId');
         // Perform an initial sync, but don't block initialization if it fails.
         unawaited(
-          synchronize(
-            userId,
-          ).catchError((_) => DatumSyncResult.skipped(userId, 0)),
+          synchronize(userId).catchError(
+            (_) => DatumSyncResult<T>.skipped(userId, 0),
+          ),
         );
         startAutoSync(userId);
       }
@@ -327,6 +332,16 @@ class DatumManager<T extends DatumEntity> {
           );
           if (deleted) {
             _eventController.add(
+              // We can't easily get the size of a deleted item from a remote
+              // event, so we'll consider it 0 for bytesPulled calculation.
+              // The size of the delete *operation* is calculated on push.
+              DatumSyncProgressEvent<T>(
+                  userId: change.userId,
+                  bytesPulled: 0,
+                  completed: 1,
+                  total: 1),
+            );
+            _eventController.add(
               DataChangeEvent<T>(
                 userId: change.userId,
                 // We don't have the full data for a delete event, so this is null.
@@ -343,6 +358,17 @@ class DatumManager<T extends DatumEntity> {
             item: change.data!,
             userId: change.userId,
             source: source, // Let push handle the logic
+          );
+          // If the change is from remote, it contributes to bytesPulled.
+          final payload = change.data!.toDatumMap(target: MapTarget.local);
+          final size = (await _isolateHelper.computeJsonEncode(payload)).length;
+          _eventController.add(
+            DatumSyncProgressEvent<T>(
+              userId: change.userId,
+              bytesPulled: size,
+              completed: 1,
+              total: 1,
+            ),
           );
         }
       } on Object catch (e, stack) {
@@ -439,7 +465,15 @@ class DatumManager<T extends DatumEntity> {
         data: transformed,
         delta: delta,
       );
-      await _queueManager.enqueue(operation);
+      // Calculate size
+      final payload = operation.delta ??
+          operation.data?.toDatumMap(target: MapTarget.remote);
+      final encoded = payload != null
+          ? await _isolateHelper.computeJsonEncode(payload)
+          : '';
+      final size = encoded.length;
+
+      await _queueManager.enqueue(operation.copyWith(sizeInBytes: size));
     }
 
     _eventController.add(
@@ -477,7 +511,7 @@ class DatumManager<T extends DatumEntity> {
   /// remote server. It combines `push()` and `synchronize()` into a single call.
   ///
   /// Returns a tuple containing the locally saved entity and the sync result.
-  Future<(T, DatumSyncResult)> pushAndSync({
+  Future<(T, DatumSyncResult<T>)> pushAndSync({
     required T item,
     required String userId,
     DatumSyncOptions? syncOptions,
@@ -495,7 +529,7 @@ class DatumManager<T extends DatumEntity> {
   /// remote server.
   ///
   /// Returns a tuple containing the locally saved entity and the sync result.
-  Future<(T, DatumSyncResult)> updateAndSync({
+  Future<(T, DatumSyncResult<T>)> updateAndSync({
     required T item,
     required String userId,
     DatumSyncOptions? syncOptions,
@@ -634,7 +668,11 @@ class DatumManager<T extends DatumEntity> {
         type: DatumOperationType.delete,
         entityId: id,
       );
-      await _queueManager.enqueue(operation);
+      // Calculate size for delete operation (it's small, just the ID)
+      final payload = {'id': id};
+      final size = (await _isolateHelper.computeJsonEncode(payload)).length;
+
+      await _queueManager.enqueue(operation.copyWith(sizeInBytes: size));
     }
 
     _eventController.add(
@@ -656,7 +694,7 @@ class DatumManager<T extends DatumEntity> {
   ///
   /// Returns a tuple containing a boolean indicating if the local delete was
   /// successful and the result of the subsequent synchronization.
-  Future<(bool, DatumSyncResult)> deleteAndSync({
+  Future<(bool, DatumSyncResult<T>)> deleteAndSync({
     required String id,
     required String userId,
     DatumSyncOptions? syncOptions,
@@ -764,7 +802,7 @@ class DatumManager<T extends DatumEntity> {
     }
   }
 
-  Future<DatumSyncResult> synchronize(
+  Future<DatumSyncResult<T>> synchronize(
     String userId, {
     DatumSyncOptions? options,
     DatumSyncScope? scope,
@@ -823,6 +861,10 @@ class DatumManager<T extends DatumEntity> {
         scope: scope,
       );
       _processSyncEvents(events);
+      // Persist the result of the sync operation.
+      if (!result.wasSkipped) {
+        await localAdapter.saveLastSyncResult(userId, result);
+      }
       return result;
     } on Object catch (e, stack) {
       // This block handles a special case where the sync engine fails but
@@ -981,6 +1023,8 @@ class DatumManager<T extends DatumEntity> {
       }());
     });
 
+    _nextSyncTimeSubject.add(DateTime.now().add(syncInterval));
+
     _logger.info(
       'Auto-sync started for user $userId (interval: $syncInterval)',
     );
@@ -992,6 +1036,7 @@ class DatumManager<T extends DatumEntity> {
       final timer = _autoSyncTimers.remove(userId);
       timer?.cancel();
       if (timer != null) {
+        _nextSyncTimeSubject.add(null);
         _logger.info('Auto-sync stopped for user: $userId');
       }
       return;
@@ -1001,6 +1046,7 @@ class DatumManager<T extends DatumEntity> {
       timer.cancel();
     }
     _autoSyncTimers.clear();
+    _nextSyncTimeSubject.add(null);
   }
 
   /// Releases all resources held by the manager and its adapters.
@@ -1012,6 +1058,7 @@ class DatumManager<T extends DatumEntity> {
     await _eventController.close();
     await _statusSubject.close();
     await _metadataSubject.close();
+    await _nextSyncTimeSubject.close();
     await _queueManager.dispose();
     stopAutoSync();
     _isolateHelper.dispose();
@@ -1090,5 +1137,23 @@ class DatumManager<T extends DatumEntity> {
       String userId) async {
     _ensureInitialized();
     return _queueManager.getPending(userId);
+  }
+
+  /// Gets the current storage size in bytes from the local adapter.
+  Future<int> getStorageSize({String? userId}) {
+    _ensureInitialized();
+    return localAdapter.getStorageSize(userId: userId);
+  }
+
+  /// Reactively watches the storage size in bytes from the local adapter.
+  Stream<int> watchStorageSize({String? userId}) {
+    _ensureInitialized();
+    return localAdapter.watchStorageSize(userId: userId);
+  }
+
+  /// Retrieves the result of the last synchronization for a user from local storage.
+  Future<DatumSyncResult<T>?> getLastSyncResult(String userId) async {
+    _ensureInitialized();
+    return localAdapter.getLastSyncResult(userId);
   }
 }

@@ -28,6 +28,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   Stream<DataChangeEvent<T>>? externalChangeStream;
 
   final Map<String, DatumSyncMetadata?> _metadata = {}; // ignore: unused_field
+  final Map<String, DatumSyncResult<T>?> _lastSyncResults = {};
 
   @override
   String get name => 'MockLocalAdapter';
@@ -640,6 +641,48 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
             ?.map((item) => item != null ? [item] : []);
     }
   }
+
+  @override
+  Future<AdapterHealthStatus> checkHealth() async {
+    return AdapterHealthStatus.ok;
+  }
+
+  @override
+  Future<int> getStorageSize({String? userId}) async {
+    // A simple mock implementation.
+    // Can be made more sophisticated if tests require it.
+    return 0;
+  }
+
+  @override
+  Stream<int> watchStorageSize({String? userId}) {
+    final changes = changeStream()
+        ?.where((event) => userId == null || event.userId == userId)
+        .asyncMap((_) => getStorageSize(userId: userId));
+
+    if (changes == null) return Stream.value(0);
+
+    // Use a transformer to emit the initial value first, then subsequent changes.
+    return changes.transform(
+      StreamTransformer.fromBind((stream) async* {
+        yield await getStorageSize(userId: userId);
+        yield* stream;
+      }),
+    );
+  }
+
+  @override
+  Future<DatumSyncResult<T>?> getLastSyncResult(String userId) async {
+    return _lastSyncResults[userId];
+  }
+
+  @override
+  Future<void> saveLastSyncResult(
+    String userId,
+    DatumSyncResult<T> result,
+  ) async {
+    _lastSyncResults[userId] = result;
+  }
 }
 
 class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
@@ -965,6 +1008,11 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
         );
         return relatedAdapter.query(query);
     }
+  }
+
+  @override
+  Future<AdapterHealthStatus> checkHealth() async {
+    return AdapterHealthStatus.ok;
   }
 }
 

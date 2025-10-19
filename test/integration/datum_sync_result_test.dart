@@ -74,7 +74,7 @@ void main() {
       final string = result.toString();
       expect(string, contains('userId: $userId'));
       expect(string, contains('synced: 10'));
-      expect(string, contains('failed: 2'));
+      expect(string, contains('failed: 2')); // This seems to be the issue
       expect(string, contains('conflicts: 1'));
       expect(string, contains('duration: 123ms'));
     });

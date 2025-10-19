@@ -37,6 +37,9 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
   /// The number of times this operation has been retried.
   final int retryCount;
 
+  /// The size of the data payload in bytes.
+  final int sizeInBytes;
+
   /// Creates a [DatumSyncOperation].
   const DatumSyncOperation({
     required this.id,
@@ -47,6 +50,7 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
     this.data,
     this.delta,
     this.retryCount = 0,
+    this.sizeInBytes = 0,
   }) : assert(retryCount >= 0, 'retryCount cannot be negative');
 
   /// Creates a [DatumSyncOperation] from a map.
@@ -73,6 +77,7 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
             ),
       timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
       retryCount: map['retryCount'] as int? ?? 0,
+      sizeInBytes: map['sizeInBytes'] as int? ?? 0,
     );
   }
 
@@ -86,6 +91,7 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
     Map<String, dynamic>? delta,
     DateTime? timestamp,
     int? retryCount,
+    int? sizeInBytes,
   }) {
     return DatumSyncOperation<T>(
       id: id ?? this.id,
@@ -96,6 +102,7 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
       delta: delta ?? this.delta,
       timestamp: timestamp ?? this.timestamp,
       retryCount: retryCount ?? this.retryCount,
+      sizeInBytes: sizeInBytes ?? this.sizeInBytes,
     );
   }
 
@@ -110,6 +117,7 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
       'delta': delta,
       'timestamp': timestamp.millisecondsSinceEpoch,
       'retryCount': retryCount,
+      'sizeInBytes': sizeInBytes,
     };
   }
 
@@ -126,6 +134,7 @@ class DatumSyncOperation<T extends DatumEntity> extends Equatable {
         data,
         delta,
         retryCount,
+        sizeInBytes,
       ];
 
   @override

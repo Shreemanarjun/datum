@@ -135,6 +135,21 @@ class TaskLocalAdapter extends LocalAdapter<Task> {
   }
 
   @override
+  Future<DatumSyncResult<Task>?> getLastSyncResult(String userId) async {
+    final map = _metadataBox.get('last_sync_result_$userId');
+    if (map == null) return null;
+    return DatumSyncResult.fromMap(_normalizeMap(map));
+  }
+
+  @override
+  Future<void> saveLastSyncResult(String userId, DatumSyncResult<Task> result) {
+    return _metadataBox.put(
+      'last_sync_result_$userId',
+      result.toMap(),
+    );
+  }
+
+  @override
   Future<void> initialize() {
     return Future.wait([
       Hive.openBox<Map>('tasks').then((box) => _taskBox = box),
@@ -310,5 +325,22 @@ class TaskLocalAdapter extends LocalAdapter<Task> {
       return out;
     }
     return <String, dynamic>{};
+  }
+
+  @override
+  Future<int> getStorageSize({String? userId}) async {
+    if (!_taskBox.isOpen) return 0;
+    // This is a simplified calculation. A real implementation might be more
+    // complex depending on the storage engine.
+    final allData = await getAllRawData(userId: userId);
+    // Offload JSON encoding to an isolate to prevent UI jank.
+    return (await const IsolateHelper().computeJsonEncode(allData)).length;
+  }
+
+  @override
+  Future<AdapterHealthStatus> checkHealth() async {
+    return _taskBox.isOpen
+        ? AdapterHealthStatus.ok
+        : AdapterHealthStatus.unhealthy;
   }
 }

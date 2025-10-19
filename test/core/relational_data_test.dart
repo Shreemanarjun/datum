@@ -338,6 +338,21 @@ class _UnimplementedLocalAdapter<T extends DatumEntity>
     DatumSyncMetadata metadata,
     String userId,
   ) async {}
+
+  @override
+  Future<int> getStorageSize({String? userId}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<DatumSyncResult<T>?> getLastSyncResult(String userId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> saveLastSyncResult(String userId, DatumSyncResult<T> result) {
+    throw UnimplementedError();
+  }
 }
 
 void main() {

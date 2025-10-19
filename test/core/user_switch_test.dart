@@ -204,13 +204,30 @@ void main() {
             ),
           ],
         );
+        when(
+          () => remoteAdapter.create(any()),
+        ).thenAnswer((_) async {});
+        when(
+          () => localAdapter.removePendingOperation(any()),
+        ).thenAnswer((_) async {});
 
         // Act
-        final result = await manager.switchUser(
+        final result = await manager
+            .switchUser(
           oldUserId: 'oldUser',
           newUserId: 'newUser',
           strategy: UserSwitchStrategy.syncThenSwitch,
-        );
+        )
+            .catchError((e) {
+          // This catch block is to understand why the test might fail.
+          // In a real scenario, the sync might throw, and that should be handled.
+          // For this test, we just want to verify the switch result.
+          // If sync fails, switchUser will also fail.
+          return DatumUserSwitchResult.failure(
+            newUserId: 'newUser',
+            errorMessage: e.toString(),
+          );
+        });
 
         // Assert
         expect(result.success, isTrue);

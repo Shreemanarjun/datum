@@ -298,6 +298,80 @@ await Datum.instance.dispose();
 
 ---
 
+## 🩺 Sync Health & Metrics
+
+Datum provides built-in observability for your synchronization layer — enabling you to **monitor real-time health** and **analyze sync performance**.
+
+### 🔹 `DatumHealth`
+
+`DatumHealth` represents the current operational health of a sync manager.
+It emits live updates via a `Stream<DatumHealth>` so you can reactively display or log status changes in your app.
+
+```dart
+enum DatumSyncHealth {
+  healthy,   // Everything is working normally.
+  syncing,   // A synchronization cycle is in progress.
+  pending,   // Local changes are waiting to be synced.
+  degraded,  // Non-critical issues (e.g., network flakiness).
+  offline,   // Remote data source is unreachable.
+  error,     // Critical failure; sync cannot continue.
+}
+```
+
+You can listen to the health stream:
+
+```dart
+manager.health.listen((health) {
+  print('Current sync status: ${health.status}');
+});
+```
+
+**Example Usage (UI Binding):**
+
+```dart
+StreamBuilder<DatumHealth>(
+  stream: manager.health,
+  builder: (context, snapshot) {
+    final status = snapshot.data?.status ?? DatumSyncHealth.healthy;
+    return Text('Status: ${describeEnum(status)}');
+  },
+);
+```
+
+---
+
+### 🔹 `DatumMetrics`
+
+`DatumMetrics` provides an immutable snapshot of all key synchronization statistics collected by Datum:
+
+| Metric                           | Description                                               |
+| -------------------------------- | --------------------------------------------------------- |
+| `totalSyncOperations`            | Total number of sync cycles started.                      |
+| `successfulSyncs`                | Sync cycles completed successfully.                       |
+| `failedSyncs`                    | Sync cycles that encountered errors.                      |
+| `conflictsDetected`              | Number of data conflicts detected.                        |
+| `conflictsResolvedAutomatically` | Conflicts resolved via the active resolver (e.g. LWW).    |
+| `userSwitchCount`                | Number of times the active user changed during a session. |
+| `activeUsers`                    | Set of unique user IDs active in this session.            |
+
+Example usage:
+
+```dart
+// Access current metrics snapshot
+final metrics = datum.currentMetrics;
+
+print('Total syncs: ${metrics.totalSyncOperations}');
+print('Conflicts resolved automatically: ${metrics.conflictsResolvedAutomatically}');
+```
+
+You can also subscribe to real-time metric updates:
+
+```dart
+datum.metrics.listen((metrics) {
+  debugPrint('Sync metrics updated: $metrics');
+});
+```
+
 ## ⛓️ Managing Relational Data & Advanced Querying
 
 Datum goes beyond simple CRUD by providing powerful tools for handling relational data and building complex queries.

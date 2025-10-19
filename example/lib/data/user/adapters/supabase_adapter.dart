@@ -229,6 +229,13 @@ class SupabaseRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
   }
 
   @override
+  Future<void> dispose() async {
+    _unsubscribeFromChanges();
+    await _streamController?.close();
+    return super.dispose();
+  }
+
+  @override
   Future<void> initialize() {
     // The Supabase client is initialized globally, so no specific
     // initialization is needed for this adapter instance.
