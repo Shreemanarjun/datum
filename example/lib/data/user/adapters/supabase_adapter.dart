@@ -149,7 +149,7 @@ class SupabaseRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
     _channel = _client
         .channel(
           'public:$tableName',
-          opts: const RealtimeChannelConfig(self: false),
+          opts: const RealtimeChannelConfig(self: true),
         )
         .onPostgresChanges(
           event: PostgresChangeEvent.all,

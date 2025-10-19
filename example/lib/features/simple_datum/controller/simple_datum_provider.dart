@@ -6,15 +6,27 @@ import 'package:example/data/user/adapters/supabase_adapter.dart';
 import 'package:example/features/simple_datum/controller/local.dart';
 import 'package:example/my_datum_observer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 final simpleDatumProvider = FutureProvider.autoDispose<Datum>(
   (ref) async {
-    const config = DatumConfig(enableLogging: true, autoStartSync: true);
+    const config = DatumConfig(
+      enableLogging: true,
+      autoStartSync: true,
+      autoSyncInterval: Duration(
+        minutes: 15,
+      ),
+      syncExecutionStrategy: DatumSyncExecutionStrategy.isolate(
+        DatumSyncExecutionStrategy.parallel(),
+      ),
+    );
     final datum = await Datum.initialize(
       config: config,
       connectivityChecker: CustomConnectivityChecker(),
       logger: CustomDatumLogger(enabled: config.enableLogging),
-      observers: [MyDatumObserver()],
+      observers: [
+        MyDatumObserver(),
+      ],
       registrations: [
         DatumRegistration<Task>(
           localAdapter: TaskLocalAdapter(),
@@ -24,6 +36,9 @@ final simpleDatumProvider = FutureProvider.autoDispose<Datum>(
           ),
         ),
       ],
+    );
+    Datum.manager<Task>().startAutoSync(
+      Supabase.instance.client.auth.currentUser!.id,
     );
     ref.onDispose(
       () async => await datum.dispose(),

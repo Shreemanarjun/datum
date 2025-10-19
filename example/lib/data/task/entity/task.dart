@@ -1,7 +1,9 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:datum/datum.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class Task extends DatumEntity {
   @override
@@ -11,6 +13,8 @@ class Task extends DatumEntity {
   final String userId;
 
   final String title;
+
+  final String? description;
 
   final bool isCompleted;
 
@@ -29,6 +33,7 @@ class Task extends DatumEntity {
     required this.id,
     required this.userId,
     required this.title,
+    this.description,
     this.isCompleted = false,
     required this.createdAt,
     required this.modifiedAt,
@@ -41,6 +46,7 @@ class Task extends DatumEntity {
     String? id,
     String? userId,
     String? title,
+    String? description,
     bool? isCompleted,
     DateTime? createdAt,
     DateTime? modifiedAt,
@@ -51,6 +57,7 @@ class Task extends DatumEntity {
     final bool hasChanges = id != null ||
         userId != null ||
         title != null ||
+        description != null ||
         isCompleted != null ||
         createdAt != null ||
         modifiedAt != null ||
@@ -60,6 +67,7 @@ class Task extends DatumEntity {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       title: title ?? this.title,
+      description: description ?? this.description,
       isCompleted: isCompleted ?? this.isCompleted,
       createdAt: createdAt ?? this.createdAt,
       // Always update modifiedAt if there are changes.
@@ -78,6 +86,9 @@ class Task extends DatumEntity {
 
     if (title != oldVersion.title) {
       diff['title'] = title;
+    }
+    if (description != oldVersion.description) {
+      diff['description'] = description;
     }
     if (isCompleted != oldVersion.isCompleted) {
       diff['isCompleted'] = isCompleted;
@@ -101,6 +112,7 @@ class Task extends DatumEntity {
       'id': id,
       'userId': userId,
       'title': title,
+      'description': description,
       'isCompleted': isCompleted,
       'isDeleted': isDeleted,
       'version': version,
@@ -121,6 +133,7 @@ class Task extends DatumEntity {
       id: (map['id'] ?? '') as String,
       userId: (map['userId'] ?? map['user_id'] ?? '') as String,
       title: (map['title'] ?? '') as String,
+      description: map['description'] as String?,
       isCompleted: (map['isCompleted'] ?? map['is_completed'] ?? false) as bool,
       createdAt: _parseDate(map['createdAt'] ?? map['created_at']),
       modifiedAt: _parseDate(map['modifiedAt'] ?? map['modified_at']),
@@ -140,6 +153,23 @@ class Task extends DatumEntity {
     return DateTime.fromMillisecondsSinceEpoch(0);
   }
 
+  static Task create({required String title, String? description}) {
+    final now = DateTime.now();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('Cannot create task: user is not logged in.');
+    }
+    return Task(
+      id: '${now.millisecondsSinceEpoch}${Random().nextInt(9999)}',
+      userId: userId,
+      title: title,
+      description: description,
+      isCompleted: false,
+      createdAt: now,
+      modifiedAt: now,
+    );
+  }
+
   String toJson() => json.encode(toDatumMap());
 
   factory Task.fromJson(String source) =>
@@ -147,7 +177,7 @@ class Task extends DatumEntity {
 
   @override
   String toString() {
-    return 'Task(id: $id, userId: $userId, title: $title, isCompleted: $isCompleted, createdAt: $createdAt, modifiedAt: $modifiedAt, isDeleted: $isDeleted, version: $version)';
+    return 'Task(id: $id, userId: $userId, title: $title, description: $description, isCompleted: $isCompleted, createdAt: $createdAt, modifiedAt: $modifiedAt, isDeleted: $isDeleted, version: $version)';
   }
 
   @override
@@ -158,6 +188,7 @@ class Task extends DatumEntity {
         other.userId == userId &&
         other.title == title &&
         other.isCompleted == isCompleted &&
+        other.description == description &&
         other.createdAt == createdAt &&
         other.modifiedAt == modifiedAt &&
         other.isDeleted == isDeleted &&
@@ -170,6 +201,7 @@ class Task extends DatumEntity {
         userId.hashCode ^
         title.hashCode ^
         isCompleted.hashCode ^
+        description.hashCode ^
         createdAt.hashCode ^
         modifiedAt.hashCode ^
         isDeleted.hashCode ^

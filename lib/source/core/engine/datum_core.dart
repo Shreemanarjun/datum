@@ -234,8 +234,11 @@ class Datum {
     }
 
     if (allUserIds.isEmpty) {
-      logBuffer.writeln('├─ 📊 Sync Status: No local users found yet.');
-      logBuffer.writeln('├─ � Initial Metrics: Tracking enabled.');
+      logBuffer
+          .writeln('├─ 📊 Sync Status & Metrics: No local users found yet.');
+      logBuffer.writeln(
+        '│  └─ 📈 Initial Metrics: ${_green(currentMetrics.toString())}',
+      );
       return;
     }
 
@@ -252,38 +255,37 @@ class Datum {
             await _managers.values.first.localAdapter.getSyncMetadata(userId);
       }
 
+      // Fetch and log last sync result for data transfer info
+      final lastSyncResult = _managers.isNotEmpty
+          ? await _managers.values.first.getLastSyncResult(userId)
+          : null;
+
       if (metadata?.lastSyncTime != null) {
         logBuffer.writeln(
           '│  │  ├─ 🕒 Last Sync: ${_cyan(formatDuration(DateTime.now().difference(metadata!.lastSyncTime!)))} ago',
         );
-
-        // Fetch and log last sync result for data transfer info
-        final lastSyncResult =
-            await _managers.values.first.getLastSyncResult(userId);
-        if (lastSyncResult != null) {
-          final totalPushed =
-              (lastSyncResult.totalBytesPushed / 1024).toStringAsFixed(2);
-          final totalPulled =
-              (lastSyncResult.totalBytesPulled / 1024).toStringAsFixed(2);
-          final cyclePushed =
-              (lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2);
-          final cyclePulled =
-              (lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2);
-
-          logBuffer.writeln(
-            '│  │  ├─ 💾 Total Data: ${_green('↑$totalPushed KB')} / ${_green('↓$totalPulled KB')}',
-          );
-          if (lastSyncResult.bytesPushedInCycle > 0 ||
-              lastSyncResult.bytesPulledInCycle > 0) {
-            logBuffer.writeln(
-              '│  │  ├─ 📈 Last Sync: ${_green('↑$cyclePushed KB')} / ${_green('↓$cyclePulled KB')}',
-            );
-          }
-        } else {
-          logBuffer.writeln('│  │  ├─ 💾 Data Transferred: No history');
-        }
       } else {
         logBuffer.writeln('│  │  ├─ 🕒 Last Sync: Never synced');
+      }
+
+      if (lastSyncResult != null) {
+        final totalPushed =
+            (lastSyncResult.totalBytesPushed / 1024).toStringAsFixed(2);
+        final totalPulled =
+            (lastSyncResult.totalBytesPulled / 1024).toStringAsFixed(2);
+        final cyclePushed =
+            (lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2);
+        final cyclePulled =
+            (lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2);
+
+        logBuffer.writeln(
+          '│  │  ├─ 💾 Total Data: ${_green('↑$totalPushed KB')} / ${_green('↓$totalPulled KB')}',
+        );
+        logBuffer.writeln(
+          '│  │  ├─ 📈 Last Sync: ${_green('↑$cyclePushed KB')} / ${_green('↓$cyclePulled KB')}',
+        );
+      } else {
+        logBuffer.writeln('│  │  ├─ 💾 Data Transferred: No history');
       }
 
       var userHasContent = false;

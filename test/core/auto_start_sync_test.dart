@@ -3,11 +3,13 @@ import 'package:datum/source/core/manager/datum_manager.dart';
 import 'package:datum/source/core/models/datum_operation.dart';
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/core/query/datum_query.dart';
 import 'package:datum/source/utils/datum_logger.dart';
 import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../integration/observer_integration_test.dart';
+import 'package:fake_async/fake_async.dart';
 import '../mocks/mock_adapters.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
@@ -19,6 +21,10 @@ void main() {
   late MockLocalAdapter<TestEntity> localAdapter;
   late MockRemoteAdapter<TestEntity> remoteAdapter;
   late MockConnectivityChecker connectivityChecker;
+
+  setUpAll(() {
+    registerFallbackValue(const DatumQuery());
+  });
 
   // Helper to pre-populate data without a running manager.
   Future<void> setupInitialData(List<TestEntity> entities) async {
@@ -484,6 +490,52 @@ void main() {
       ).called(1);
 
       await manager.dispose();
+    });
+
+    test('periodic auto-sync triggers after interval', () {
+      // Use fakeAsync to control time and test timers.
+      fakeAsync((async) async {
+        // Arrange
+        await setupInitialData([TestEntity.create('e1', 'user1', 'Item 1')]);
+
+        final manager = DatumManager<TestEntity>(
+          localAdapter: localAdapter,
+          remoteAdapter: remoteAdapter,
+          connectivity: connectivityChecker,
+          datumConfig: const DatumConfig<TestEntity>(
+            autoStartSync: true,
+            schemaVersion: 0,
+            autoSyncInterval: Duration(seconds: 30),
+          ),
+        );
+
+        // Act 1: Initialize the manager. This will trigger the first sync.
+        await manager.initialize();
+
+        // Let the initial sync complete.
+        async.elapse(const Duration(milliseconds: 100));
+
+        // Assert 1: Verify the initial sync happened.
+        verify(
+          () => remoteAdapter.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).called(1);
+
+        // Act 2: Advance time just past the auto-sync interval.
+        async.elapse(const Duration(seconds: 30));
+
+        // Assert 2: Verify that a second sync was triggered by the timer.
+        verify(
+          () => remoteAdapter.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).called(1); // Should be called a second time, total of 2.
+
+        await manager.dispose();
+      });
     });
   });
 }

@@ -1,8 +1,7 @@
-import 'dart:math';
-
 import 'package:datum/datum.dart';
 import 'package:example/data/task/entity/task.dart';
 import 'package:example/features/simple_datum/controller/simple_datum_provider.dart';
+import 'package:example/features/simple_datum/view/sync_info_widget.dart';
 import 'package:example/shared/helper/global_helper.dart';
 import 'package:example/shared/riverpod_ext/asynvalue_easy_when.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +9,50 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+
+final simpleDatumControllerProvider = Provider.autoDispose(
+  (ref) => SimpleDatumController(ref),
+  name: 'simpleDatumControllerProvider',
+);
+
+/// A provider that acts as an event channel to signal UI updates.
+/// The UI will listen to this and show a snackbar when the value changes.
+final syncResultEventProvider =
+    StateProvider<DatumSyncResult<Task>?>((ref) => null);
+
+class SimpleDatumController {
+  SimpleDatumController(this.ref);
+
+  final Ref ref;
+
+  DatumManager<Task> get _taskManager => Datum.manager<Task>();
+
+  void _notifySyncResult(DatumSyncResult<Task> result) {
+    ref.read(syncResultEventProvider.notifier).state = result;
+  }
+
+  Future<void> createTask({
+    required String title,
+    String? description,
+  }) async {
+    final newTask = Task.create(title: title, description: description);
+    final (_, syncResult) =
+        await _taskManager.pushAndSync(item: newTask, userId: newTask.userId);
+    _notifySyncResult(syncResult);
+  }
+
+  Future<DatumSyncResult<Task>> updateTask(Task task) async {
+    final (_, syncResult) =
+        await _taskManager.updateAndSync(item: task, userId: task.userId);
+    return syncResult;
+  }
+
+  Future<void> deleteTask(Task task) async {
+    final (_, syncResult) =
+        await _taskManager.deleteAndSync(id: task.id, userId: task.userId);
+    _notifySyncResult(syncResult);
+  }
+}
 
 final tasksStreamProvider =
     StreamProvider.autoDispose.family<List<Task>, String?>(
@@ -66,17 +109,15 @@ class SimpleDatumPage extends ConsumerStatefulWidget {
 
 class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
     with GlobalHelper {
-  final _random = Random();
-
-  String _generateRandomId() =>
-      DateTime.now().millisecondsSinceEpoch.toString() +
-      _random.nextInt(9999).toString();
+  // Controllers are now managed in the _TaskForm widget.
   Future<void> _createTask() async {
     final titleController = TextEditingController();
+    final descriptionController = TextEditingController();
 
     final didCreate = await showShadDialog<bool>(
       context: context,
       builder: (context) => ShadDialog(
+          // Using a key to access form state from the outside is not ideal.
           title: const Text('Create Task'),
           actions: [
             ShadButton.ghost(
@@ -92,26 +133,23 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
               child: const Text('Create'),
             ),
           ],
-          child: ShadInput(
-            controller: titleController,
-            placeholder: const Text('Task title...'),
+          child: _TaskForm(
+            titleController: titleController,
+            descriptionController: descriptionController,
           )),
     );
 
+    final title = titleController.text;
+    final description = descriptionController.text;
+    titleController.dispose();
+    descriptionController.dispose();
+
     if (didCreate == true && titleController.text.isNotEmpty) {
-      final newTask = Task(
-        id: _generateRandomId(),
-        userId: Supabase.instance.client.auth.currentUser!.id,
-        title: titleController.text,
-        modifiedAt: DateTime.now(),
-        createdAt: DateTime.now(),
-      );
       try {
-        final (_, syncResult) = await Datum.manager<Task>().pushAndSync(
-          item: newTask,
-          userId: newTask.userId,
-        );
-        _handleSyncResult(syncResult, operation: 'Create');
+        await ref
+            .read(simpleDatumControllerProvider)
+            .createTask(title: title, description: description);
+        // The snackbar is now handled by the listener on syncResultEventProvider
       } catch (e) {
         showErrorSnack(child: Text('Error creating task: $e'));
       }
@@ -119,7 +157,8 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
   }
 
   Future<void> _updateTask(Task task) async {
-    final titleController = TextEditingController(text: task.title);
+    final titleController = TextEditingController();
+    final descriptionController = TextEditingController();
 
     final didUpdate = await showShadDialog<bool>(
       context: context,
@@ -139,22 +178,28 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
               child: const Text('Update'),
             ),
           ],
-          child: ShadInput(
-            controller: titleController,
-            placeholder: const Text('Task title...'),
+          child: _TaskForm(
+            task: task,
+            titleController: titleController,
+            descriptionController: descriptionController,
           )),
     );
 
-    if (didUpdate == true && titleController.text.isNotEmpty) {
+    final title = titleController.text;
+    final description = descriptionController.text;
+    titleController.dispose();
+    descriptionController.dispose();
+
+    if (didUpdate == true && title.isNotEmpty) {
       final updatedTask = task.copyWith(
-        title: titleController.text,
+        description: description,
+        title: title,
         modifiedAt: DateTime.now(),
       );
       try {
-        final (_, syncResult) = await Datum.manager<Task>().updateAndSync(
-          item: updatedTask,
-          userId: updatedTask.userId,
-        );
+        final syncResult = await ref
+            .read(simpleDatumControllerProvider)
+            .updateTask(updatedTask);
         _handleSyncResult(syncResult, operation: 'Update');
       } catch (e) {
         showErrorSnack(child: Text('Error updating task: $e'));
@@ -164,14 +209,22 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
 
   Future<void> _deleteTask(Task task) async {
     try {
-      final (_, syncResult) = await Datum.manager<Task>().deleteAndSync(
-        id: task.id,
-        userId: task.userId,
-      );
-      _handleSyncResult(syncResult, operation: 'Delete');
+      await ref.read(simpleDatumControllerProvider).deleteTask(task);
+      // The snackbar is now handled by the listener on syncResultEventProvider
     } catch (e) {
       showErrorSnack(child: Text('Error deleting task: $e'));
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen to the event provider to show snackbars.
+    ref.listenManual(syncResultEventProvider, (previous, next) {
+      if (next != null) {
+        _handleSyncResult(next);
+      }
+    });
   }
 
   @override
@@ -281,65 +334,10 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
                   ),
                 ),
                 Expanded(
-                  child: tasksAsync.easyWhen(
-                    data: (tasks) {
-                      if (tasks.isEmpty) {
-                        return const Center(
-                          child: Text('No tasks found. Add one!'),
-                        );
-                      }
-                      return ListView.builder(
-                        itemCount: tasks.length,
-                        itemBuilder: (context, index) {
-                          final task = tasks[index];
-                          return CheckboxListTile(
-                            title: Text(
-                              task.title,
-                              style: task.isCompleted
-                                  ? const TextStyle(
-                                      decoration: TextDecoration.lineThrough,
-                                      color: Colors.grey)
-                                  : null,
-                            ),
-                            value: task.isCompleted,
-                            onChanged: (isCompleted) async {
-                              final updatedTask = task.copyWith(
-                                  isCompleted: isCompleted,
-                                  modifiedAt: DateTime.now());
-                              try {
-                                final (_, syncResult) =
-                                    await Datum.manager<Task>().updateAndSync(
-                                  item: updatedTask,
-                                  userId: updatedTask.userId,
-                                );
-                                _handleSyncResult(syncResult,
-                                    operation: 'Update');
-                              } catch (e) {
-                                showErrorSnack(
-                                    child: Text('Error updating task: $e'));
-                              }
-                            },
-                            secondary: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  onPressed: () => _updateTask(task),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete,
-                                      color: Colors.red),
-                                  onPressed: () => _deleteTask(task),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      );
-                    },
-                    loadingWidget: () =>
-                        const Center(child: Text("Watching tasks...")),
-                  ),
+                  child: _TaskList(
+                      tasksAsync: tasksAsync,
+                      onUpdate: _updateTask,
+                      onDelete: _deleteTask),
                 ),
               ],
             );
@@ -390,116 +388,143 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
   }
 }
 
-class SyncInfoWidget extends ConsumerWidget {
-  const SyncInfoWidget({super.key});
+class _TaskForm extends StatefulWidget {
+  const _TaskForm({
+    this.task,
+    required this.titleController,
+    required this.descriptionController,
+  });
+
+  final Task? task;
+  final TextEditingController titleController;
+  final TextEditingController descriptionController;
+
+  @override
+  State<_TaskForm> createState() => _TaskFormState();
+}
+
+class _TaskFormState extends State<_TaskForm> {
+  @override
+  void initState() {
+    super.initState();
+    widget.titleController.text = widget.task?.title ?? '';
+    widget.descriptionController.text = widget.task?.description ?? '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ShadInput(
+          controller: widget.titleController,
+          placeholder: const Text('Task title...'),
+        ),
+        const SizedBox(height: 8),
+        ShadInput(
+          controller: widget.descriptionController,
+          placeholder: const Text('Description (optional)'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskList extends ConsumerWidget {
+  const _TaskList({
+    required this.tasksAsync,
+    required this.onUpdate,
+    required this.onDelete,
+  });
+
+  final AsyncValue<List<Task>> tasksAsync;
+  final void Function(Task) onUpdate;
+  final void Function(Task) onDelete;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return const SizedBox.shrink();
+    return tasksAsync.easyWhen(
+      data: (tasks) {
+        if (tasks.isEmpty) {
+          return const Center(
+            child: Text('No tasks found. Add one!'),
+          );
+        }
+        return ListView.builder(
+          itemCount: tasks.length,
+          itemBuilder: (context, index) {
+            final task = tasks[index];
+            return _TaskListItem(
+              task: task,
+              onUpdate: onUpdate,
+              onDelete: onDelete,
+            );
+          },
+        );
+      },
+      loadingWidget: () => const Center(child: Text("Watching tasks...")),
+    );
+  }
+}
 
-    final healthAsync = ref.watch(allHealths);
-    final pendingOpsAsync = ref.watch(pendingOperationsProvider(userId));
-    final nextSyncTimeAsync = ref.watch(nextSyncTimeProvider);
-    final storageSizeStream = ref.watch(storageSizeProvider(userId));
-    final lastSyncResult = ref.watch(lastSyncResultProvider);
+class _TaskListItem extends ConsumerWidget {
+  const _TaskListItem({
+    required this.task,
+    required this.onUpdate,
+    required this.onDelete,
+  });
 
-    return ShadCard(
-      title: const Text('Sync Status'),
-      description: const Text('Real-time synchronization details.'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Health'),
-                healthAsync.easyWhen(
-                  data: (healthMap) {
-                    final health = healthMap[Task];
-                    return Tooltip(
-                      message:
-                          'Local: ${health?.localAdapterStatus.name ?? '??'} | Remote: ${health?.remoteAdapterStatus.name ?? '??'}',
-                      child: Row(
-                        children: [const HealthStatusWidget()],
-                      ),
-                    );
-                  },
-                  loadingWidget: () => const Text('Checking...'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Pending Syncs'),
-                pendingOpsAsync.easyWhen(
-                  data: (count) => Text(count.toString()),
-                  loadingWidget: () => const Text('...'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Local Data Size'),
-                storageSizeStream.easyWhen(
-                  data: (size) =>
-                      Text('${(size / 1024).toStringAsFixed(1)} KB'),
-                  loadingWidget: () => const Text('...'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Next Auto-Sync'),
-                nextSyncTimeAsync.easyWhen(
-                  data: (time) => Text(time != null
-                      ? '${time.hour}:${time.minute.toString().padLeft(2, '0')}'
-                      : 'Not scheduled'),
-                  loadingWidget: () => const Text('...'),
-                ),
-              ],
-            ),
-            if (lastSyncResult != null && !lastSyncResult.wasSkipped) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Last Sync'),
-                  Text(
-                    '${lastSyncResult.syncedCount}/${lastSyncResult.totalOperations} items',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Data Transferred'),
-                  Text(
-                    '↑${(lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2)} KB ↓${(lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2)} KB',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Total Data'),
-                  Text(
-                      '↑${(lastSyncResult.totalBytesPushed / 1024).toStringAsFixed(2)} KB ↓${(lastSyncResult.totalBytesPulled / 1024).toStringAsFixed(2)} KB'),
-                ],
-              ),
-            ]
-          ],
-        ),
+  final Task task;
+  final void Function(Task) onUpdate;
+  final void Function(Task) onDelete;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return CheckboxListTile(
+      title: Text(
+        task.title,
+        style: task.isCompleted
+            ? const TextStyle(
+                decoration: TextDecoration.lineThrough, color: Colors.grey)
+            : null,
+      ),
+      subtitle: Text(
+        task.description ?? '',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      value: task.isCompleted,
+      onChanged: (isCompleted) async {
+        final updatedTask =
+            task.copyWith(isCompleted: isCompleted, modifiedAt: DateTime.now());
+        try {
+          final syncResult = await ref
+              .read(simpleDatumControllerProvider)
+              .updateTask(updatedTask); // This now returns a sync result
+          (context as Element)
+              .findAncestorStateOfType<_SimpleDatumPageState>()
+              ?._handleSyncResult(syncResult, operation: 'Update');
+        } catch (e) {
+          // Errors are now caught at the page level.
+          // We can show a generic snackbar here if needed, but the controller
+          // should ideally handle its own errors and signal the UI.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error updating task: $e')),
+          );
+        }
+      },
+      secondary: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: () => onUpdate(task),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            onPressed: () => onDelete(task),
+          ),
+        ],
       ),
     );
   }
@@ -525,37 +550,6 @@ final allHealths = StreamProvider(
   name: 'allHealths',
 );
 
-class HealthStatusWidget extends ConsumerWidget {
-  const HealthStatusWidget({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final allHealthsAsync = ref.watch(allHealths);
-    return allHealthsAsync.easyWhen(
-        data: (healthMap) {
-          final userHealth = healthMap[Task];
-          if (userHealth == null) return const SizedBox.shrink();
-
-          final isHealthy = userHealth.status == DatumSyncHealth.healthy ||
-              userHealth.status == DatumSyncHealth.pending;
-          final isSyncing = userHealth.status == DatumSyncHealth.syncing;
-
-          return Tooltip(
-            message: 'Sync status: ${userHealth.status.name}',
-            child: Icon(
-              isSyncing
-                  ? Icons.cloud_sync_outlined
-                  : (isHealthy
-                      ? Icons.cloud_done_outlined
-                      : Icons.cloud_off_outlined),
-              color: isHealthy ? Colors.green : Colors.red,
-            ),
-          );
-        },
-        loadingWidget: () => const SizedBox.shrink());
-  }
-}
-
 final metricsProvider = StreamProvider((ref) async* {
   final datum = await ref.watch(simpleDatumProvider.future);
   yield* datum.metrics;
@@ -568,28 +562,3 @@ final pendingOperationsProvider =
     return snapshot?.pendingOperations ?? 0;
   });
 });
-
-class MetricsStatusWidget extends ConsumerWidget {
-  const MetricsStatusWidget({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Watch the new top-level provider for pending operations count.
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return const SizedBox.shrink();
-    final pendingOpsAsync = ref.watch(pendingOperationsProvider(userId));
-
-    return pendingOpsAsync.easyWhen(
-      data: (count) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-        child: Badge(
-          label: Text(count.toString()),
-          isLabelVisible: count > 0,
-          child: const Icon(Icons.pending_actions),
-        ),
-      ),
-      loadingWidget: () => const SizedBox.shrink(),
-      errorWidget: (e, st) => const SizedBox.shrink(),
-    );
-  }
-}
