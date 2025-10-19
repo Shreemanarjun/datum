@@ -7,13 +7,13 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:example/core/router/auto_route_observer.dart';
 import 'package:example/core/router/router_pod.dart';
-import 'package:example/core/theme/app_theme.dart';
 import 'package:example/core/theme/theme_controller.dart';
 import 'package:example/i18n/strings.g.dart';
 import 'package:example/shared/helper/global_helper.dart';
 import 'package:example/shared/widget/no_internet_widget.dart';
 import 'package:example/shared/widget/responsive_wrapper.dart';
 import 'package:example/shared/pods/translation_pod.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 ///This class holds Material App or Cupertino App
 ///with routing,theming and locale setup .
@@ -31,13 +31,19 @@ class _AppState extends ConsumerState<App> with GlobalHelper {
   Widget build(BuildContext context) {
     final approuter = ref.watch(autorouterProvider);
     final currentTheme = ref.watch(themecontrollerProvider);
-    return MaterialApp.router(
+    return ShadApp.router(
       debugShowCheckedModeBanner: false,
       //TODO: change app name
       title: 'example App',
-      theme: Themes.theme,
-      darkTheme: Themes.darkTheme,
       themeMode: currentTheme,
+      darkTheme: ShadThemeData(
+        brightness: Brightness.dark,
+        colorScheme: const ShadSlateColorScheme.dark(),
+      ),
+      theme: ShadThemeData(
+        brightness: Brightness.light,
+        colorScheme: const ShadSlateColorScheme.light(),
+      ),
       routerConfig: approuter.config(
         placeholder: (context) => const SizedBox.shrink(),
         navigatorObservers: () => [

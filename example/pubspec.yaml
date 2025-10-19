@@ -29,11 +29,14 @@ dependencies:
   multiple_result: ^5.2.0
   path_provider: ^2.1.5
   platform_info: ^5.0.0
+  recase: ^4.1.0
   responsive_framework:
     git: https://github.com/Shreemanarjun/ResponsiveFramework.git
   rxdart: ^0.28.0
+  shadcn_ui: ^0.38.1
   slang: ^4.9.1
   slang_flutter: ^4.9.0
+  supabase_flutter: ^2.10.3
   talker_dio_logger: ^5.0.2
   talker_flutter: ^5.0.2
 

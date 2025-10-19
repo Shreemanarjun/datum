@@ -1,3 +1,4 @@
+import 'package:example/const/secrets.dart';
 import 'package:example/shared/riverpod_ext/riverpod_observer/riverpod_obs.dart';
 import 'package:example/shared/riverpod_ext/riverpod_observer/talker_riverpod_settings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import 'package:example/bootstrap.dart';
 import 'package:example/core/local_storage/app_storage_pod.dart';
 import 'package:example/features/splash/controller/box_encryption_key_pod.dart';
 import 'package:example/init.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 final futureInitializerPod = FutureProvider.autoDispose<ProviderContainer>((
   ref,
@@ -17,9 +19,13 @@ final futureInitializerPod = FutureProvider.autoDispose<ProviderContainer>((
   ///Additional intial delay duration for app
   // await Future.delayed(const Duration(seconds: 1));
   await (init());
+  await IsolatedHive.initFlutter();
   await Hive.initFlutter();
 
-  ///Replace `appBox` namw with any key you want
+  await Supabase.initialize(
+    url: Secrets.SUPABASE_URL,
+    anonKey: Secrets.SUPABASE_ANON_KEY,
+  );
 
   final encryptionCipher = await Platform.I.when(
     mobile: () async {
