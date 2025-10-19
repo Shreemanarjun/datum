@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/utils/duration_formatter.dart';
 
 import 'package:rxdart/rxdart.dart';
 
@@ -134,7 +133,7 @@ class Datum {
     await datum._initializeManagers(logBuffer);
     await datum._logPendingOperationsSummary(logBuffer);
 
-    logBuffer.write('└─ ✅ Initialization Complete.');
+    logBuffer.write('└─ ✅ Datum Initialization Complete.');
     initLogger.info(logBuffer.toString());
 
     datum._listenToEventsForMetrics();
@@ -235,8 +234,8 @@ class Datum {
     }
 
     if (allUserIds.isEmpty) {
-      logBuffer.writeln('├─ 📊 Sync Status: No local users found.');
-      logBuffer.writeln('├─ 🔬 Initial Metrics: Tracking enabled.');
+      logBuffer.writeln('├─ 📊 Sync Status: No local users found yet.');
+      logBuffer.writeln('├─ � Initial Metrics: Tracking enabled.');
       return;
     }
 
@@ -257,8 +256,34 @@ class Datum {
         logBuffer.writeln(
           '│  │  ├─ 🕒 Last Sync: ${_cyan(formatDuration(DateTime.now().difference(metadata!.lastSyncTime!)))} ago',
         );
+
+        // Fetch and log last sync result for data transfer info
+        final lastSyncResult =
+            await _managers.values.first.getLastSyncResult(userId);
+        if (lastSyncResult != null) {
+          final totalPushed =
+              (lastSyncResult.totalBytesPushed / 1024).toStringAsFixed(2);
+          final totalPulled =
+              (lastSyncResult.totalBytesPulled / 1024).toStringAsFixed(2);
+          final cyclePushed =
+              (lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2);
+          final cyclePulled =
+              (lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2);
+
+          logBuffer.writeln(
+            '│  │  ├─ 💾 Total Data: ${_green('↑$totalPushed KB')} / ${_green('↓$totalPulled KB')}',
+          );
+          if (lastSyncResult.bytesPushedInCycle > 0 ||
+              lastSyncResult.bytesPulledInCycle > 0) {
+            logBuffer.writeln(
+              '│  │  ├─ 📈 Last Sync: ${_green('↑$cyclePushed KB')} / ${_green('↓$cyclePulled KB')}',
+            );
+          }
+        } else {
+          logBuffer.writeln('│  │  ├─ 💾 Data Transferred: No history');
+        }
       } else {
-        logBuffer.writeln('│  │  ├─ 🕒 Last Sync: Never');
+        logBuffer.writeln('│  │  ├─ 🕒 Last Sync: Never synced');
       }
 
       var userHasContent = false;
@@ -268,19 +293,22 @@ class Datum {
         final count = await manager.getPendingCount(userId);
         final itemCount =
             (await manager.localAdapter.readAll(userId: userId)).length;
+        final storageSize =
+            await manager.localAdapter.getStorageSize(userId: userId);
         totalItems += itemCount;
         totalPending += count;
 
         if (itemCount > 0 || count > 0) {
           userHasContent = true;
           logBuffer.writeln('│  │  ├─ ${_cyan(entityType)}:');
+          final sizeInKb = (storageSize / 1024).toStringAsFixed(2);
           logBuffer.writeln(
-            '│  │  │  └─ Items: ${_green(itemCount)}, Pending: ${_yellow(count)}',
+            '│  │  │  └─ Items: ${_green(itemCount)}, Pending: ${_yellow(count)}, Size: ${_cyan('$sizeInKb KB')}',
           );
         }
       }
       if (!userHasContent) {
-        logBuffer.writeln('│  │  └─ No local data or pending operations.');
+        logBuffer.writeln('│  │  └─ 📭 No local data or pending operations.');
       }
     }
     logBuffer.writeln(
@@ -354,7 +382,7 @@ class Datum {
     logBuffer?.writeln(
         '│     ├─ 🏠 Local Adapter: ${_green(registration.localAdapter.runtimeType)}');
     logBuffer?.writeln(
-        '│     ├─ ☁️  Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
+        '│     ├─ ☁️   Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
     logBuffer?.writeln(
         '│     ├─ ⚖️  Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
     logBuffer?.writeln(
@@ -440,6 +468,11 @@ class Datum {
               conflictsDetected:
                   current.conflictsDetected + event.result.conflictsResolved,
               activeUsers: newActiveUsers,
+              // Add the bytes from this cycle to the running total.
+              totalBytesPushed:
+                  current.totalBytesPushed + event.result.bytesPushedInCycle,
+              totalBytesPulled:
+                  current.totalBytesPulled + event.result.bytesPulledInCycle,
             );
           } else {
             next = current.copyWith(
@@ -447,6 +480,11 @@ class Datum {
               conflictsDetected:
                   current.conflictsDetected + event.result.conflictsResolved,
               activeUsers: newActiveUsers,
+              // Add the bytes from this cycle to the running total.
+              totalBytesPushed:
+                  current.totalBytesPushed + event.result.bytesPushedInCycle,
+              totalBytesPulled:
+                  current.totalBytesPulled + event.result.bytesPulledInCycle,
             );
           }
         case DatumSyncErrorEvent():

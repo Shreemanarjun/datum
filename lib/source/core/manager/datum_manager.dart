@@ -815,7 +815,7 @@ class DatumManager<T extends DatumEntity> {
       if (_config.defaultUserSwitchStrategy ==
           UserSwitchStrategy.promptIfUnsyncedData) {
         final oldUserOps = await _queueManager.getPending(
-          _syncEngine.lastActiveUserId!,
+          _syncEngine.lastActiveUserId ?? '',
         );
         if (oldUserOps.isNotEmpty) {
           throw UserSwitchException(

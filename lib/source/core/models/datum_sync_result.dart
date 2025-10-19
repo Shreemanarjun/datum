@@ -24,11 +24,17 @@ class DatumSyncResult<T extends DatumEntity> {
   /// A list of operations that are still pending after the sync cycle.
   final List<DatumSyncOperation<T>> pendingOperations;
 
-  /// The number of bytes pushed to the remote during this sync cycle.
-  final int bytesPushed;
+  /// The total cumulative number of bytes pushed to the remote for this user.
+  final int totalBytesPushed;
 
-  /// The number of bytes pulled from the remote during this sync cycle.
-  final int bytesPulled;
+  /// The total cumulative number of bytes pulled from the remote for this user.
+  final int totalBytesPulled;
+
+  /// The number of bytes pushed to the remote in just this sync cycle.
+  final int bytesPushedInCycle;
+
+  /// The number of bytes pulled from the remote in just this sync cycle.
+  final int bytesPulledInCycle;
 
   /// Whether the sync was skipped (e.g., due to being offline or another sync in progress).
   final bool wasSkipped;
@@ -47,8 +53,10 @@ class DatumSyncResult<T extends DatumEntity> {
     required this.failedCount,
     required this.conflictsResolved,
     required this.pendingOperations,
-    this.bytesPushed = 0,
-    this.bytesPulled = 0,
+    this.totalBytesPushed = 0,
+    this.totalBytesPulled = 0,
+    this.bytesPushedInCycle = 0,
+    this.bytesPulledInCycle = 0,
     this.wasSkipped = false,
     this.wasCancelled = false,
     this.error,
@@ -63,8 +71,6 @@ class DatumSyncResult<T extends DatumEntity> {
       failedCount: 0,
       conflictsResolved: 0,
       pendingOperations: const [],
-      bytesPushed: 0,
-      bytesPulled: 0,
       wasSkipped: true,
     );
   }
@@ -75,8 +81,10 @@ class DatumSyncResult<T extends DatumEntity> {
         failedCount = 0,
         conflictsResolved = 0,
         pendingOperations = const [],
-        bytesPushed = 0,
-        bytesPulled = 0,
+        totalBytesPushed = 0,
+        totalBytesPulled = 0,
+        bytesPushedInCycle = 0,
+        bytesPulledInCycle = 0,
         wasSkipped = false,
         wasCancelled = true,
         error = null;
@@ -88,8 +96,10 @@ class DatumSyncResult<T extends DatumEntity> {
         failedCount = 1,
         conflictsResolved = 0,
         pendingOperations = const [],
-        bytesPushed = 0,
-        bytesPulled = 0,
+        totalBytesPushed = 0,
+        totalBytesPulled = 0,
+        bytesPushedInCycle = 0,
+        bytesPulledInCycle = 0,
         wasSkipped = false,
         wasCancelled = false;
 
@@ -113,7 +123,7 @@ class DatumSyncResult<T extends DatumEntity> {
       return 'DatumSyncResult(userId: $userId, status: cancelled)';
     }
     final successRate = successPercentage.toStringAsFixed(1);
-    return 'DatumSyncResult(userId: $userId, synced: $syncedCount/$totalOperations ($successRate%), failed: $failedCount, conflicts: $conflictsResolved, pushed: $bytesPushed bytes, pulled: $bytesPulled bytes, duration: ${formatDuration(duration)})';
+    return 'DatumSyncResult(userId: $userId, synced: $syncedCount/$totalOperations ($successRate%), failed: $failedCount, conflicts: $conflictsResolved, pushed: $bytesPushedInCycle bytes, pulled: $bytesPulledInCycle bytes, duration: ${formatDuration(duration)})';
   }
 
   /// Converts the result to a map for serialization.
@@ -126,8 +136,10 @@ class DatumSyncResult<T extends DatumEntity> {
       'syncedCount': syncedCount,
       'failedCount': failedCount,
       'conflictsResolved': conflictsResolved,
-      'bytesPushed': bytesPushed,
-      'bytesPulled': bytesPulled,
+      'totalBytesPushed': totalBytesPushed,
+      'totalBytesPulled': totalBytesPulled,
+      'bytesPushedInCycle': bytesPushedInCycle,
+      'bytesPulledInCycle': bytesPulledInCycle,
       'wasSkipped': wasSkipped,
       'wasCancelled': wasCancelled,
     };
@@ -145,8 +157,10 @@ class DatumSyncResult<T extends DatumEntity> {
       failedCount: map['failedCount'] as int,
       conflictsResolved: map['conflictsResolved'] as int,
       pendingOperations: const [], // Not persisted
-      bytesPushed: map['bytesPushed'] as int? ?? 0,
-      bytesPulled: map['bytesPulled'] as int? ?? 0,
+      totalBytesPushed: map['totalBytesPushed'] as int? ?? 0,
+      totalBytesPulled: map['totalBytesPulled'] as int? ?? 0,
+      bytesPushedInCycle: map['bytesPushedInCycle'] as int? ?? 0,
+      bytesPulledInCycle: map['bytesPulledInCycle'] as int? ?? 0,
       wasSkipped: map['wasSkipped'] as bool,
       wasCancelled: map['wasCancelled'] as bool,
       error: null, // Not persisted

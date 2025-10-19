@@ -114,6 +114,12 @@ class DatumSyncEngine<T extends DatumEntity> {
 
     await checkForUserSwitch(userId);
 
+    // Fetch the last sync result to get the previous total byte counts.
+    final lastSyncResult = await localAdapter.getLastSyncResult(userId);
+
+    int bytesPushedThisCycle = 0;
+    int bytesPulledThisCycle = 0;
+
     final stopwatch = Stopwatch()..start();
 
     // Reset the snapshot for the new sync cycle, preserving only the user ID.
@@ -137,15 +143,18 @@ class DatumSyncEngine<T extends DatumEntity> {
 
       switch (direction) {
         case SyncDirection.pushThenPull:
-          await _pushChanges(userId, generatedEvents);
-          await _pullChanges(userId, options, scope, generatedEvents);
+          bytesPushedThisCycle += await _pushChanges(userId, generatedEvents);
+          bytesPulledThisCycle +=
+              await _pullChanges(userId, options, scope, generatedEvents);
         case SyncDirection.pullThenPush:
-          await _pullChanges(userId, options, scope, generatedEvents);
-          await _pushChanges(userId, generatedEvents);
+          bytesPulledThisCycle +=
+              await _pullChanges(userId, options, scope, generatedEvents);
+          bytesPushedThisCycle += await _pushChanges(userId, generatedEvents);
         case SyncDirection.pushOnly:
-          await _pushChanges(userId, generatedEvents);
+          bytesPushedThisCycle += await _pushChanges(userId, generatedEvents);
         case SyncDirection.pullOnly:
-          await _pullChanges(userId, options, scope, generatedEvents);
+          bytesPulledThisCycle +=
+              await _pullChanges(userId, options, scope, generatedEvents);
       }
 
       // After operations, check if the sync was cancelled by a dispose call.
@@ -165,6 +174,12 @@ class DatumSyncEngine<T extends DatumEntity> {
         failedCount: statusSubject.value.failedOperations,
         conflictsResolved: statusSubject.value.conflictsResolved,
         pendingOperations: finalPending,
+        bytesPushedInCycle: bytesPushedThisCycle,
+        bytesPulledInCycle: bytesPulledThisCycle,
+        totalBytesPushed:
+            (lastSyncResult?.totalBytesPushed ?? 0) + bytesPushedThisCycle,
+        totalBytesPulled:
+            (lastSyncResult?.totalBytesPulled ?? 0) + bytesPulledThisCycle,
       );
 
       // Check if controllers are closed before adding events, as the manager
@@ -219,14 +234,16 @@ class DatumSyncEngine<T extends DatumEntity> {
     }
   }
 
-  Future<void> _pushChanges(
+  Future<int> _pushChanges(
     String userId,
     List<DatumSyncEvent<T>> generatedEvents,
   ) async {
+    int cumulativeBytesPushed = 0;
+    int bytesPushed = 0;
     final operationsToProcess = await queueManager.getPending(userId);
     if (operationsToProcess.isEmpty) {
       logger.info('No pending changes to push for user $userId.');
-      return;
+      return 0;
     }
 
     logger.info(
@@ -237,7 +254,12 @@ class DatumSyncEngine<T extends DatumEntity> {
     // exceptions thrown by the execution strategy.
     await config.syncExecutionStrategy.execute(
       operationsToProcess,
-      (op) => _processPendingOperation(op, generatedEvents: generatedEvents),
+      (op) async {
+        final size = await _processPendingOperation(op,
+            generatedEvents: generatedEvents);
+        cumulativeBytesPushed += size;
+        bytesPushed += size;
+      },
       () => statusSubject.value.status != DatumSyncStatus.syncing,
       (completed, total) {
         if (!statusSubject.isClosed && !eventController.isClosed) {
@@ -248,19 +270,18 @@ class DatumSyncEngine<T extends DatumEntity> {
             completed: completed,
             total: total,
             // Note: byte counts are now emitted from _processPendingOperation
-            // and aggregated in the main synchronize method. This onProgress
-            // callback is now only for operation counts.
-            bytesPushed: 0,
-            bytesPulled: 0,
+            // and aggregated here to provide a running total.
+            bytesPushed: cumulativeBytesPushed,
           );
           generatedEvents.add(progressEvent);
           _notifyObservers(progressEvent);
         }
       },
     );
+    return bytesPushed;
   }
 
-  Future<void> _processPendingOperation(
+  Future<int> _processPendingOperation(
     DatumSyncOperation<T> operation, {
     required List<DatumSyncEvent<T>> generatedEvents,
   }) async {
@@ -311,16 +332,17 @@ class DatumSyncEngine<T extends DatumEntity> {
           ),
         );
         // Emit a progress event with the byte count for this successful operation.
-        final progressEvent = DatumSyncProgressEvent<T>(
-          userId: operation.userId,
-          completed: 1,
-          total: 1, // This event represents a single operation's completion
-          bytesPushed: operation.sizeInBytes,
-          bytesPulled: 0,
-        );
-        generatedEvents.add(progressEvent);
-        _notifyObservers(progressEvent);
+        // final progressEvent = DatumSyncProgressEvent<T>(
+        //   userId: operation.userId,
+        //   completed: 1,
+        //   total: 1, // This event represents a single operation's completion
+        //   bytesPushed: operation.sizeInBytes,
+        //   bytesPulled: 0,
+        // );
+        // generatedEvents.add(progressEvent);
+        // _notifyObservers(progressEvent);
         _notifyPostOperationObservers(operation, success: true);
+        return operation.sizeInBytes;
       }
     } on EntityNotFoundException catch (e, stackTrace) {
       // If a patch fails because the entity doesn't exist on the remote,
@@ -334,7 +356,7 @@ class DatumSyncEngine<T extends DatumEntity> {
           type: DatumOperationType.create,
         );
         // Re-call the same method with the converted operation.
-        return _processPendingOperation(
+        return await _processPendingOperation(
           createOperation,
           generatedEvents: generatedEvents,
         );
@@ -361,7 +383,7 @@ class DatumSyncEngine<T extends DatumEntity> {
         logger.warn(
           'Operation ${operation.id} failed. Will retry on next sync.',
         );
-        return;
+        return 0;
       }
 
       // For non-retryable errors, mark the operation as failed and remove it
@@ -404,15 +426,19 @@ class DatumSyncEngine<T extends DatumEntity> {
       // receives the correctly typed exception, not just the raw `e`.
       throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
     }
+    return 0;
   }
 
-  Future<void> _pullChanges(
+  Future<int> _pullChanges(
     String userId,
     DatumSyncOptions<T>? options,
     DatumSyncScope? scope,
     List<DatumSyncEvent<T>> generatedEvents,
   ) async {
     logger.info('Pulling remote changes for user $userId...');
+
+    int cumulativeBytesPulled = 0;
+    int bytesPulled = 0;
 
     final remoteItems = await remoteAdapter.readAll(
       userId: userId,
@@ -423,7 +449,8 @@ class DatumSyncEngine<T extends DatumEntity> {
       userId: userId,
     );
 
-    for (final remoteItem in remoteItems) {
+    for (var i = 0; i < remoteItems.length; i++) {
+      final remoteItem = remoteItems[i];
       if (statusSubject.value.status != DatumSyncStatus.syncing) break;
 
       final localItem = localItemsMap[remoteItem.id];
@@ -438,23 +465,27 @@ class DatumSyncEngine<T extends DatumEntity> {
           // This is a new item from remote.
           await localAdapter.create(remoteItem);
           final size = jsonEncode(remoteItem.toDatumMap()).length;
-          final progressEvent = DatumSyncProgressEvent<T>(
-            userId: userId,
-            completed: 1,
-            total: remoteItems.length,
-            bytesPulled: size,
-          );
-          generatedEvents.add(progressEvent);
-          _notifyObservers(progressEvent);
+          bytesPulled += size;
+          cumulativeBytesPulled += size;
         } else {
           // This is an update from remote for an existing item.
           await localAdapter.update(remoteItem);
           final size = jsonEncode(remoteItem.toDatumMap()).length;
-          final progressEvent = DatumSyncProgressEvent<T>(
-              userId: userId, completed: 1, total: remoteItems.length, bytesPulled: size);
-          generatedEvents.add(progressEvent);
-          _notifyObservers(progressEvent);
+          bytesPulled += size;
+          cumulativeBytesPulled += size;
         }
+        // Emit a single progress event for each pulled item.
+        final progressEvent = DatumSyncProgressEvent<T>(
+          userId: userId,
+          // Use i + 1 for completed count to reflect current item.
+          completed: i + 1,
+          total: remoteItems.length,
+          // Pass the running total of bytes pulled.
+          bytesPulled: cumulativeBytesPulled,
+        );
+        generatedEvents.add(progressEvent);
+        _notifyObservers(progressEvent);
+
         continue;
       }
 
@@ -506,6 +537,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     }
 
     await _updateMetadata(userId);
+    return bytesPulled;
   }
 
   void _notifyPreOperationObservers(DatumSyncOperation<T> operation) {

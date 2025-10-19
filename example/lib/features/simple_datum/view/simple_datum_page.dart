@@ -361,10 +361,27 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
     }
 
     if (result.isSuccess) {
-      final message = result.syncedCount > 0
-          ? '$operation successful. ${result.syncedCount} item(s) synced.'
-          : '$operation complete. No changes to sync.';
-      showSuccessSnack(child: Text(message));
+      final itemsSynced = result.syncedCount > 0
+          ? '${result.syncedCount} item(s) pushed. '
+          : 'No local changes to push. ';
+
+      final bytesPushed = result.bytesPushedInCycle > 0
+          ? '↑${(result.bytesPushedInCycle / 1024).toStringAsFixed(2)}KB'
+          : '';
+
+      final bytesPulled = result.bytesPulledInCycle > 0
+          ? '↓${(result.bytesPulledInCycle / 1024).toStringAsFixed(2)}KB'
+          : '';
+
+      final dataTransferMessage =
+          [bytesPushed, bytesPulled].where((s) => s.isNotEmpty).join(' ');
+
+      final message = [
+        '$operation complete. $itemsSynced',
+        if (dataTransferMessage.isNotEmpty) dataTransferMessage
+      ].join(' ').replaceAll(' .', '.'); // Clean up spacing
+
+      showSuccessSnack(child: Text(message.trim()));
     } else {
       showErrorSnack(
           child: Text(
@@ -467,8 +484,17 @@ class SyncInfoWidget extends ConsumerWidget {
                 children: [
                   const Text('Data Transferred'),
                   Text(
-                    '↑${(lastSyncResult.bytesPushed / 1024).toStringAsFixed(1)}KB ↓${(lastSyncResult.bytesPulled / 1024).toStringAsFixed(1)}KB',
+                    '↑${(lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2)} KB ↓${(lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2)} KB',
                   ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Total Data'),
+                  Text(
+                      '↑${(lastSyncResult.totalBytesPushed / 1024).toStringAsFixed(2)} KB ↓${(lastSyncResult.totalBytesPulled / 1024).toStringAsFixed(2)} KB'),
                 ],
               ),
             ]
