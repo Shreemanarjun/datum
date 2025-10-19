@@ -63,6 +63,13 @@ app.*.map.json
 /android/app/release
 
 /example/pubspec.lock
+/example/build/
+/example/coverage/
+
+
+/example_jaspr/*.lock
+/example_jaspr/build/
+/example_jaspr/coverage/
 
 .gemini/
 gha-creds-*.json
