@@ -1,6 +1,9 @@
 import 'package:datum/datum.dart';
 import 'package:example/data/task/entity/task.dart';
+import 'package:example/features/simple_datum/controller/last_sync_result_notifier.dart';
 import 'package:example/features/simple_datum/controller/simple_datum_provider.dart';
+import 'package:example/features/simple_datum/view/task.dart';
+import 'package:example/features/simple_datum/view/task_list.dart';
 import 'package:example/features/simple_datum/view/sync_info_widget.dart';
 import 'package:example/shared/helper/global_helper.dart';
 import 'package:example/shared/riverpod_ext/asynvalue_easy_when.dart';
@@ -10,24 +13,26 @@ import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
-final simpleDatumControllerProvider = Provider.autoDispose(
-  (ref) => SimpleDatumController(ref),
+final simpleDatumControllerProvider =
+    NotifierProvider.autoDispose<SimpleDatumController, void>(
+  SimpleDatumController.new,
   name: 'simpleDatumControllerProvider',
 );
 
 /// A provider that acts as an event channel to signal UI updates.
 /// The UI will listen to this and show a snackbar when the value changes.
-final syncResultEventProvider =
-    StateProvider<DatumSyncResult<Task>?>((ref) => null);
+final syncResultEventProvider = StateProvider<DatumSyncResult<DatumEntity>?>(
+  (
+    ref,
+  ) =>
+      null,
+  name: "syncResultEventProvider",
+);
 
-class SimpleDatumController {
-  SimpleDatumController(this.ref);
+class SimpleDatumController extends AutoDisposeNotifier<void> {
+  SimpleDatumController();
 
-  final Ref ref;
-
-  DatumManager<Task> get _taskManager => Datum.manager<Task>();
-
-  void _notifySyncResult(DatumSyncResult<Task> result) {
+  void _notifySyncResult(DatumSyncResult<DatumEntity> result) {
     ref.read(syncResultEventProvider.notifier).state = result;
   }
 
@@ -37,29 +42,34 @@ class SimpleDatumController {
   }) async {
     final newTask = Task.create(title: title, description: description);
     final (_, syncResult) =
-        await _taskManager.pushAndSync(item: newTask, userId: newTask.userId);
+        await Datum.instance.pushAndSync(item: newTask, userId: newTask.userId);
     _notifySyncResult(syncResult);
   }
 
-  Future<DatumSyncResult<Task>> updateTask(Task task) async {
+  Future<void> updateTask(Task task) async {
     final (_, syncResult) =
-        await _taskManager.updateAndSync(item: task, userId: task.userId);
-    return syncResult;
+        await Datum.instance.updateAndSync(item: task, userId: task.userId);
+    _notifySyncResult(syncResult);
   }
 
   Future<void> deleteTask(Task task) async {
-    final (_, syncResult) =
-        await _taskManager.deleteAndSync(id: task.id, userId: task.userId);
+    final (_, syncResult) = await Datum.instance
+        .deleteAndSync<Task>(id: task.id, userId: task.userId);
     _notifySyncResult(syncResult);
+  }
+
+  @override
+  void build() {
+    return;
   }
 }
 
 final tasksStreamProvider =
     StreamProvider.autoDispose.family<List<Task>, String?>(
   (ref, userId) {
-    final taskRepository = Datum.manager<Task>();
     // watchAll can return null if the adapter doesn't support it
-    return taskRepository.watchAll(userId: userId, includeInitialData: true) ??
+    return Datum.manager<Task>()
+            .watchAll(userId: userId, includeInitialData: true) ??
         const Stream.empty();
   },
   name: 'tasksStreamProvider',
@@ -72,32 +82,8 @@ final syncStatusProvider =
 
     yield* datum.statusForUser(userId);
   },
+  name: 'syncStatusProvider',
 );
-
-final lastSyncResultProvider =
-    NotifierProvider<LastSyncResultNotifier, DatumSyncResult<Task>?>(
-  LastSyncResultNotifier.new,
-);
-
-class LastSyncResultNotifier extends Notifier<DatumSyncResult<Task>?> {
-  @override
-  DatumSyncResult<Task>? build() {
-    // Load the initial value from storage.
-    _load();
-    return null; // Start with null, update when loaded.
-  }
-
-  Future<void> _load() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-    state = await Datum.manager<Task>().getLastSyncResult(userId);
-  }
-
-  void update(DatumSyncResult<Task> result) {
-    state = result;
-    // The manager now automatically saves the result, so we don't need to do it here.
-  }
-}
 
 @RoutePage()
 class SimpleDatumPage extends ConsumerStatefulWidget {
@@ -133,7 +119,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
               child: const Text('Create'),
             ),
           ],
-          child: _TaskForm(
+          child: TaskForm(
             titleController: titleController,
             descriptionController: descriptionController,
           )),
@@ -147,7 +133,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
     if (didCreate == true && titleController.text.isNotEmpty) {
       try {
         await ref
-            .read(simpleDatumControllerProvider)
+            .read(simpleDatumControllerProvider.notifier)
             .createTask(title: title, description: description);
         // The snackbar is now handled by the listener on syncResultEventProvider
       } catch (e) {
@@ -178,7 +164,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
               child: const Text('Update'),
             ),
           ],
-          child: _TaskForm(
+          child: TaskForm(
             task: task,
             titleController: titleController,
             descriptionController: descriptionController,
@@ -197,10 +183,8 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
         modifiedAt: DateTime.now(),
       );
       try {
-        final syncResult = await ref
-            .read(simpleDatumControllerProvider)
-            .updateTask(updatedTask);
-        _handleSyncResult(syncResult, operation: 'Update');
+        await ref.read(simpleDatumControllerProvider.notifier).updateTask(
+            updatedTask); // This is now a void method. The listener will handle the result.
       } catch (e) {
         showErrorSnack(child: Text('Error updating task: $e'));
       }
@@ -209,7 +193,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
 
   Future<void> _deleteTask(Task task) async {
     try {
-      await ref.read(simpleDatumControllerProvider).deleteTask(task);
+      await ref.read(simpleDatumControllerProvider.notifier).deleteTask(task);
       // The snackbar is now handled by the listener on syncResultEventProvider
     } catch (e) {
       showErrorSnack(child: Text('Error deleting task: $e'));
@@ -244,7 +228,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
                 onPressed: () async {
                   showInfoSnack(child: const Text('Refreshing...'));
                   try {
-                    final result = await Datum.manager<Task>().synchronize(
+                    final result = await Datum.instance.synchronize(
                       userId,
                       options: const DatumSyncOptions(
                         direction: SyncDirection.pullOnly,
@@ -287,7 +271,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
                           showInfoSnack(child: const Text('Syncing...'));
                           try {
                             final result =
-                                await Datum.manager<Task>().synchronize(userId);
+                                await Datum.instance.synchronize(userId);
                             _handleSyncResult(result, operation: 'Sync');
                           } catch (e) {
                             showErrorSnack(child: Text('Sync failed: $e'));
@@ -334,7 +318,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
                   ),
                 ),
                 Expanded(
-                  child: _TaskList(
+                  child: TaskList(
                       tasksAsync: tasksAsync,
                       onUpdate: _updateTask,
                       onDelete: _deleteTask),
@@ -347,7 +331,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
     );
   }
 
-  void _handleSyncResult(DatumSyncResult<Task> result,
+  void _handleSyncResult(DatumSyncResult<DatumEntity> result,
       {String operation = 'Sync'}) {
     ref.read(lastSyncResultProvider.notifier).update(result);
 
@@ -387,178 +371,3 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
     }
   }
 }
-
-class _TaskForm extends StatefulWidget {
-  const _TaskForm({
-    this.task,
-    required this.titleController,
-    required this.descriptionController,
-  });
-
-  final Task? task;
-  final TextEditingController titleController;
-  final TextEditingController descriptionController;
-
-  @override
-  State<_TaskForm> createState() => _TaskFormState();
-}
-
-class _TaskFormState extends State<_TaskForm> {
-  @override
-  void initState() {
-    super.initState();
-    widget.titleController.text = widget.task?.title ?? '';
-    widget.descriptionController.text = widget.task?.description ?? '';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ShadInput(
-          controller: widget.titleController,
-          placeholder: const Text('Task title...'),
-        ),
-        const SizedBox(height: 8),
-        ShadInput(
-          controller: widget.descriptionController,
-          placeholder: const Text('Description (optional)'),
-        ),
-      ],
-    );
-  }
-}
-
-class _TaskList extends ConsumerWidget {
-  const _TaskList({
-    required this.tasksAsync,
-    required this.onUpdate,
-    required this.onDelete,
-  });
-
-  final AsyncValue<List<Task>> tasksAsync;
-  final void Function(Task) onUpdate;
-  final void Function(Task) onDelete;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return tasksAsync.easyWhen(
-      data: (tasks) {
-        if (tasks.isEmpty) {
-          return const Center(
-            child: Text('No tasks found. Add one!'),
-          );
-        }
-        return ListView.builder(
-          itemCount: tasks.length,
-          itemBuilder: (context, index) {
-            final task = tasks[index];
-            return _TaskListItem(
-              task: task,
-              onUpdate: onUpdate,
-              onDelete: onDelete,
-            );
-          },
-        );
-      },
-      loadingWidget: () => const Center(child: Text("Watching tasks...")),
-    );
-  }
-}
-
-class _TaskListItem extends ConsumerWidget {
-  const _TaskListItem({
-    required this.task,
-    required this.onUpdate,
-    required this.onDelete,
-  });
-
-  final Task task;
-  final void Function(Task) onUpdate;
-  final void Function(Task) onDelete;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return CheckboxListTile(
-      title: Text(
-        task.title,
-        style: task.isCompleted
-            ? const TextStyle(
-                decoration: TextDecoration.lineThrough, color: Colors.grey)
-            : null,
-      ),
-      subtitle: Text(
-        task.description ?? '',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      value: task.isCompleted,
-      onChanged: (isCompleted) async {
-        final updatedTask =
-            task.copyWith(isCompleted: isCompleted, modifiedAt: DateTime.now());
-        try {
-          final syncResult = await ref
-              .read(simpleDatumControllerProvider)
-              .updateTask(updatedTask); // This now returns a sync result
-          (context as Element)
-              .findAncestorStateOfType<_SimpleDatumPageState>()
-              ?._handleSyncResult(syncResult, operation: 'Update');
-        } catch (e) {
-          // Errors are now caught at the page level.
-          // We can show a generic snackbar here if needed, but the controller
-          // should ideally handle its own errors and signal the UI.
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error updating task: $e')),
-          );
-        }
-      },
-      secondary: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () => onUpdate(task),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete, color: Colors.red),
-            onPressed: () => onDelete(task),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-final nextSyncTimeProvider = StreamProvider.autoDispose<DateTime?>((ref) {
-  // This provider does not depend on the user, so it can be a simple provider.
-  final taskManager = Datum.manager<Task>();
-  return taskManager.onNextSyncTimeChanged;
-});
-
-final storageSizeProvider =
-    StreamProvider.autoDispose.family<int, String>((ref, userId) {
-  final taskManager = Datum.manager<Task>();
-  return taskManager.watchStorageSize(userId: userId);
-});
-
-final allHealths = StreamProvider(
-  (ref) async* {
-    final datum = await ref.watch(simpleDatumProvider.future);
-    yield* datum.allHealths;
-  },
-  name: 'allHealths',
-);
-
-final metricsProvider = StreamProvider((ref) async* {
-  final datum = await ref.watch(simpleDatumProvider.future);
-  yield* datum.metrics;
-});
-
-final pendingOperationsProvider =
-    StreamProvider.autoDispose.family<int, String>((ref, userId) async* {
-  final datum = await ref.watch(simpleDatumProvider.future);
-  yield* datum.statusForUser(userId).map((snapshot) {
-    return snapshot?.pendingOperations ?? 0;
-  });
-});

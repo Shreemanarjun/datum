@@ -1,6 +1,6 @@
 import 'package:datum/datum.dart';
 import 'package:example/data/task/entity/task.dart';
-import 'package:example/features/simple_datum/view/simple_datum_page.dart';
+import 'package:example/features/simple_datum/controller/metrics_provider.dart';
 import 'package:example/shared/riverpod_ext/asynvalue_easy_when.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

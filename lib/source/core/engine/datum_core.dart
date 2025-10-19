@@ -703,6 +703,71 @@ class Datum {
     return Datum.manager<T>().delete(id: id, userId: userId);
   }
 
+  /// Creates or updates an entity locally and immediately triggers a synchronization.
+  ///
+  /// This is a convenience method that combines `push()` and `synchronize()`
+  /// into a single atomic call for a specific entity type. It's useful for
+  /// operations that require immediate confirmation from the remote server.
+  ///
+  /// - [item]: The entity to save.
+  /// - [userId]: The ID of the user this entity belongs to.
+  /// - [syncOptions]: Optional configuration for the synchronization part of the call.
+  ///
+  /// Returns a tuple containing the locally saved entity and the sync result.
+  Future<(T, DatumSyncResult<T>)> pushAndSync<T extends DatumEntity>({
+    required T item,
+    required String userId,
+    DatumSyncOptions? syncOptions,
+  }) {
+    return Datum.manager<T>().pushAndSync(
+      item: item,
+      userId: userId,
+      syncOptions: syncOptions,
+    );
+  }
+
+  /// Updates an entity locally and immediately triggers a synchronization.
+  ///
+  /// This is an alias for [pushAndSync] and is provided for semantic clarity.
+  /// It's useful for operations that require immediate confirmation from the
+  /// remote server.
+  ///
+  /// - [item]: The entity to update.
+  /// - [userId]: The ID of the user this entity belongs to.
+  /// - [syncOptions]: Optional configuration for the synchronization part of the call.
+  ///
+  /// Returns a tuple containing the locally updated entity and the sync result.
+  Future<(T, DatumSyncResult<T>)> updateAndSync<T extends DatumEntity>({
+    required T item,
+    required String userId,
+    DatumSyncOptions? syncOptions,
+  }) {
+    return Datum.manager<T>().updateAndSync(
+      item: item,
+      userId: userId,
+      syncOptions: syncOptions,
+    );
+  }
+
+  /// Deletes an entity locally and immediately triggers a synchronization.
+  ///
+  /// This is useful for ensuring a delete operation is persisted to the remote
+  /// server as soon as possible.
+  ///
+  /// - [id]: The ID of the entity to delete.
+  /// - [userId]: The ID of the user this entity belongs to.
+  /// - [syncOptions]: Optional configuration for the synchronization part of the call.
+  ///
+  /// Returns a tuple containing a boolean indicating if the local delete was
+  /// successful and the result of the subsequent synchronization.
+  Future<(bool, DatumSyncResult<T>)> deleteAndSync<T extends DatumEntity>({
+    required String id,
+    required String userId,
+    DatumSyncOptions? syncOptions,
+  }) =>
+      Datum.manager<T>()
+          .deleteAndSync(id: id, userId: userId, syncOptions: syncOptions);
+
   Future<void> dispose() async {
     // Await all disposals and cancellations concurrently for efficiency.
     await Future.wait([
