@@ -165,5 +165,62 @@ void main() {
         );
       });
     });
+
+    group('onNextSyncTimeChanged stream', () {
+      test('emits DateTime when startAutoSync is called', () {
+        fakeAsync((async) async {
+          // Arrange
+          await manager.initialize();
+
+          // Assert: Expect the stream to emit a non-null DateTime.
+          // The time should be approximately now + the sync interval.
+          final expectation = expectLater(
+            manager.onNextSyncTimeChanged,
+            emits(
+              isA<DateTime>().having(
+                (dt) => dt.isAfter(DateTime.now()),
+                'is in the future',
+                isTrue,
+              ),
+            ),
+          );
+
+          // Act
+          manager.startAutoSync('user-A');
+
+          // Await the expectation to ensure the event was received.
+          await expectation;
+        });
+      });
+
+      test('emits null when stopAutoSync is called for a specific user', () {
+        fakeAsync((async) async {
+          // Arrange
+          await manager.initialize();
+          manager.startAutoSync('user-A');
+          // Let the first (non-null) event pass.
+          await manager.onNextSyncTimeChanged.first;
+
+          // Assert: Expect the next event to be null.
+          final expectation =
+              expectLater(manager.onNextSyncTimeChanged, emits(isNull));
+
+          // Act
+          manager.stopAutoSync(userId: 'user-A');
+
+          await expectation;
+        });
+      });
+
+      test('emits null when stopAutoSync is called for all users', () {
+        fakeAsync((async) async {
+          await manager.initialize();
+          manager.startAutoSync('user-A');
+          await manager.onNextSyncTimeChanged.first;
+          expectLater(manager.onNextSyncTimeChanged, emits(isNull));
+          manager.stopAutoSync();
+        });
+      });
+    });
   });
 }

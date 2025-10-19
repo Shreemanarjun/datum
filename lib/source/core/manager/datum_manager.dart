@@ -53,7 +53,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
 
   // Core dependencies
   final DatumConflictResolver<T> _conflictResolver;
-  final DatumConfig<T> _config;
+  final DatumConfig<T> config;
   final DatumConnectivityChecker _connectivity;
   final DatumLogger _logger;
   final List<DatumObserver<T>> _localObservers = [];
@@ -114,7 +114,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
     List<DatumObserver<T>>? localObservers,
     List<DatumMiddleware<T>>? middlewares,
     List<GlobalDatumObserver>? globalObservers,
-  })  : _config = datumConfig ?? const DatumConfig(),
+  })  : config = datumConfig ?? const DatumConfig(),
         _connectivity = connectivity,
         // The logger's enabled status should always respect the config.
         _logger = (logger ?? DatumLogger())
@@ -152,7 +152,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
       queueManager: _queueManager,
       conflictDetector: _conflictDetector,
       logger: _logger,
-      config: _config,
+      config: config,
       connectivityChecker: _connectivity,
       eventController: _eventController,
       statusSubject: _statusSubject,
@@ -190,8 +190,8 @@ class DatumManager<T extends DatumEntity> with Disposable {
     // ... (rest of the method is unchanged)
     final executor = MigrationExecutor(
       localAdapter: localAdapter,
-      migrations: _config.migrations,
-      targetVersion: _config.schemaVersion,
+      migrations: config.migrations,
+      targetVersion: config.schemaVersion,
       logger: _logger,
     );
     try {
@@ -200,8 +200,8 @@ class DatumManager<T extends DatumEntity> with Disposable {
       }
     } on Object catch (e, stack) {
       _logger.error('Schema migration failed: $e', stack);
-      if (_config.onMigrationError != null) {
-        await _config.onMigrationError!(e, stack);
+      if (config.onMigrationError != null) {
+        await config.onMigrationError!(e, stack);
       } else {
         rethrow;
       }
@@ -209,11 +209,11 @@ class DatumManager<T extends DatumEntity> with Disposable {
   }
 
   Future<void> _setupAutoSyncIfEnabled() async {
-    if (!_config.autoStartSync) return;
+    if (!config.autoStartSync) return;
 
     _logger.debug('Auto-start sync enabled, discovering users');
-    if (_config.initialUserId != null) {
-      final userId = _config.initialUserId!;
+    if (config.initialUserId != null) {
+      final userId = config.initialUserId!;
       if (userId.isNotEmpty) {
         _logger.info('Auto-sync starting for initial user: $userId');
         // Perform an initial sync, but don't block initialization if it fails.
@@ -268,9 +268,9 @@ class DatumManager<T extends DatumEntity> with Disposable {
     late StreamSubscription remoteSub;
 
     // If a debounce time is configured, buffer events for performance.
-    if (_config.remoteEventDebounceTime > Duration.zero) {
+    if (config.remoteEventDebounceTime > Duration.zero) {
       remoteSub = remoteStream
-          .bufferTime(_config.remoteEventDebounceTime)
+          .bufferTime(config.remoteEventDebounceTime)
           .where((batch) => batch.isNotEmpty)
           .listen(
             (changeList) =>
@@ -410,7 +410,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   }
 
   void _cleanupChangeCache() {
-    final cacheExpiry = DateTime.now().subtract(_config.changeCacheDuration);
+    final cacheExpiry = DateTime.now().subtract(config.changeCacheDuration);
     _recentChangeCache.removeWhere((key, timestamp) {
       return timestamp.isBefore(cacheExpiry);
     });
@@ -831,7 +831,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
     // Handle user switching logic before proceeding with synchronization.
     if (_syncEngine.lastActiveUserId != null &&
         _syncEngine.lastActiveUserId != userId) {
-      if (_config.defaultUserSwitchStrategy ==
+      if (config.defaultUserSwitchStrategy ==
           UserSwitchStrategy.promptIfUnsyncedData) {
         final oldUserOps = await _queueManager.getPending(
           _syncEngine.lastActiveUserId ?? '',
@@ -937,7 +937,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
       throw ArgumentError.value(newUserId, 'newUserId', 'Must not be empty');
     }
 
-    final resolvedStrategy = strategy ?? _config.defaultUserSwitchStrategy;
+    final resolvedStrategy = strategy ?? config.defaultUserSwitchStrategy;
     _notifyObservers(
       (o) => o.onUserSwitchStart(oldUserId, newUserId, resolvedStrategy),
     );
@@ -1029,7 +1029,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
 
     stopAutoSync(userId: userId);
 
-    final syncInterval = interval ?? _config.autoSyncInterval;
+    final syncInterval = interval ?? config.autoSyncInterval;
     _autoSyncTimers[userId] = Timer.periodic(syncInterval, (_) {
       // Use an async block to allow try-catch without affecting the timer's
       // void callback signature.

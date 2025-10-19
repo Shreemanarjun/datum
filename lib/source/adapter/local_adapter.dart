@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
+import 'package:meta/meta.dart';
 
 /// Local storage adapter abstraction that provides access to offline data.
 abstract class LocalAdapter<T extends DatumEntity> {
@@ -239,23 +240,32 @@ abstract class LocalAdapter<T extends DatumEntity> {
   ///
   /// Emits the current size immediately and then a new size whenever the
   /// underlying data changes. Adapters can override this for a more efficient
-  /// implementation if their storage engine supports it.
-  Stream<int> watchStorageSize({String? userId}) {
-    final changes = changeStream()
+  /// implementation if their storage engine supports it. The default implementation
+  /// is also available as a static method for testing purposes.
+  @visibleForTesting
+  static Stream<int> defaultWatchStorageSize<T extends DatumEntity>(
+      LocalAdapter<T> adapter,
+      {String? userId}) {
+    final changes = adapter
+        .changeStream()
         // Filter changes to only include the relevant user.
         ?.where((event) => userId == null || event.userId == userId)
         // When a change occurs, recalculate the size.
-        .asyncMap((_) => getStorageSize(userId: userId));
+        .asyncMap((_) => adapter.getStorageSize(userId: userId));
 
     if (changes == null) return Stream.value(0);
 
     // Use a transformer to emit the initial value first, then subsequent changes.
     return changes.transform(
       StreamTransformer.fromBind((stream) async* {
-        yield await getStorageSize(userId: userId);
+        yield await adapter.getStorageSize(userId: userId);
         yield* stream;
       }),
     );
+  }
+
+  Stream<int> watchStorageSize({String? userId}) {
+    return LocalAdapter.defaultWatchStorageSize(this, userId: userId);
   }
 
   /// Saves the result of the last synchronization for a user.

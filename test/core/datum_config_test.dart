@@ -108,6 +108,24 @@ void main() {
       },
     );
 
+    test('toString() provides a useful summary from Equatable', () {
+      const config = DatumConfig(
+        autoStartSync: true,
+        schemaVersion: 5,
+        syncExecutionStrategy: ParallelStrategy(),
+        enableLogging: false,
+      );
+
+      final string = config.toString();
+
+      // Equatable's toString() format is ClassName(prop1, prop2, ...).
+      // We'll check for the presence of the values in the string.
+      expect(string, startsWith('DatumConfig('));
+      expect(string, contains('true')); // autoStartSync
+      expect(string, contains('5')); // schemaVersion
+      expect(string, contains('ParallelStrategy')); // syncExecutionStrategy
+    });
+
     group('Equality and HashCode', () {
       test('instances with same values are equal', () {
         const config1 = DatumConfig(schemaVersion: 1, autoStartSync: true);

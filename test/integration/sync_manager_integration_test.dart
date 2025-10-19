@@ -11,47 +11,46 @@ class MockedRemoteAdapter<T extends DatumEntity> extends Mock
     implements RemoteAdapter<T> {}
 
 void main() {
+  setUpAll(() {
+    registerFallbackValue(
+      TestEntity(
+        id: 'fb',
+        userId: 'fb',
+        name: 'fb',
+        value: 0,
+        modifiedAt: DateTime(0),
+        createdAt: DateTime(0),
+        version: 0,
+      ),
+    );
+    registerFallbackValue(<String, dynamic>{});
+    registerFallbackValue(
+      DatumSyncOperation<TestEntity>(
+        id: 'fb',
+        userId: 'fb',
+        entityId: 'fb',
+        type: DatumOperationType.create,
+        timestamp: DateTime(0),
+      ),
+    );
+    registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
+    registerFallbackValue(DatumQueryBuilder<TestEntity>().build());
+    registerFallbackValue(
+      const DatumSyncResult<TestEntity>(
+        userId: 'fallback-user',
+        duration: Duration.zero,
+        syncedCount: 0,
+        failedCount: 0,
+        conflictsResolved: 0,
+        pendingOperations: [],
+      ),
+    );
+  });
   group('DatumManager Integration Tests', () {
     late DatumManager<TestEntity> manager;
     late MockedLocalAdapter<TestEntity> localAdapter;
     late MockedRemoteAdapter<TestEntity> remoteAdapter;
     late MockConnectivityChecker connectivityChecker;
-
-    setUpAll(() {
-      registerFallbackValue(
-        TestEntity(
-          id: 'fb',
-          userId: 'fb',
-          name: 'fb',
-          value: 0,
-          modifiedAt: DateTime(0),
-          createdAt: DateTime(0),
-          version: 0,
-        ),
-      );
-      registerFallbackValue(<String, dynamic>{});
-      registerFallbackValue(
-        DatumSyncOperation<TestEntity>(
-          id: 'fb',
-          userId: 'fb',
-          entityId: 'fb',
-          type: DatumOperationType.create,
-          timestamp: DateTime(0),
-        ),
-      );
-      registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
-      registerFallbackValue(DatumQueryBuilder<TestEntity>().build());
-      registerFallbackValue(
-        const DatumSyncResult<TestEntity>(
-          userId: 'fallback-user',
-          duration: Duration.zero,
-          syncedCount: 0,
-          failedCount: 0,
-          conflictsResolved: 0,
-          pendingOperations: [],
-        ),
-      );
-    });
 
     setUp(() async {
       localAdapter = MockedLocalAdapter<TestEntity>();
@@ -493,6 +492,136 @@ void main() {
       verify(() => localAdapter.watchStorageSize(userId: 'user1')).called(1);
     });
   });
+
+  group('DatumManager Health and Storage', () {
+    late DatumManager<TestEntity> manager;
+    late MockedLocalAdapter<TestEntity> localAdapter;
+    late MockedRemoteAdapter<TestEntity> remoteAdapter;
+    late MockConnectivityChecker connectivityChecker;
+
+    setUp(() async {
+      localAdapter = MockedLocalAdapter<TestEntity>();
+      remoteAdapter = MockedRemoteAdapter<TestEntity>();
+      connectivityChecker = MockConnectivityChecker();
+
+      _stubDefaultBehaviors(localAdapter, remoteAdapter, connectivityChecker);
+
+      manager = DatumManager<TestEntity>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+        connectivity: connectivityChecker,
+        datumConfig: const DatumConfig(enableLogging: false),
+      );
+
+      await manager.initialize();
+    });
+
+    tearDown(() async {
+      await manager.dispose();
+    });
+
+    test('checkHealth calls checkHealth on both adapters', () async {
+      // Arrange
+      when(() => localAdapter.checkHealth())
+          .thenAnswer((_) async => AdapterHealthStatus.ok);
+      when(() => remoteAdapter.checkHealth())
+          .thenAnswer((_) async => AdapterHealthStatus.ok);
+
+      // Act
+      await manager.checkHealth();
+
+      // Assert
+      verify(() => localAdapter.checkHealth()).called(1);
+      verify(() => remoteAdapter.checkHealth()).called(1);
+    });
+
+    test('getStorageSize calls getStorageSize on the local adapter', () async {
+      // Arrange
+      when(() => localAdapter.getStorageSize(userId: 'user1'))
+          .thenAnswer((_) async => 4096);
+
+      // Act
+      final size = await manager.getStorageSize(userId: 'user1');
+
+      // Assert
+      expect(size, 4096);
+      verify(() => localAdapter.getStorageSize(userId: 'user1')).called(1);
+    });
+
+    test('getLastSyncResult calls getLastSyncResult on the local adapter',
+        () async {
+      // Arrange
+      final mockResult = DatumSyncResult<TestEntity>(
+        userId: 'user1',
+        duration: const Duration(seconds: 5),
+        syncedCount: 10,
+        failedCount: 0,
+        conflictsResolved: 1,
+        pendingOperations: [],
+      );
+      when(() => localAdapter.getLastSyncResult('user1'))
+          .thenAnswer((_) async => mockResult);
+
+      // Act
+      final result = await manager.getLastSyncResult('user1');
+
+      // Assert
+      expect(result, mockResult);
+      verify(() => localAdapter.getLastSyncResult('user1')).called(1);
+    });
+
+    test('getPendingOperations calls getPending on the queue manager',
+        () async {
+      // Arrange
+      final mockOps = [
+        DatumSyncOperation<TestEntity>(
+          id: 'op1',
+          userId: 'user1',
+          entityId: 'e1',
+          type: DatumOperationType.create,
+          timestamp: DateTime.now(),
+        )
+      ];
+      when(() => localAdapter.getPendingOperations('user1'))
+          .thenAnswer((_) async => mockOps);
+
+      // Act
+      final ops = await manager.getPendingOperations('user1');
+
+      // Assert
+      expect(ops, mockOps);
+      verify(() => localAdapter.getPendingOperations('user1')).called(1);
+    });
+
+    test('updateAndSync performs a push and then a synchronize', () async {
+      // Arrange
+      final initialEntity = TestEntity.create('e1', 'user1', 'Initial State');
+      final updatedEntity = initialEntity.copyWith(name: 'Updated State');
+
+      // Stub the internal read that push() performs to check for existence
+      when(() => localAdapter.read(initialEntity.id, userId: 'user1'))
+          .thenAnswer((_) async => initialEntity);
+
+      // Stub the patch call that push() will make for an update
+      when(() => localAdapter.patch(
+          id: 'e1',
+          delta: any(named: 'delta'),
+          userId: 'user1')).thenAnswer((_) async => updatedEntity);
+
+      // Act
+      final (savedItem, syncResult) = await manager.updateAndSync(
+        item: updatedEntity,
+        userId: 'user1',
+      );
+
+      // Assert
+      expect(savedItem, updatedEntity);
+      expect(syncResult.isSuccess, isTrue);
+      verify(() => localAdapter.addPendingOperation('user1', any())).called(1);
+      verify(() => remoteAdapter.readAll(
+          userId: 'user1', scope: any(named: 'scope'))).called(1);
+    });
+  });
 }
 
 /// Helper function to apply all default stubs to a set of mocks.
@@ -580,4 +709,12 @@ void _stubDefaultBehaviors(
   when(
     () => localAdapter.getLastSyncResult(any()),
   ).thenAnswer((_) async => null);
+
+  // Health & Storage
+  when(() => localAdapter.checkHealth())
+      .thenAnswer((_) async => AdapterHealthStatus.ok);
+  when(() => remoteAdapter.checkHealth())
+      .thenAnswer((_) async => AdapterHealthStatus.ok);
+  when(() => localAdapter.getStorageSize(userId: any(named: 'userId')))
+      .thenAnswer((_) async => 0);
 }

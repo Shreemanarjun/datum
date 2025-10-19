@@ -146,7 +146,8 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   }
 
   @override
-  Future<void> saveLastSyncResult(String userId, DatumSyncResult<TestEntity> result) {
+  Future<void> saveLastSyncResult(
+      String userId, DatumSyncResult<TestEntity> result) {
     throw UnimplementedError();
   }
 }
@@ -226,6 +227,28 @@ void main() {
         throwsA(isA<UnimplementedError>()),
       );
     });
+
+    test('default checkHealth returns ok', () async {
+      expect(await adapter.checkHealth(), AdapterHealthStatus.ok);
+    });
+
+    test('default watchRelated throws UnimplementedError', () {
+      final parent = User(
+          id: 'u1',
+          name: 'name',
+          modifiedAt: DateTime(0),
+          createdAt: DateTime(0));
+      final relatedAdapter = _TestLocalAdapter();
+      expect(() => adapter.watchRelated(parent, 'posts', relatedAdapter),
+          throwsA(isA<UnimplementedError>()));
+    });
+
+    test('default watchStorageSize throws UnimplementedError', () {
+      // This is expected because the default implementation of watchStorageSize
+      // depends on changeStream(), which throws in _TestLocalAdapter.
+      expect(() => adapter.watchStorageSize(userId: 'user1'),
+          throwsA(isA<UnimplementedError>()));
+    });
   });
 
   group('RemoteAdapter', () {
@@ -258,6 +281,10 @@ void main() {
         () => adapter.fetchRelated(parent, 'posts', relatedAdapter),
         throwsA(isA<UnimplementedError>()),
       );
+    });
+
+    test('default checkHealth returns ok', () async {
+      expect(await adapter.checkHealth(), AdapterHealthStatus.ok);
     });
   });
 }

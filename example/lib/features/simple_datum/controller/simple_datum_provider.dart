@@ -10,15 +10,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 final simpleDatumProvider = FutureProvider.autoDispose<Datum>(
   (ref) async {
-    const config = DatumConfig(
+    final config = DatumConfig(
       enableLogging: true,
       autoStartSync: true,
+      initialUserId: Supabase.instance.client.auth.currentUser?.id,
+      changeCacheDuration: Duration(seconds: 1),
       autoSyncInterval: Duration(
-        minutes: 15,
+        minutes: 1,
       ),
-      syncExecutionStrategy: DatumSyncExecutionStrategy.isolate(
-        DatumSyncExecutionStrategy.parallel(),
-      ),
+      syncExecutionStrategy: DatumSyncExecutionStrategy.parallel(),
     );
     final datum = await Datum.initialize(
       config: config,
