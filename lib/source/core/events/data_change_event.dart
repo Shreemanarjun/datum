@@ -6,14 +6,14 @@ class DataChangeEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   /// Creates a data change event.
   DataChangeEvent({
     required super.userId,
-    required this.data,
+    this.data,
     required this.changeType,
     required this.source,
     DateTime? timestamp,
   }) : super(timestamp: timestamp ?? DateTime.now());
 
-  /// The changed data.
-  final T data;
+  /// The changed data. This can be null for delete events.
+  final T? data;
 
   /// Type of change that occurred.
   final ChangeType changeType;

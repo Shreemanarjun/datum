@@ -5,7 +5,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 /// This class demonstrates how to use [MapTarget] in the `toMap` and `diff`
 /// methods to control which fields are serialized for the local database versus
 /// the remote server.
-class ExcludableEntity implements DatumEntity {
+class ExcludableEntity extends DatumEntity {
   @override
   final String id;
   @override
@@ -29,7 +29,7 @@ class ExcludableEntity implements DatumEntity {
   final Map<String, dynamic>? remoteOnlyFields;
 
   /// Creates an instance of [ExcludableEntity].
-  ExcludableEntity({
+  const ExcludableEntity({
     required this.id,
     required this.userId,
     required this.name,
@@ -61,7 +61,7 @@ class ExcludableEntity implements DatumEntity {
   }
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) {
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
     final map = <String, dynamic>{
       'id': id,
       'userId': userId,
@@ -105,11 +105,11 @@ class ExcludableEntity implements DatumEntity {
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) {
     if (oldVersion is! ExcludableEntity) {
-      return toMap(target: MapTarget.remote);
+      return toDatumMap(target: MapTarget.remote);
     }
 
-    final remoteMap = toMap(target: MapTarget.remote);
-    final oldRemoteMap = oldVersion.toMap(target: MapTarget.remote);
+    final remoteMap = toDatumMap(target: MapTarget.remote);
+    final oldRemoteMap = oldVersion.toDatumMap(target: MapTarget.remote);
     final diff = <String, dynamic>{};
 
     for (final key in remoteMap.keys) {
@@ -118,4 +118,16 @@ class ExcludableEntity implements DatumEntity {
 
     return diff.isEmpty ? null : diff;
   }
+
+  @override
+  List<Object?> get props => [
+        ...super.props,
+        name,
+        localOnlyFields,
+        remoteOnlyFields,
+      ];
+
+  @override
+  // Setting stringify to true provides a more descriptive toString() output.
+  bool get stringify => true;
 }

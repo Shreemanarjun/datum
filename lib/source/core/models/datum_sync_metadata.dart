@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart';
+import 'package:equatable/equatable.dart';
+import 'package:meta/meta.dart';
 
 /// Describes the synchronization state for a single entity type.
 @immutable
@@ -22,9 +23,9 @@ class DatumEntitySyncDetails {
 
   /// Converts to a map for JSON serialization.
   Map<String, dynamic> toMap() => {
-    'count': count,
-    if (hash != null) 'hash': hash,
-  };
+        'count': count,
+        if (hash != null) 'hash': hash,
+      };
 
   @override
   bool operator ==(Object other) {
@@ -44,7 +45,7 @@ class DatumEntitySyncDetails {
 
 /// Metadata describing the synchronization state for a specific user.
 @immutable
-class DatumSyncMetadata {
+class DatumSyncMetadata extends Equatable {
   /// Creates sync metadata.
   const DatumSyncMetadata({
     required this.userId,
@@ -56,7 +57,7 @@ class DatumSyncMetadata {
   });
 
   /// Creates SyncMetadata from JSON.
-  factory DatumSyncMetadata.fromJson(Map<String, dynamic> json) {
+  factory DatumSyncMetadata.fromMap(Map<String, dynamic> json) {
     return DatumSyncMetadata(
       userId: json['userId'] as String,
       lastSyncTime: json['lastSyncTime'] != null
@@ -115,40 +116,25 @@ class DatumSyncMetadata {
 
   /// Converts to a map.
   Map<String, dynamic> toMap() => {
-    'userId': userId,
-    if (lastSyncTime != null)
-      'lastSyncTime': lastSyncTime!.toUtc().toIso8601String(),
-    if (dataHash != null) 'dataHash': dataHash,
-    if (deviceId != null) 'deviceId': deviceId,
-    if (customMetadata != null) 'customMetadata': customMetadata,
-    if (entityCounts != null)
-      'entityCounts': entityCounts!.map(
-        (key, value) => MapEntry(key, value.toMap()),
-      ),
-  };
+        'userId': userId,
+        if (lastSyncTime != null)
+          'lastSyncTime': lastSyncTime!.toUtc().toIso8601String(),
+        if (dataHash != null) 'dataHash': dataHash,
+        if (deviceId != null) 'deviceId': deviceId,
+        if (customMetadata != null) 'customMetadata': customMetadata,
+        if (entityCounts != null)
+          'entityCounts': entityCounts!.map(
+            (key, value) => MapEntry(key, value.toMap()),
+          ),
+      };
 
   @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-
-    return other is DatumSyncMetadata &&
-        other.userId == userId &&
-        other.lastSyncTime == lastSyncTime &&
-        other.dataHash == dataHash &&
-        other.deviceId == deviceId &&
-        mapEquals(other.entityCounts, entityCounts) &&
-        mapEquals(other.customMetadata, customMetadata);
-  }
-
-  @override
-  int get hashCode {
-    return Object.hash(
-      userId,
-      lastSyncTime,
-      dataHash,
-      deviceId,
-      customMetadata,
-      entityCounts,
-    );
-  }
+  List<Object?> get props => [
+        userId,
+        lastSyncTime,
+        dataHash,
+        deviceId,
+        customMetadata,
+        entityCounts,
+      ];
 }

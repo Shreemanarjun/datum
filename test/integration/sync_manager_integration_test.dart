@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
@@ -11,37 +11,46 @@ class MockedRemoteAdapter<T extends DatumEntity> extends Mock
     implements RemoteAdapter<T> {}
 
 void main() {
+  setUpAll(() {
+    registerFallbackValue(
+      TestEntity(
+        id: 'fb',
+        userId: 'fb',
+        name: 'fb',
+        value: 0,
+        modifiedAt: DateTime(0),
+        createdAt: DateTime(0),
+        version: 0,
+      ),
+    );
+    registerFallbackValue(<String, dynamic>{});
+    registerFallbackValue(
+      DatumSyncOperation<TestEntity>(
+        id: 'fb',
+        userId: 'fb',
+        entityId: 'fb',
+        type: DatumOperationType.create,
+        timestamp: DateTime(0),
+      ),
+    );
+    registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
+    registerFallbackValue(DatumQueryBuilder<TestEntity>().build());
+    registerFallbackValue(
+      const DatumSyncResult<TestEntity>(
+        userId: 'fallback-user',
+        duration: Duration.zero,
+        syncedCount: 0,
+        failedCount: 0,
+        conflictsResolved: 0,
+        pendingOperations: [],
+      ),
+    );
+  });
   group('DatumManager Integration Tests', () {
     late DatumManager<TestEntity> manager;
     late MockedLocalAdapter<TestEntity> localAdapter;
     late MockedRemoteAdapter<TestEntity> remoteAdapter;
     late MockConnectivityChecker connectivityChecker;
-
-    setUpAll(() {
-      registerFallbackValue(
-        TestEntity(
-          id: 'fb',
-          userId: 'fb',
-          name: 'fb',
-          value: 0,
-          modifiedAt: DateTime(0),
-          createdAt: DateTime(0),
-          version: 0,
-        ),
-      );
-      registerFallbackValue(<String, dynamic>{});
-      registerFallbackValue(
-        DatumSyncOperation<TestEntity>(
-          id: 'fb',
-          userId: 'fb',
-          entityId: 'fb',
-          type: DatumOperationType.create,
-          timestamp: DateTime(0),
-        ),
-      );
-      registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
-      registerFallbackValue(DatumQueryBuilder<TestEntity>().build());
-    });
 
     setUp(() async {
       localAdapter = MockedLocalAdapter<TestEntity>();
@@ -55,6 +64,7 @@ void main() {
         remoteAdapter: remoteAdapter,
         conflictResolver: LastWriteWinsResolver<TestEntity>(),
         datumConfig: const DatumConfig(), // Use default config
+        // connectivity is required
         connectivity: connectivityChecker,
       );
 
@@ -76,7 +86,7 @@ void main() {
           isA<DataChangeEvent<TestEntity>>()
               .having((e) => e.changeType, 'changeType', ChangeType.created)
               .having((e) => e.source, 'source', DataSource.local)
-              .having((e) => e.data.id, 'data.id', 'entity1'),
+              .having((e) => e.data!.id, 'data.id', 'entity1'),
         ),
       );
 
@@ -220,7 +230,7 @@ void main() {
       final result = await manager.synchronize('user1');
 
       // Assert
-      expect(result.isSuccess, isTrue, reason: result.errors.toString());
+      expect(result.isSuccess, isTrue, reason: result.error?.toString());
       expect(result.conflictsResolved, 1);
 
       // Verify remote version was saved locally
@@ -390,6 +400,285 @@ void main() {
         verify(() => remoteAdapter.query(query, userId: 'user1')).called(1);
       });
     });
+
+    test(
+      'forceFullSync option triggers a pull even with matching metadata',
+      () async {
+        // Arrange
+        final metadata = DatumSyncMetadata(
+          userId: 'user1',
+          lastSyncTime: DateTime.now(),
+          dataHash: 'identical-hash',
+        );
+
+        // Stub both adapters to return identical metadata.
+        // Normally, this would cause the sync engine to skip the pull phase.
+        when(
+          () => localAdapter.getSyncMetadata('user1'),
+        ).thenAnswer((_) async => metadata);
+        when(
+          () => remoteAdapter.getSyncMetadata('user1'),
+        ).thenAnswer((_) async => metadata);
+
+        final remoteEntity = TestEntity.create(
+          'remote-e1',
+          'user1',
+          'Fresh Data',
+        );
+        when(
+          () => remoteAdapter.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer((_) async => [remoteEntity]);
+
+        // Act
+        await manager.synchronize(
+          'user1',
+          options: const DatumSyncOptions(forceFullSync: true),
+        );
+
+        // Assert
+        // Verify that a pull was performed (by checking that the remote data was
+        // saved locally), despite the matching metadata, because forceFullSync was true.
+        verify(() => localAdapter.create(remoteEntity)).called(1);
+      },
+    );
+
+    test('health stream reflects adapter health', () async {
+      // Arrange: Stub the adapter's health check
+      when(() => localAdapter.checkHealth())
+          .thenAnswer((_) async => AdapterHealthStatus.unhealthy);
+      when(() => remoteAdapter.checkHealth())
+          .thenAnswer((_) async => AdapterHealthStatus.ok);
+
+      // Act & Assert
+      // The health stream should emit a DatumHealth object reflecting the adapters' statuses.
+      // Since the local adapter is unhealthy, the overall status should become degraded.
+      expect(
+        manager.health,
+        emitsInOrder([
+          // The stream first emits its initial 'healthy' state.
+          isA<DatumHealth>()
+              .having((h) => h.status, 'status', DatumSyncHealth.healthy),
+          // Then, after the health check runs, it emits the 'degraded' state.
+          isA<DatumHealth>()
+              .having((h) => h.status, 'status', DatumSyncHealth.degraded)
+              .having((h) => h.localAdapterStatus, 'localAdapterStatus',
+                  AdapterHealthStatus.unhealthy)
+              .having((h) => h.remoteAdapterStatus, 'remoteAdapterStatus',
+                  AdapterHealthStatus.ok),
+        ]),
+      );
+
+      // Act: Trigger the health check, which will cause the stream to emit.
+      await manager.checkHealth();
+    });
+
+    test('watchStorageSize stream emits size updates', () async {
+      // Arrange
+      // Stub the watchStorageSize to return a stream of values.
+      when(() => localAdapter.watchStorageSize(userId: 'user1')).thenAnswer(
+        (_) => Stream.fromIterable([1024, 2048]),
+      );
+
+      // Act
+      final stream = manager.watchStorageSize(userId: 'user1');
+
+      // Assert
+      // The manager's stream should emit the values from the adapter's stream.
+      await expectLater(stream, emitsInOrder([1024, 2048]));
+
+      verify(() => localAdapter.watchStorageSize(userId: 'user1')).called(1);
+    });
+  });
+
+  group('DatumManager Pause and Resume', () {
+    late DatumManager<TestEntity> manager;
+    late MockedLocalAdapter<TestEntity> localAdapter;
+    late MockedRemoteAdapter<TestEntity> remoteAdapter;
+    late MockConnectivityChecker connectivityChecker;
+
+    setUp(() async {
+      localAdapter = MockedLocalAdapter<TestEntity>();
+      remoteAdapter = MockedRemoteAdapter<TestEntity>();
+      connectivityChecker = MockConnectivityChecker();
+
+      _stubDefaultBehaviors(localAdapter, remoteAdapter, connectivityChecker);
+
+      manager = DatumManager<TestEntity>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+        connectivity: connectivityChecker,
+      );
+
+      await manager.initialize();
+    });
+
+    tearDown(() async {
+      await manager.dispose();
+    });
+
+    test('pauseSync prevents synchronization and updates status', () async {
+      // Arrange
+      manager.pauseSync();
+
+      // Assert: Check that the status is updated to paused.
+      expect(manager.currentStatus.status, DatumSyncStatus.paused);
+
+      // Act: Attempt to synchronize while paused.
+      final result = await manager.synchronize('user1');
+
+      // Assert: The sync should be skipped.
+      expect(result.wasSkipped, isTrue);
+      expect(result.skipReason, 'Sync is paused');
+
+      // Verify that no remote operations were attempted.
+      verifyNever(() => remoteAdapter.readAll(
+          userId: any(named: 'userId'), scope: any(named: 'scope')));
+      verifyNever(() => remoteAdapter.create(any()));
+    });
+
+    test('resumeSync allows synchronization to proceed', () async {
+      // Arrange
+      manager.pauseSync();
+      manager.resumeSync();
+
+      // Act & Assert: Synchronization should now proceed normally.
+      await expectLater(manager.synchronize('user1'), completes);
+      verify(() => remoteAdapter.readAll(
+          userId: 'user1', scope: any(named: 'scope'))).called(1);
+    });
+  });
+
+  group('DatumManager Health and Storage', () {
+    late DatumManager<TestEntity> manager;
+    late MockedLocalAdapter<TestEntity> localAdapter;
+    late MockedRemoteAdapter<TestEntity> remoteAdapter;
+    late MockConnectivityChecker connectivityChecker;
+
+    setUp(() async {
+      localAdapter = MockedLocalAdapter<TestEntity>();
+      remoteAdapter = MockedRemoteAdapter<TestEntity>();
+      connectivityChecker = MockConnectivityChecker();
+
+      _stubDefaultBehaviors(localAdapter, remoteAdapter, connectivityChecker);
+
+      manager = DatumManager<TestEntity>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+        connectivity: connectivityChecker,
+        datumConfig: const DatumConfig(enableLogging: false),
+      );
+
+      await manager.initialize();
+    });
+
+    tearDown(() async {
+      await manager.dispose();
+    });
+
+    test('checkHealth calls checkHealth on both adapters', () async {
+      // Arrange
+      when(() => localAdapter.checkHealth())
+          .thenAnswer((_) async => AdapterHealthStatus.ok);
+      when(() => remoteAdapter.checkHealth())
+          .thenAnswer((_) async => AdapterHealthStatus.ok);
+
+      // Act
+      await manager.checkHealth();
+
+      // Assert
+      verify(() => localAdapter.checkHealth()).called(1);
+      verify(() => remoteAdapter.checkHealth()).called(1);
+    });
+
+    test('getStorageSize calls getStorageSize on the local adapter', () async {
+      // Arrange
+      when(() => localAdapter.getStorageSize(userId: 'user1'))
+          .thenAnswer((_) async => 4096);
+
+      // Act
+      final size = await manager.getStorageSize(userId: 'user1');
+
+      // Assert
+      expect(size, 4096);
+      verify(() => localAdapter.getStorageSize(userId: 'user1')).called(1);
+    });
+
+    test('getLastSyncResult calls getLastSyncResult on the local adapter',
+        () async {
+      // Arrange
+      final mockResult = DatumSyncResult<TestEntity>(
+        userId: 'user1',
+        duration: const Duration(seconds: 5),
+        syncedCount: 10,
+        failedCount: 0,
+        conflictsResolved: 1,
+        pendingOperations: [],
+      );
+      when(() => localAdapter.getLastSyncResult('user1'))
+          .thenAnswer((_) async => mockResult);
+
+      // Act
+      final result = await manager.getLastSyncResult('user1');
+
+      // Assert
+      expect(result, mockResult);
+      verify(() => localAdapter.getLastSyncResult('user1')).called(1);
+    });
+
+    test('getPendingOperations calls getPending on the queue manager',
+        () async {
+      // Arrange
+      final mockOps = [
+        DatumSyncOperation<TestEntity>(
+          id: 'op1',
+          userId: 'user1',
+          entityId: 'e1',
+          type: DatumOperationType.create,
+          timestamp: DateTime.now(),
+        )
+      ];
+      when(() => localAdapter.getPendingOperations('user1'))
+          .thenAnswer((_) async => mockOps);
+
+      // Act
+      final ops = await manager.getPendingOperations('user1');
+
+      // Assert
+      expect(ops, mockOps);
+      verify(() => localAdapter.getPendingOperations('user1')).called(1);
+    });
+
+    test('updateAndSync performs a push and then a synchronize', () async {
+      // Arrange
+      final initialEntity = TestEntity.create('e1', 'user1', 'Initial State');
+      final updatedEntity = initialEntity.copyWith(name: 'Updated State');
+
+      // Stub the internal read that push() performs to check for existence
+      when(() => localAdapter.read(initialEntity.id, userId: 'user1'))
+          .thenAnswer((_) async => initialEntity);
+
+      // Stub the patch call that push() will make for an update
+      when(() => localAdapter.patch(
+          id: 'e1',
+          delta: any(named: 'delta'),
+          userId: 'user1')).thenAnswer((_) async => updatedEntity);
+
+      // Act
+      final (savedItem, syncResult) = await manager.updateAndSync(
+        item: updatedEntity,
+        userId: 'user1',
+      );
+
+      // Assert
+      expect(savedItem, updatedEntity);
+      expect(syncResult.isSuccess, isTrue);
+      verify(() => localAdapter.addPendingOperation('user1', any())).called(1);
+      verify(() => remoteAdapter.readAll(
+          userId: 'user1', scope: any(named: 'scope'))).called(1);
+    });
   });
 }
 
@@ -467,4 +756,23 @@ void _stubDefaultBehaviors(
   when(
     () => remoteAdapter.updateSyncMetadata(any(), any()),
   ).thenAnswer((_) async {});
+  when(() => localAdapter.getSyncMetadata(any())).thenAnswer((_) async => null);
+  when(
+    () => remoteAdapter.getSyncMetadata(any()),
+  ).thenAnswer((_) async => null);
+  when(
+    () => localAdapter.saveLastSyncResult(any(), any()),
+  ).thenAnswer((_) async {});
+  // Add missing stub for getLastSyncResult
+  when(
+    () => localAdapter.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
+
+  // Health & Storage
+  when(() => localAdapter.checkHealth())
+      .thenAnswer((_) async => AdapterHealthStatus.ok);
+  when(() => remoteAdapter.checkHealth())
+      .thenAnswer((_) async => AdapterHealthStatus.ok);
+  when(() => localAdapter.getStorageSize(userId: any(named: 'userId')))
+      .thenAnswer((_) async => 0);
 }

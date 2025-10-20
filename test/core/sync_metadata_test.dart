@@ -1,5 +1,5 @@
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('DatumEntitySyncDetails', () {
@@ -59,7 +59,7 @@ void main() {
       final map = metadata.toMap();
 
       // Act
-      final fromMap = DatumSyncMetadata.fromJson(map);
+      final fromMap = DatumSyncMetadata.fromMap(map);
 
       // Assert
       expect(fromMap, metadata);
@@ -74,7 +74,7 @@ void main() {
       final map = minimalMetadata.toMap();
 
       // Act
-      final fromMap = DatumSyncMetadata.fromJson(map);
+      final fromMap = DatumSyncMetadata.fromMap(map);
 
       // Assert
       expect(fromMap.userId, 'user-456');

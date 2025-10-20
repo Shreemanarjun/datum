@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:datum/source/core/models/datum_operation.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
 
@@ -92,10 +92,11 @@ void main() {
       final stringRepresentation = operation.toString();
 
       // Assert
-      expect(stringRepresentation, contains('id: op1'));
-      expect(stringRepresentation, contains('type: create'));
-      expect(stringRepresentation, contains('entityId: e1'));
-      expect(stringRepresentation, contains('retryCount: 2'));
+      expect(stringRepresentation, contains('op1'));
+      expect(stringRepresentation, contains('create'));
+      expect(stringRepresentation, contains('e1'));
+      // Check for the value of retryCount, not the key-value pair.
+      expect(stringRepresentation, contains(', 2, 0)'));
     });
 
     test('equality operator and hashCode work correctly', () {

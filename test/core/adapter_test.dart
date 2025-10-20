@@ -1,7 +1,43 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
+
+/// A simple User entity for testing relationships.
+class User extends RelationalDatumEntity {
+  @override
+  final String id;
+  @override
+  final String userId;
+  final String name;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final DateTime createdAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
+
+  const User({
+    required this.id,
+    required this.name,
+    required this.modifiedAt,
+    required this.createdAt,
+    this.version = 1,
+    this.isDeleted = false,
+  }) : userId = id;
+
+  @override
+  Map<String, Relation> get relations => {'posts': HasMany('userId')};
+
+  @override
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {};
+  @override
+  User copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) => this;
+  @override
+  Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
+}
 
 /// A minimal concrete implementation of [LocalAdapter] for testing default behaviors.
 class _TestLocalAdapter extends LocalAdapter<TestEntity> {
@@ -9,7 +45,8 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   Future<void> addPendingOperation(
     String userId,
     DatumSyncOperation<TestEntity> operation,
-  ) => throw UnimplementedError();
+  ) =>
+      throw UnimplementedError();
   @override
   Stream<DatumChangeDetail<TestEntity>>? changeStream() =>
       throw UnimplementedError();
@@ -32,7 +69,8 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   @override
   Future<List<DatumSyncOperation<TestEntity>>> getPendingOperations(
     String userId,
-  ) => throw UnimplementedError();
+  ) =>
+      throw UnimplementedError();
   @override
   Future<int> getStoredSchemaVersion() => throw UnimplementedError();
   @override
@@ -44,13 +82,15 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   Future<void> overwriteAllRawData(
     List<Map<String, dynamic>> data, {
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<TestEntity> patch({
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<List<TestEntity>> query(DatumQuery query, {String? userId}) =>
       throw UnimplementedError();
@@ -64,12 +104,14 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   Future<PaginatedResult<TestEntity>> readAllPaginated(
     PaginationConfig config, {
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<Map<String, TestEntity>> readByIds(
     List<String> ids, {
     required String userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<void> removePendingOperation(String operationId) =>
       throw UnimplementedError();
@@ -84,6 +126,30 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   @override
   Future<void> updateSyncMetadata(DatumSyncMetadata metadata, String userId) =>
       throw UnimplementedError();
+
+  @override
+  Future<List<R>> fetchRelated<R extends DatumEntity>(
+    RelationalDatumEntity parent,
+    String relationName,
+    LocalAdapter<R> relatedAdapter,
+  ) =>
+      throw UnimplementedError();
+
+  @override
+  Future<int> getStorageSize({String? userId}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<DatumSyncResult<TestEntity>?> getLastSyncResult(String userId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> saveLastSyncResult(
+      String userId, DatumSyncResult<TestEntity> result) {
+    throw UnimplementedError();
+  }
 }
 
 /// A minimal concrete implementation of [RemoteAdapter] for testing default behaviors.
@@ -108,7 +174,8 @@ class _TestRemoteAdapter extends RemoteAdapter<TestEntity> {
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
   @override
   Future<List<TestEntity>> query(DatumQuery query, {String? userId}) =>
       throw UnimplementedError();
@@ -145,6 +212,43 @@ void main() {
       expect(adapter.watchCount(), isNull);
       expect(adapter.watchFirst(), isNull);
     });
+
+    test('default fetchRelated throws UnimplementedError', () {
+      final parent = User(
+        id: 'user-1',
+        name: 'John Doe',
+        modifiedAt: DateTime(2023),
+        createdAt: DateTime(2023),
+      );
+      final relatedAdapter = _TestLocalAdapter();
+
+      expect(
+        () => adapter.fetchRelated(parent, 'posts', relatedAdapter),
+        throwsA(isA<UnimplementedError>()),
+      );
+    });
+
+    test('default checkHealth returns ok', () async {
+      expect(await adapter.checkHealth(), AdapterHealthStatus.ok);
+    });
+
+    test('default watchRelated throws UnimplementedError', () {
+      final parent = User(
+          id: 'u1',
+          name: 'name',
+          modifiedAt: DateTime(0),
+          createdAt: DateTime(0));
+      final relatedAdapter = _TestLocalAdapter();
+      expect(() => adapter.watchRelated(parent, 'posts', relatedAdapter),
+          throwsA(isA<UnimplementedError>()));
+    });
+
+    test('default watchStorageSize throws UnimplementedError', () {
+      // This is expected because the default implementation of watchStorageSize
+      // depends on changeStream(), which throws in _TestLocalAdapter.
+      expect(() => adapter.watchStorageSize(userId: 'user1'),
+          throwsA(isA<UnimplementedError>()));
+    });
   });
 
   group('RemoteAdapter', () {
@@ -162,6 +266,25 @@ void main() {
 
     test('default dispose method completes successfully', () {
       expect(adapter.dispose(), completes);
+    });
+
+    test('default fetchRelated throws UnimplementedError', () {
+      final parent = User(
+        id: 'user-1',
+        name: 'John Doe',
+        modifiedAt: DateTime(2023),
+        createdAt: DateTime(2023),
+      );
+      final relatedAdapter = _TestRemoteAdapter();
+
+      expect(
+        () => adapter.fetchRelated(parent, 'posts', relatedAdapter),
+        throwsA(isA<UnimplementedError>()),
+      );
+    });
+
+    test('default checkHealth returns ok', () async {
+      expect(await adapter.checkHealth(), AdapterHealthStatus.ok);
     });
   });
 }

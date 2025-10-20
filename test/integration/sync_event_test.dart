@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:datum/datum.dart';
 
 import '../mocks/test_entity.dart';
@@ -47,7 +47,7 @@ void main() {
       expect(event.progress, 0.5);
       expect(
         event.toString(),
-        'DatumSyncEvent(userId: $userId, timestamp: $timestamp): DatumSyncProgressEvent(completed: 5, total: 10, progress: 0.5)',
+        'DatumSyncEvent(userId: $userId, timestamp: $timestamp): DatumSyncProgressEvent(completed: 5, total: 10, progress: 0.5, pushed: 0, pulled: 0)',
       );
     });
 
@@ -57,7 +57,7 @@ void main() {
         syncedCount: 8,
         failedCount: 2,
         conflictsResolved: 0,
-        pendingOperations: [],
+        pendingOperations: <DatumSyncOperation<TestEntity>>[],
         duration: Duration.zero,
       );
       final event = DatumSyncCompletedEvent(

@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 
@@ -52,6 +52,16 @@ void main() {
           timestamp: DateTime(0),
         ),
       );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     Future<void> setupManager(
@@ -64,8 +74,11 @@ void main() {
       // Stub basic adapter methods
       when(() => localAdapter.initialize()).thenAnswer((_) async {});
       when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
+      when(() => localAdapter.dispose()).thenAnswer((_) async {});
+      when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
       when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
-      when(localAdapter.changeStream).thenAnswer((_) => const Stream.empty());
+      when(() => localAdapter.changeStream())
+          .thenAnswer((_) => const Stream.empty());
       when(
         () => remoteAdapter.changeStream,
       ).thenAnswer((_) => const Stream.empty());
@@ -121,6 +134,12 @@ void main() {
       when(
         () => localAdapter.readAll(userId: any(named: 'userId')),
       ).thenAnswer((_) async => []);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
@@ -227,7 +246,8 @@ void main() {
       late TestEntity localPatch;
       final pendingOps = <DatumSyncOperation<TestEntity>>[];
 
-      test('LastWriteWinsResolver: remote wins, overwriting the local patch', () async {
+      test('LastWriteWinsResolver: remote wins, overwriting the local patch',
+          () async {
         // Arrange
         await setupManager(LastWriteWinsResolver<TestEntity>());
         // Use manager.push to correctly add the operation to the queue.
@@ -305,15 +325,13 @@ void main() {
         await manager.synchronize(userId);
 
         // Assert: The local patch was sent first during the push phase.
-        final capturedPatch =
-            verify(
-                  () => remoteAdapter.patch(
-                    id: localEntity.id,
-                    delta: captureAny(named: 'delta'),
-                    userId: userId,
-                  ),
-                ).captured.first
-                as Map<String, dynamic>;
+        final capturedPatch = verify(
+          () => remoteAdapter.patch(
+            id: localEntity.id,
+            delta: captureAny(named: 'delta'),
+            userId: userId,
+          ),
+        ).captured.first as Map<String, dynamic>;
         expect(capturedPatch['name'], 'Local Patch Update');
 
         // Then, the conflict was resolved, and the remote version was saved locally.
@@ -392,18 +410,16 @@ void main() {
 
         // Assert
         // The local patch was sent first.
-        final capturedPatch =
-            verify(
-                  () => remoteAdapter.patch(
-                    id: localEntity.id,
-                    delta: captureAny(
-                      named: 'delta',
-                      that: isA<Map<String, dynamic>>(),
-                    ),
-                    userId: userId,
-                  ),
-                ).captured.first
-                as Map<String, dynamic>;
+        final capturedPatch = verify(
+          () => remoteAdapter.patch(
+            id: localEntity.id,
+            delta: captureAny(
+              named: 'delta',
+              that: isA<Map<String, dynamic>>(),
+            ),
+            userId: userId,
+          ),
+        ).captured.first as Map<String, dynamic>;
         expect(capturedPatch['name'], 'Local Patch Update');
 
         // No subsequent update to the local adapter should have happened.

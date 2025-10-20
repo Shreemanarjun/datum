@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 
@@ -39,6 +39,16 @@ void main() {
           timestamp: DateTime(0),
         ),
       );
+      registerFallbackValue(
+        const DatumSyncResult<ExcludableEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
     });
 
     setUp(() async {
@@ -56,6 +66,7 @@ void main() {
 
       when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
       when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
+      when(() => localAdapter.dispose()).thenAnswer((_) async {});
       when(() => remoteAdapter.changeStream).thenAnswer(
         (_) => const Stream<DatumChangeDetail<ExcludableEntity>>.empty(),
       );
@@ -121,6 +132,12 @@ void main() {
       ) async {
         pendingOps.removeWhere((op) => op.id == inv.positionalArguments.first);
       });
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
 
       manager = DatumManager<ExcludableEntity>(
         localAdapter: localAdapter,
@@ -165,11 +182,11 @@ void main() {
           remoteOnlyFields: const {'remote': 'xyz'},
         );
 
-        final localMap = entity.toMap();
+        final localMap = entity.toDatumMap();
         expect(localMap, containsPair('local', 'abc'));
         expect(localMap.containsKey('remote'), isFalse);
 
-        final remoteMap = entity.toMap(target: MapTarget.remote);
+        final remoteMap = entity.toDatumMap(target: MapTarget.remote);
         expect(remoteMap, containsPair('remote', 'xyz'));
         expect(remoteMap.containsKey('local'), isFalse);
       });
@@ -223,6 +240,74 @@ void main() {
         expect(delta.containsKey('name'), isTrue);
         expect(delta['name'], 'Updated');
       });
+
+      test('operator == correctly compares entities based on all fields', () {
+        final now = DateTime.now();
+        final entity1 = ExcludableEntity(
+          id: 'e1',
+          userId: 'u1',
+          name: 'Entity One',
+          modifiedAt: now,
+          createdAt: now,
+          version: 1,
+        );
+
+        // Create an identical copy.
+        final entity1Copy = entity1.copyWith();
+
+        // Create a copy with different data.
+        final entity2 = entity1.copyWith(
+          name: 'Entity One Updated',
+          version: 2,
+          modifiedAt: now.add(const Duration(seconds: 1)),
+        );
+
+        // Create an entity with a different ID.
+        final entity3 = ExcludableEntity(
+          id: 'e2',
+          userId: 'u1',
+          name: 'Entity One',
+          modifiedAt: now,
+          createdAt: now,
+          version: 1,
+        );
+
+        // Assert that identical entities are equal.
+        expect(entity1 == entity1Copy, isTrue);
+
+        // Assert that entities with different properties are not equal.
+        expect(entity1 == entity2, isFalse);
+
+        // Assert that entities with different IDs are not equal.
+        expect(entity1 == entity3, isFalse);
+      });
+
+      test('hashCode is consistent for equal objects', () {
+        final now = DateTime.now();
+        final entity1 = ExcludableEntity(
+          id: 'e1',
+          userId: 'u1',
+          name: 'Entity One',
+          modifiedAt: now,
+          createdAt: now,
+          version: 1,
+        );
+
+        // Create an identical copy.
+        final entity1Copy = entity1.copyWith();
+
+        // Create a different entity.
+        final entity2 = entity1.copyWith(
+          name: 'Entity One Updated',
+          version: 2,
+        );
+
+        // Equal objects must have equal hash codes.
+        expect(entity1.hashCode, equals(entity1Copy.hashCode));
+
+        // Unequal objects should ideally have different hash codes.
+        expect(entity1.hashCode, isNot(equals(entity2.hashCode)));
+      });
     });
 
     test(
@@ -247,11 +332,11 @@ void main() {
         // includes the remote-only field by checking what is sent to the remote.
         await manager.synchronize('u1');
 
-        final captured =
-            verify(() => remoteAdapter.create(captureAny())).captured.single
-                as ExcludableEntity;
+        final captured = verify(() => remoteAdapter.create(captureAny()))
+            .captured
+            .single as ExcludableEntity;
 
-        final remoteMap = captured.toMap(target: MapTarget.remote);
+        final remoteMap = captured.toDatumMap(target: MapTarget.remote);
         expect(remoteMap, containsPair('sessionToken', 'token-123'));
         expect(remoteMap.containsKey('localOnlyFields'), isFalse);
       },
@@ -318,15 +403,13 @@ void main() {
       await manager.push(item: updated, userId: 'u1');
       await manager.synchronize('u1');
       // Assert that the map sent to the remote adapter for the patch includes the remote field
-      final captured =
-          verify(
-                () => remoteAdapter.patch(
-                  id: 'e-patch',
-                  userId: 'u1',
-                  delta: captureAny(named: 'delta'),
-                ),
-              ).captured.single
-              as Map<String, dynamic>;
+      final captured = verify(
+        () => remoteAdapter.patch(
+          id: 'e-patch',
+          userId: 'u1',
+          delta: captureAny(named: 'delta'),
+        ),
+      ).captured.single as Map<String, dynamic>;
 
       expect(captured, containsPair('sessionToken', 'token-456'));
       expect(captured, containsPair('name', 'Updated Name'));
@@ -358,10 +441,10 @@ void main() {
       await manager.synchronize('u1');
 
       // Assert: The data saved to the local adapter should contain the field.
-      final capturedLocal =
-          verify(() => localAdapter.create(captureAny())).captured.single
-              as ExcludableEntity;
-      final localMap = capturedLocal.toMap(target: MapTarget.local);
+      final capturedLocal = verify(() => localAdapter.create(captureAny()))
+          .captured
+          .single as ExcludableEntity;
+      final localMap = capturedLocal.toDatumMap(target: MapTarget.local);
 
       expect(localMap, containsPair('localCacheKey', 'cache-data'));
       // Assert: The data pushed to the remote adapter should NOT contain the field.
@@ -369,7 +452,8 @@ void main() {
         () => remoteAdapter.create(captureAny()),
       ).captured;
       expect(
-        (captured.first as ExcludableEntity).toMap(target: MapTarget.remote),
+        (captured.first as ExcludableEntity)
+            .toDatumMap(target: MapTarget.remote),
         isNot(contains('localCacheKey')),
       );
     });

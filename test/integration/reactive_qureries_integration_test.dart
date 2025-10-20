@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:datum/datum.dart';
 
 import '../mocks/mock_adapters.dart';
@@ -153,10 +153,9 @@ void main() {
         'Done',
       ).copyWith(completed: true);
 
-      final query =
-          (DatumQueryBuilder<TestEntity>()
-                ..where('completed', isEqualTo: false))
-              .build();
+      final query = (DatumQueryBuilder<TestEntity>()
+            ..where('completed', isEqualTo: false))
+          .build();
       final stream = manager.watchQuery(query, userId: 'user1');
 
       final completer = Completer<List<List<TestEntity>>>();
@@ -203,9 +202,9 @@ void main() {
         'Item C',
       ).copyWith(value: 5);
 
-      final query =
-          (DatumQueryBuilder<TestEntity>()..orderBy('value', descending: true))
-              .build();
+      final query = (DatumQueryBuilder<TestEntity>()
+            ..orderBy('value', descending: true))
+          .build();
 
       final stream = manager.watchQuery(query, userId: 'user1');
 
@@ -244,11 +243,10 @@ void main() {
         'C',
       ).copyWith(value: 5, completed: false);
 
-      final query =
-          (DatumQueryBuilder<TestEntity>()
-                ..where('completed', isEqualTo: false)
-                ..orderBy('value'))
-              .build();
+      final query = (DatumQueryBuilder<TestEntity>()
+            ..where('completed', isEqualTo: false)
+            ..orderBy('value'))
+          .build();
 
       final stream = manager.watchQuery(query, userId: 'user1');
 
@@ -286,12 +284,11 @@ void main() {
         'Low Prio',
       ).copyWith(value: 1);
 
-      final query =
-          (DatumQueryBuilder<TestEntity>()
-                ..logicalOperator = LogicalOperator.or
-                ..where('completed', isEqualTo: true)
-                ..where('value', isGreaterThan: 5))
-              .build();
+      final query = (DatumQueryBuilder<TestEntity>()
+            ..logicalOperator = LogicalOperator.or
+            ..where('completed', isEqualTo: true)
+            ..where('value', isGreaterThan: 5))
+          .build();
 
       final stream = manager.watchQuery(query, userId: 'user1');
 

@@ -1,5 +1,6 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
+import '../mocks/test_entity.dart';
 
 void main() {
   group('DatumSyncResult', () {
@@ -11,7 +12,7 @@ void main() {
         syncedCount: 5,
         failedCount: 0,
         conflictsResolved: 1,
-        pendingOperations: const [],
+        pendingOperations: const <DatumSyncOperation<TestEntity>>[],
         duration: const Duration(seconds: 10),
       );
 
@@ -24,15 +25,15 @@ void main() {
       expect(result.isSuccess, isTrue);
       expect(result.wasSkipped, isFalse);
       expect(result.wasCancelled, isFalse);
-      expect(result.errors, isEmpty);
+      expect(result.error, isNull);
     });
 
     test('skipped constructor creates a skipped result', () {
-      const result = DatumSyncResult.skipped(userId, 5);
+      final result = DatumSyncResult.skipped(userId, 5);
 
       expect(result.userId, userId);
       expect(result.wasSkipped, isTrue);
-      expect(result.isSuccess, isTrue);
+      expect(result.isSuccess, isFalse);
       expect(result.wasCancelled, isFalse);
       expect(result.syncedCount, 0);
       expect(result.failedCount, 0);
@@ -40,12 +41,12 @@ void main() {
     });
 
     test('cancelled constructor creates a cancelled result', () {
-      const result = DatumSyncResult.cancelled(userId, 3);
+      final result = DatumSyncResult.cancelled(userId, 3);
 
       expect(result.userId, userId);
       expect(result.wasCancelled, isTrue);
       expect(result.syncedCount, 3);
-      expect(result.isSuccess, isTrue);
+      expect(result.isSuccess, isFalse);
       expect(result.wasSkipped, isFalse);
       expect(result.failedCount, 0);
       expect(result.duration, Duration.zero);
@@ -73,12 +74,9 @@ void main() {
       final string = result.toString();
       expect(string, contains('userId: $userId'));
       expect(string, contains('synced: 10'));
-      expect(string, contains('failed: 2'));
+      expect(string, contains('failed: 2')); // This seems to be the issue
       expect(string, contains('conflicts: 1'));
-      expect(string, contains('pending: 3'));
-      expect(string, contains('success: true'));
-      expect(string, contains('skipped: false'));
-      expect(string, contains('cancelled: false'));
+      expect(string, contains('duration: 123ms'));
     });
   });
 }

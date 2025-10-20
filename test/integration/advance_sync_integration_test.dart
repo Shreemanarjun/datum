@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 
@@ -13,7 +13,8 @@ class MockLocalAdapter<T extends DatumEntity> extends Mock
 class MockRemoteAdapter<T extends DatumEntity> extends Mock
     implements RemoteAdapter<T> {}
 
-class MockConnectivityChecker extends Mock implements ConnectivityChecker {}
+class MockConnectivityChecker extends Mock
+    implements DatumConnectivityChecker {}
 
 void main() {
   group('Advanced Sync Integration Tests', () {
@@ -45,6 +46,16 @@ void main() {
       );
       registerFallbackValue(
         DatumSyncMetadata(userId: 'fb', dataHash: 'fallback'),
+      );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
       );
     });
 
@@ -126,7 +137,16 @@ void main() {
       final result = await syncFuture;
 
       // Assert
-      expect(result.isSuccess, isTrue); // It didn't fail, it was just stopped.
+      expect(
+        result.wasCancelled,
+        isTrue,
+        reason: 'Sync should be marked as cancelled.',
+      );
+      expect(
+        result.isSuccess,
+        isFalse,
+        reason: 'A cancelled sync is not a successful one.',
+      );
       expect(result.syncedCount, lessThan(10));
     });
 
@@ -146,13 +166,17 @@ void main() {
           scope: any(named: 'scope'),
         ),
       ).thenAnswer((inv) {
+        // Simulate the remote adapter filtering based on the scope's query.
         final scope = inv.namedArguments[#scope] as DatumSyncScope?;
-        if (scope?.filters['minModifiedDate'] != null) {
+        final hasMinDateFilter = scope?.query.filters.any(
+              (f) => (f as Filter).field == 'minModifiedDate',
+            ) ??
+            false;
+        if (hasMinDateFilter) {
           return Future.value([remoteEntity1]);
         }
         return Future.value([remoteEntity1, remoteEntity2]);
       });
-
       final localOnlyEntity = TestEntity.create(
         'local-only',
         'user1',
@@ -164,10 +188,15 @@ void main() {
       ).thenAnswer((_) async => [localOnlyEntity, remoteEntity1]);
       await manager.push(item: localOnlyEntity, userId: 'user1');
 
-      final thirtyDaysAgo = DateTime.now()
-          .subtract(const Duration(days: 30))
-          .toIso8601String();
-      final scope = DatumSyncScope.filter({'minModifiedDate': thirtyDaysAgo});
+      final thirtyDaysAgo =
+          DateTime.now().subtract(const Duration(days: 30)).toIso8601String();
+      // Create a query and pass it to the scope.
+      final query = DatumQuery(
+        filters: [
+          Filter('minModifiedDate', FilterOperator.greaterThan, thirtyDaysAgo),
+        ],
+      );
+      final scope = DatumSyncScope(query: query);
       await manager.synchronize('user1', scope: scope);
 
       final localItems = await manager.readAll(userId: 'user1');
@@ -178,7 +207,8 @@ void main() {
       expect(localItems.any((item) => item.id == 'local-only'), isTrue);
     });
 
-    test('per-operation retry logic increments retry count on failure', () async {
+    test('per-operation retry logic increments retry count on failure',
+        () async {
       // Re-initialize manager with retries enabled for this specific test.
       await manager.dispose();
       localAdapter = MockLocalAdapter<TestEntity>();
@@ -192,7 +222,12 @@ void main() {
         remoteAdapter: remoteAdapter,
         conflictResolver: LastWriteWinsResolver<TestEntity>(),
         connectivity: connectivityChecker,
-        datumConfig: const DatumConfig(maxRetries: 1),
+        datumConfig: DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+            maxRetries: 1,
+            shouldRetry: (e) async => e is NetworkException,
+          ),
+        ),
       );
 
       await manager.initialize();
@@ -397,5 +432,12 @@ void _stubDefaultBehaviors(
   ).thenAnswer((_) async {});
   when(
     () => remoteAdapter.updateSyncMetadata(any(), any()),
+  ).thenAnswer((_) async {});
+  // Add missing stub for getLastSyncResult
+  when(
+    () => localAdapter.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
+  when(
+    () => localAdapter.saveLastSyncResult(any(), any()),
   ).thenAnswer((_) async {});
 }

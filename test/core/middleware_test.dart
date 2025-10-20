@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
@@ -68,7 +68,7 @@ void main() {
           syncedCount: 0,
           failedCount: 0,
           conflictsResolved: 0,
-          pendingOperations: [],
+          pendingOperations: <DatumSyncOperation<TestEntity>>[],
           duration: Duration.zero,
         ),
       );
@@ -91,7 +91,7 @@ void main() {
       ).thenAnswer((_) async => 0);
       when(
         () => remoteAdapter.changeStream,
-      ).thenAnswer((_) => const Stream.empty());
+      ).thenAnswer((_) => const Stream<DatumChangeDetail<TestEntity>>.empty());
       when(
         () => localAdapter.addPendingOperation(any(), any()),
       ).thenAnswer((_) async {});
@@ -106,7 +106,7 @@ void main() {
       ).thenAnswer((_) async => [entity]);
       when(
         () => localAdapter.changeStream(),
-      ).thenAnswer((_) => const Stream.empty());
+      ).thenAnswer((_) => const Stream<DatumChangeDetail<TestEntity>>.empty());
       when(
         () => localAdapter.patch(
           id: any(named: 'id'),
@@ -124,14 +124,15 @@ void main() {
 
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
-
         remoteAdapter: remoteAdapter,
-        conflictResolver: LastWriteWinsResolver<TestEntity>(),
         connectivity: MockConnectivityChecker(),
-        datumConfig: const DatumConfig(
-          maxRetries: 0,
+        datumConfig: DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+            maxRetries: 0,
+            shouldRetry: (e) async => false,
+          ),
           schemaVersion: 0,
-        ), // Disable retries for tests
+        ),
         middlewares: [middleware],
       );
 
@@ -309,6 +310,7 @@ void main() {
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
+        connectivity: MockConnectivityChecker(),
         middlewares: [middleware1, middleware2],
       );
       await manager.initialize();
@@ -341,9 +343,42 @@ void main() {
       verifyInOrder([
         () => middleware1.transformBeforeSave(original),
         () => middleware2.transformBeforeSave(
-          any(that: predicate((e) => (e as TestEntity).name == 'M1: Original')),
-        ),
+              any(
+                  that: predicate(
+                      (e) => (e as TestEntity).name == 'M1: Original')),
+            ),
       ]);
+    });
+
+    test('Middleware transformations are included in diff calculation',
+        () async {
+      // Arrange:
+      // 1. The original entity that exists in the database.
+      final original = TestEntity.create('e1', userId, 'Original');
+      when(() => localAdapter.read('e1', userId: userId))
+          .thenAnswer((_) async => original);
+
+      // 2. The entity being pushed, which is identical to the original.
+      final toPush = original.copyWith();
+
+      // 3. A middleware that will transform the entity, creating a change.
+      when(() => middleware.transformBeforeSave(any())).thenAnswer((inv) async {
+        final item = inv.positionalArguments.first as TestEntity;
+        return item.copyWith(name: 'Transformed by Middleware');
+      });
+
+      // Act: Push the unchanged entity. The middleware will modify it.
+      await manager.push(item: toPush, userId: userId);
+
+      // Assert:
+      // Verify that a patch was called because the middleware created a diff.
+      // The delta should contain the change made by the middleware.
+      final captured = verify(() => localAdapter.patch(
+          id: 'e1',
+          delta: captureAny(named: 'delta'),
+          userId: userId)).captured;
+      final delta = captured.first as Map<String, dynamic>;
+      expect(delta['name'], 'Transformed by Middleware');
     });
 
     test('transformAfterFetch is called on watchAll() stream', () async {
@@ -365,7 +400,10 @@ void main() {
 
       final streamController = StreamController<List<TestEntity>>.broadcast();
       when(
-        () => localAdapter.watchAll(userId: userId),
+        () => localAdapter.watchAll(
+          userId: userId,
+          includeInitialData: any(named: 'includeInitialData'),
+        ),
       ).thenAnswer((_) => streamController.stream);
 
       // Act & Assert

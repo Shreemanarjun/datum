@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:datum/datum.dart';
 
@@ -34,6 +34,16 @@ void main() {
       );
       registerFallbackValue(
         const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'),
+      );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
       );
     });
 
@@ -222,10 +232,12 @@ void main() {
 
       // Stub getPendingOperations for both users
       when(() => localAdapter.getPendingOperations('user1')).thenAnswer(
-        (_) async => [_createTestOperation(user1Entity, DatumOperationType.create)],
+        (_) async =>
+            [_createTestOperation(user1Entity, DatumOperationType.create)],
       );
       when(() => localAdapter.getPendingOperations('user2')).thenAnswer(
-        (_) async => [_createTestOperation(user2Entity, DatumOperationType.create)],
+        (_) async =>
+            [_createTestOperation(user2Entity, DatumOperationType.create)],
       );
 
       // Stub remote create for both
@@ -308,17 +320,24 @@ void _stubDefaultBehaviors(
   when(
     () => remoteAdapter.updateSyncMetadata(any(), any()),
   ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.saveLastSyncResult(any(), any()),
+  ).thenAnswer((_) async {});
+  when(
+    () => localAdapter.getLastSyncResult(any()),
+  ).thenAnswer((_) async => null);
 }
 
 /// Helper function to create a test operation.
 DatumSyncOperation<T> _createTestOperation<T extends DatumEntity>(
   T entity,
   DatumOperationType type,
-) => DatumSyncOperation(
-  id: 'op-${entity.id}',
-  userId: entity.userId,
-  entityId: entity.id,
-  type: type,
-  timestamp: DateTime.now(),
-  data: type == DatumOperationType.delete ? null : entity,
-);
+) =>
+    DatumSyncOperation(
+      id: 'op-${entity.id}',
+      userId: entity.userId,
+      entityId: entity.id,
+      type: type,
+      timestamp: DateTime.now(),
+      data: type == DatumOperationType.delete ? null : entity,
+    );

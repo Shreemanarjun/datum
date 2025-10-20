@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../mocks/test_entity.dart';
@@ -13,7 +13,8 @@ class MockLocalAdapter<T extends DatumEntity> extends Mock
 class MockRemoteAdapter<T extends DatumEntity> extends Mock
     implements RemoteAdapter<T> {}
 
-class MockConnectivityChecker extends Mock implements ConnectivityChecker {}
+class MockConnectivityChecker extends Mock
+    implements DatumConnectivityChecker {}
 
 /// A custom logger for tests that omits stack traces for cleaner output.
 class TestLogger extends DatumLogger {
@@ -50,6 +51,25 @@ void main() {
       );
       registerFallbackValue(
         const DatumSyncMetadata(userId: 'fallback', dataHash: 'fallback'),
+      );
+      registerFallbackValue(
+        const DatumSyncResult<TestEntity>(
+          userId: 'fallback-user',
+          duration: Duration.zero,
+          syncedCount: 0,
+          failedCount: 0,
+          conflictsResolved: 0,
+          pendingOperations: [],
+        ),
+      );
+      registerFallbackValue(
+        DatumSyncOperation<TestEntity>(
+          id: 'fallback-op',
+          userId: 'fallback-user',
+          entityId: 'fallback-entity',
+          type: DatumOperationType.create,
+          timestamp: DateTime(0),
+        ),
       );
     });
 
@@ -112,12 +132,18 @@ void main() {
           scope: any(named: 'scope'),
         ),
       ).thenAnswer((_) async => []);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
 
       // Default manager setup
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
-        connectivity: connectivityChecker,
+        connectivity: connectivityChecker, // Now required
         logger: logger,
         datumConfig: const DatumConfig(),
       );
@@ -161,7 +187,7 @@ void main() {
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
-        connectivity: connectivityChecker,
+        connectivity: connectivityChecker, // Now required
         logger: logger,
         datumConfig: const DatumConfig(
           syncExecutionStrategy: SequentialStrategy(),
@@ -174,7 +200,13 @@ void main() {
 
       // Assert
       // The future should complete with the exception.
-      await expectLater(syncFuture, throwsA(exception));
+      // Instead of checking for the exact exception instance,
+      // check for the type and a property (like the message) to make
+      // the test more robust against stack trace differences.
+      await expectLater(
+          syncFuture,
+          throwsA(isA<Exception>().having((e) => e.toString(), 'toString()',
+              'Exception: Remote create failed')));
 
       // Verify that processing stopped after the error.
       expect(processedOrder, ['e0', 'e1']);
@@ -204,7 +236,7 @@ void main() {
         manager = DatumManager<TestEntity>(
           localAdapter: localAdapter,
           remoteAdapter: remoteAdapter,
-          connectivity: connectivityChecker,
+          connectivity: connectivityChecker, // Now required
           logger: logger,
           datumConfig: const DatumConfig(
             syncExecutionStrategy: ParallelStrategy(batchSize: 2),
@@ -235,7 +267,7 @@ void main() {
         manager = DatumManager<TestEntity>(
           localAdapter: localAdapter,
           remoteAdapter: remoteAdapter,
-          connectivity: connectivityChecker,
+          connectivity: connectivityChecker, // Now required
           logger: logger,
           datumConfig: const DatumConfig(
             syncExecutionStrategy: ParallelStrategy(batchSize: 2),
@@ -247,7 +279,11 @@ void main() {
         // Set up expectations for both the thrown exception and the emitted event.
         final syncThrowsFuture = expectLater(
           () => manager.synchronize(userId),
-          throwsA(exception),
+          // Instead of checking for the exact exception instance,
+          // check for the type and a property (like the message) to make
+          // the test more robust against stack trace differences.
+          throwsA(isA<Exception>().having((e) => e.toString(), 'toString()',
+              'Exception: Remote push failed')),
         );
         final errorEventFuture = expectLater(
           manager.onSyncError,
@@ -279,7 +315,7 @@ void main() {
           manager = DatumManager<TestEntity>(
             localAdapter: localAdapter,
             remoteAdapter: remoteAdapter,
-            connectivity: connectivityChecker,
+            connectivity: connectivityChecker, // Now required
             logger: logger,
             datumConfig: const DatumConfig(
               syncExecutionStrategy: ParallelStrategy(
@@ -295,7 +331,13 @@ void main() {
 
           // Assert
           // The future should complete with the first exception thrown.
-          await expectLater(syncFuture, throwsA(exception1));
+          // Instead of checking for the exact exception instance,
+          // check for the type and a property (like the message) to make
+          // the test more robust against stack trace differences.
+          await expectLater(
+              syncFuture,
+              throwsA(isA<Exception>().having((e) => e.toString(), 'toString()',
+                  'Exception: Remote push failed 1')));
 
           // Even though the sync failed, all non-failing operations should have
           // been processed because failFast is false.
@@ -324,7 +366,7 @@ void main() {
         manager = DatumManager<TestEntity>(
           localAdapter: localAdapter,
           remoteAdapter: remoteAdapter,
-          connectivity: connectivityChecker,
+          connectivity: connectivityChecker, // Now required
           logger: logger,
           datumConfig: const DatumConfig(
             syncExecutionStrategy: IsolateStrategy(SequentialStrategy()),
@@ -344,28 +386,35 @@ void main() {
 
       test('handles errors correctly', () async {
         // Arrange
-        // Isolate this test's mocks to prevent interference.
-        final localAdapter = MockLocalAdapter<TestEntity>();
-        final remoteAdapter = MockRemoteAdapter<TestEntity>();
-        final connectivityChecker = MockConnectivityChecker();
-        final logger = TestLogger();
+        // Isolate this test's mocks to prevent interference from the group's setUp.
+        final isolatedLocalAdapter = MockLocalAdapter<TestEntity>();
+        final isolatedRemoteAdapter = MockRemoteAdapter<TestEntity>();
+        final isolatedConnectivityChecker = MockConnectivityChecker();
+        final isolatedLogger = TestLogger();
 
         // Default stubs for this test's mocks
-        when(localAdapter.initialize).thenAnswer((_) async {});
-        when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
-        when(() => localAdapter.dispose()).thenAnswer((_) async {});
-        when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
+        when(isolatedLocalAdapter.initialize).thenAnswer((_) async {});
+        when(() => isolatedRemoteAdapter.initialize()).thenAnswer((_) async {});
+        when(() => isolatedLocalAdapter.dispose()).thenAnswer((_) async {});
+        when(() => isolatedRemoteAdapter.dispose()).thenAnswer((_) async {});
+        when(() => isolatedRemoteAdapter.dispose()).thenAnswer((_) async {});
         when(
-          () => localAdapter.getStoredSchemaVersion(),
+          () => isolatedLocalAdapter.getStoredSchemaVersion(),
         ).thenAnswer((_) async => 1);
-        when(localAdapter.changeStream).thenAnswer((_) => const Stream.empty());
+        when(() => isolatedLocalAdapter.changeStream()).thenAnswer(
+          (_) => const Stream<DatumChangeDetail<TestEntity>>.empty(),
+        );
+        when(() => isolatedRemoteAdapter.changeStream).thenAnswer(
+          (_) => const Stream<DatumChangeDetail<TestEntity>>.empty(),
+        );
         when(
-          // This was already correct in the previous turn, but for consistency:
-          () => remoteAdapter.changeStream,
-        ).thenAnswer((_) => const Stream.empty());
-        when(
-          () => connectivityChecker.isConnected,
+          () => isolatedConnectivityChecker.isConnected,
         ).thenAnswer((_) async => true);
+        // Add the missing stubs for the sync lifecycle
+        when(() => isolatedLocalAdapter.getLastSyncResult(any()))
+            .thenAnswer((_) async => null);
+        when(() => isolatedLocalAdapter.saveLastSyncResult(any(), any()))
+            .thenAnswer((_) async {});
 
         final exception = Exception('Isolate push failed');
         final processedIds = <String>{};
@@ -373,10 +422,10 @@ void main() {
         // Re-create manager for this specific strategy
         await manager.dispose();
         manager = DatumManager<TestEntity>(
-          localAdapter: localAdapter,
-          remoteAdapter: remoteAdapter,
-          connectivity: connectivityChecker,
-          logger: logger,
+          localAdapter: isolatedLocalAdapter,
+          remoteAdapter: isolatedRemoteAdapter,
+          connectivity: isolatedConnectivityChecker, // Now required
+          logger: isolatedLogger,
           datumConfig: DatumConfig(
             // Using a fail-fast strategy inside the isolate is the most
             // logical approach, as we want errors to propagate out immediately.
@@ -388,52 +437,119 @@ void main() {
         await manager.initialize();
 
         // Stub the behavior for this specific test
-        when(() => remoteAdapter.create(any())).thenAnswer((inv) async {
+        when(() => isolatedRemoteAdapter.create(any())).thenAnswer((inv) async {
           final entity = inv.positionalArguments.first as TestEntity;
           if (entity.id == 'e3') throw exception;
           processedIds.add(entity.id);
         });
         when(
-          () => localAdapter.getPendingOperations(userId),
+          () => isolatedLocalAdapter.getPendingOperations(userId),
         ).thenAnswer((_) async => operations);
         when(
-          () => localAdapter.removePendingOperation(any()),
+          () => isolatedLocalAdapter.removePendingOperation(any()),
         ).thenAnswer((_) async {});
         when(
-          () => localAdapter.readAll(userId: any(named: 'userId')),
+          () => isolatedLocalAdapter.readAll(userId: any(named: 'userId')),
         ).thenAnswer((_) async => []);
         when(
-          () => localAdapter.readByIds(any(), userId: any(named: 'userId')),
+          () => isolatedLocalAdapter.readByIds(
+            any(),
+            userId: any(named: 'userId'),
+          ),
         ).thenAnswer((_) async => {});
         when(
-          () => localAdapter.updateSyncMetadata(any(), any()),
+          () => isolatedLocalAdapter.updateSyncMetadata(any(), any()),
         ).thenAnswer((_) async {});
         when(
           () => remoteAdapter.updateSyncMetadata(any(), any()),
         ).thenAnswer((_) async {});
 
         // Act
-        final syncFuture = manager.synchronize(userId);
 
         // Assert
         // The future should complete with the error from the isolate.
-        // In test mode, IsolateStrategy runs synchronously, so we can use a try-catch.
-        try {
-          await syncFuture;
-          fail('Should have thrown');
-        } catch (e) {
-          expect(e, exception);
-        }
+        // We wrap the call in a closure `() => ...` so that `expectLater`
+        // can correctly catch the asynchronous error. The sync engine wraps
+        // the original exception, but the manager re-throws the original error.
+        await expectLater(
+          () => manager.synchronize(userId),
+          // IMPORTANT: When testing exceptions that cross isolate boundaries,
+          // do NOT use `throwsA(exceptionInstance)`.
+          //
+          // When an exception is passed from a worker isolate to the main
+          // isolate, it is serialized and a *new* exception object is created
+          // in the main isolate. This new object will have the same message,
+          // but it will not be the same instance as the original.
+          //
+          // Therefore, we must check the exception's type and properties
+          // (like its message via `toString()`) to ensure the test is robust.
+          throwsA(isA<Exception>().having(
+            (e) => e.toString(),
+            'toString()',
+            'Exception: Isolate push failed',
+          )),
+        );
 
-        // Verify that operations before the error were processed.
+        // Verify that operations in the successful batches were processed.
         expect(processedIds, {'e0', 'e1', 'e2'});
 
         // Verify that successful operations and the failed one were dequeued.
-        verify(() => localAdapter.removePendingOperation('op0')).called(1);
-        verify(() => localAdapter.removePendingOperation('op1')).called(1);
-        verify(() => localAdapter.removePendingOperation('op2')).called(1);
-        verify(() => localAdapter.removePendingOperation('op3')).called(1);
+        verify(
+          () => isolatedLocalAdapter.removePendingOperation('op0'),
+        ).called(1);
+        verify(
+          () => isolatedLocalAdapter.removePendingOperation('op1'),
+        ).called(1);
+        verify(
+          () => isolatedLocalAdapter.removePendingOperation('op2'),
+        ).called(1);
+        verify(
+          () => isolatedLocalAdapter.removePendingOperation('op3'),
+        ).called(1);
       });
+
+      test(
+        'with forceIsolateInTest correctly processes operations in a real isolate',
+        () async {
+          // This test uses the special TestIsolateStrategy to bypass the `isTest`
+          // check and test the actual isolate communication logic.
+
+          // Arrange
+          final processedInIsolate = <String>[]; // To track execution order
+
+          // The `processOperation` function will be sent from the main isolate
+          // to the worker isolate to be executed.
+
+          // Use the test strategy to force isolate spawning.
+          const strategy = IsolateStrategy(
+            SequentialStrategy(),
+            forceIsolateInTest: true,
+          );
+
+          // Act
+          // We call the strategy directly, not through the manager, to test it in isolation.
+          // The manager's mocks would be too complex to pass into a real isolate.
+          // Awaiting the future returned by `execute` is cleaner than using a Completer.
+          await strategy.execute<TestEntity>(
+            operations,
+            (op) async {
+              await Future<void>.delayed(const Duration(milliseconds: 10));
+              processedInIsolate.add(op.id);
+            },
+            () => false, // isCancelled
+            (completed, total) {}, // onProgress can be a no-op for this test
+          );
+
+          // Assert
+          expect(
+            processedInIsolate,
+            ['op0', 'op1', 'op2', 'op3', 'op4'],
+            reason: 'All operations should be processed in order.',
+          );
+        },
+        // Isolates can be slow to spin up, so a longer timeout is safer.
+        timeout: const Timeout(Duration(seconds: 5)),
+      );
     });
   });
 }

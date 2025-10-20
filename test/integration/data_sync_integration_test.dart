@@ -1,5 +1,5 @@
 import 'package:datum/datum.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../mocks/mock_connectivity_checker.dart';
@@ -59,7 +59,7 @@ void main() {
           syncedCount: 0,
           failedCount: 0,
           conflictsResolved: 0,
-          pendingOperations: [],
+          pendingOperations: <DatumSyncOperation<TestEntity>>[],
           duration: Duration.zero,
         ),
       );
@@ -73,7 +73,9 @@ void main() {
       );
     });
 
-    Future<void> setupManager({DatumConfig<TestEntity>? config}) async {
+    Future<DatumManager<TestEntity>> setupManager({
+      DatumConfig<TestEntity>? config,
+    }) async {
       localAdapter = MockedLocalAdapter<TestEntity>();
       remoteAdapter = MockedRemoteAdapter<TestEntity>();
       connectivityChecker = MockConnectivityChecker();
@@ -107,6 +109,15 @@ void main() {
       when(
         () => localAdapter.readAll(userId: any(named: 'userId')),
       ).thenAnswer((_) async => []);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
+        () => localAdapter.saveLastSyncResult(any(), any()),
+      ).thenAnswer((_) async {});
       when(
         () => localAdapter.changeStream(),
       ).thenAnswer((_) => const Stream<DatumChangeDetail<TestEntity>>.empty());
@@ -180,6 +191,7 @@ void main() {
       ).thenAnswer((_) async {});
 
       await manager.initialize();
+      return manager;
     }
 
     setUp(() async {
@@ -256,15 +268,13 @@ void main() {
         await manager.synchronize('user1');
 
         // 3. ASSERT: Verify that `patch` was called with only the changed field.
-        final capturedDelta =
-            verify(
-                  () => remoteAdapter.patch(
-                    id: 'delta-e1',
-                    userId: 'user1',
-                    delta: captureAny(named: 'delta'),
-                  ),
-                ).captured.single
-                as Map<String, dynamic>;
+        final capturedDelta = verify(
+          () => remoteAdapter.patch(
+            id: 'delta-e1',
+            userId: 'user1',
+            delta: captureAny(named: 'delta'),
+          ),
+        ).captured.single as Map<String, dynamic>;
 
         // The delta should only contain the 'name' field.
         expect(capturedDelta, hasLength(1));
@@ -308,7 +318,8 @@ void main() {
       );
     });
 
-    test('converts a patch to a push if remote entity does not exist', () async {
+    test('converts a patch to a push if remote entity does not exist',
+        () async {
       final pendingOps = <DatumSyncOperation<TestEntity>>[];
       // 1. ARRANGE: Create and sync an initial entity.
       final initialEntity = TestEntity.create('delta-e3', 'user1', 'Initial');
@@ -391,8 +402,20 @@ void main() {
     test('retries a patch operation on network failure', () async {
       // Re-initialize manager with retries enabled
       // We can't use setUp for this one-off config, so we handle it manually.
-      await manager.dispose(); // Dispose the one from setUp
-      await setupManager(config: const DatumConfig(maxRetries: 1));
+      await manager
+          .dispose(); // Dispose the one from setUp      await setupManager(
+      // Create a local manager for this test to avoid interfering with the
+      // group's setUp/tearDown cycle.
+      await setupManager(
+        config: DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+            maxRetries: 3,
+            shouldRetry: (error) async {
+              return error is NetworkException;
+            },
+          ),
+        ),
+      );
 
       // 1. ARRANGE: Create and sync an initial entity.
       final initialEntity = TestEntity.create('delta-e4', 'user1', 'Initial');
@@ -459,9 +482,16 @@ void main() {
 
     test('fails permanently on non-retryable error', () async {
       // 1. ARRANGE
-      // We can't use setUp for this one-off config, so we handle it manually.
-      await manager.dispose(); // Dispose the one from setUp
-      await setupManager(config: const DatumConfig(maxRetries: 3));
+      // Create a local manager for this test to avoid interfering with the
+      // group's setUp/tearDown cycle.
+      final testManager = await setupManager(
+        config: DatumConfig(
+          errorRecoveryStrategy: const DatumErrorRecoveryStrategy(
+            maxRetries: 3,
+            shouldRetry: _alwaysRetry,
+          ),
+        ),
+      );
 
       final entity = TestEntity.create('delta-e5', 'user1', 'Will Fail');
       final nonRetryableException = Exception('Invalid data format');
@@ -491,7 +521,7 @@ void main() {
       // 2. ACT & ASSERT
       // The synchronize call should fail by re-throwing the exception.
       await expectLater(
-        () => manager.synchronize('user1'),
+        () => testManager.synchronize('user1'),
         throwsA(nonRetryableException),
       );
 
@@ -506,9 +536,11 @@ void main() {
 
       // The operation should have been removed from the queue to prevent
       // it from blocking subsequent syncs.
-      final pendingOps = await manager.getPendingCount('user1');
+      final pendingOps = await testManager.getPendingCount('user1');
       expect(pendingOps, 0);
       verify(() => localAdapter.removePendingOperation('op-fail')).called(1);
+
+      await testManager.dispose();
     });
 
     test('emits onSyncError event on synchronization failure', () async {
@@ -546,7 +578,13 @@ void main() {
       // Expect the synchronize call to throw.
       final syncThrowFuture = expectLater(
         () => manager.synchronize('user1'),
-        throwsA(exception),
+        // Check the exception type and message instead of the instance
+        // for a more robust test.
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'toString()',
+          exception.toString(),
+        )),
       );
 
       // Await both futures concurrently to avoid a race condition.
@@ -612,20 +650,28 @@ void main() {
           timestamp: DateTime.now(),
           data: TestEntity.create('push-only-e1', 'user1', 'Push Only'),
         );
-        final remoteItem =
-            TestEntity.create('remote-only-e1', 'user1', 'Should not be pulled');
+        final remoteItem = TestEntity.create(
+          'remote-only-e1',
+          'user1',
+          'Should not be pulled',
+        );
 
         // Stub for push
-        when(() => localAdapter.getPendingOperations('user1'))
-            .thenAnswer((_) async => [localOp]);
+        when(
+          () => localAdapter.getPendingOperations('user1'),
+        ).thenAnswer((_) async => [localOp]);
         when(() => remoteAdapter.create(any())).thenAnswer((_) async {});
-        when(() => localAdapter.removePendingOperation(any()))
-            .thenAnswer((_) async {});
+        when(
+          () => localAdapter.removePendingOperation(any()),
+        ).thenAnswer((_) async {});
 
         // Stub for pull (to verify it's NOT called)
-        when(() => remoteAdapter.readAll(
+        when(
+          () => remoteAdapter.readAll(
             userId: 'user1',
-            scope: any(named: 'scope'))).thenAnswer((_) async => [remoteItem]);
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer((_) async => [remoteItem]);
 
         // 2. ACT
         final result = await manager.synchronize(
@@ -635,15 +681,24 @@ void main() {
 
         // 3. ASSERT
         expect(result.syncedCount, 1);
-        verify(() => remoteAdapter.create(any(
-                that: predicate<TestEntity>((e) => e.id == 'push-only-e1'))))
-            .called(1);
+        verify(
+          () => remoteAdapter.create(
+            any(that: predicate<TestEntity>((e) => e.id == 'push-only-e1')),
+          ),
+        ).called(1);
 
         // Verify pull was NOT performed
-        verifyNever(() => remoteAdapter.readAll(
-            userId: 'user1', scope: any(named: 'scope')));
-        verifyNever(() => localAdapter.create(any(
-            that: predicate<TestEntity>((e) => e.id == 'remote-only-e1'))));
+        verifyNever(
+          () => remoteAdapter.readAll(
+            userId: 'user1',
+            scope: any(named: 'scope'),
+          ),
+        );
+        verifyNever(
+          () => localAdapter.create(
+            any(that: predicate<TestEntity>((e) => e.id == 'remote-only-e1')),
+          ),
+        );
       });
 
       test('pullOnly sync direction only pulls remote changes', () async {
@@ -654,19 +709,30 @@ void main() {
           entityId: 'pull-only-e1',
           type: DatumOperationType.create,
           timestamp: DateTime.now(),
-          data: TestEntity.create('pull-only-e1', 'user1', 'Should not be pushed'),
+          data: TestEntity.create(
+            'pull-only-e1',
+            'user1',
+            'Should not be pushed',
+          ),
         );
-        final remoteItem =
-            TestEntity.create('remote-pull-e1', 'user1', 'Should be pulled');
+        final remoteItem = TestEntity.create(
+          'remote-pull-e1',
+          'user1',
+          'Should be pulled',
+        );
 
         // Stub for push (to verify it's NOT called)
-        when(() => localAdapter.getPendingOperations('user1'))
-            .thenAnswer((_) async => [localOp]);
+        when(
+          () => localAdapter.getPendingOperations('user1'),
+        ).thenAnswer((_) async => [localOp]);
 
         // Stub for pull
-        when(() => remoteAdapter.readAll(
+        when(
+          () => remoteAdapter.readAll(
             userId: 'user1',
-            scope: any(named: 'scope'))).thenAnswer((_) async => [remoteItem]);
+            scope: any(named: 'scope'),
+          ),
+        ).thenAnswer((_) async => [remoteItem]);
         when(() => localAdapter.create(any())).thenAnswer((_) async {});
 
         // 2. ACT
@@ -677,34 +743,59 @@ void main() {
 
         // 3. ASSERT
         // Verify pull was performed
-        verify(() => localAdapter.create(any(
-                that: predicate<TestEntity>((e) => e.id == 'remote-pull-e1'))))
-            .called(1);
+        verify(
+          () => localAdapter.create(
+            any(that: predicate<TestEntity>((e) => e.id == 'remote-pull-e1')),
+          ),
+        ).called(1);
 
         // Verify push was NOT performed
         verifyNever(() => remoteAdapter.create(any()));
       });
 
-      test('pullThenPush sync direction executes in the correct order', () async {
-        // 1. ARRANGE
-        when(() => localAdapter.getPendingOperations('user1')).thenAnswer((_) async => [
+      test(
+        'pullThenPush sync direction executes in the correct order',
+        () async {
+          // 1. ARRANGE
+          when(() => localAdapter.getPendingOperations('user1')).thenAnswer(
+            (_) async => [
               DatumSyncOperation<TestEntity>(
-                  id: 'op', userId: 'user1', entityId: 'e1', type: DatumOperationType.create, timestamp: DateTime.now(), data: TestEntity.create('e1', 'user1', 'Test'))
-            ]);
-        when(() => remoteAdapter.create(any())).thenAnswer((_) async {});
-        when(() => localAdapter.removePendingOperation(any())).thenAnswer((_) async {});
+                id: 'op',
+                userId: 'user1',
+                entityId: 'e1',
+                type: DatumOperationType.create,
+                timestamp: DateTime.now(),
+                data: TestEntity.create('e1', 'user1', 'Test'),
+              ),
+            ],
+          );
+          when(() => remoteAdapter.create(any())).thenAnswer((_) async {});
+          when(
+            () => localAdapter.removePendingOperation(any()),
+          ).thenAnswer((_) async {});
 
-        // 2. ACT
-        await manager.synchronize('user1', options: const DatumSyncOptions(direction: SyncDirection.pullThenPush));
+          // 2. ACT
+          await manager.synchronize(
+            'user1',
+            options: const DatumSyncOptions(
+              direction: SyncDirection.pullThenPush,
+            ),
+          );
 
-        // 3. ASSERT
-        verifyInOrder([
-          // Pull phase
-          () => remoteAdapter.readAll(userId: 'user1', scope: any(named: 'scope')),
-          // Push phase
-          () => remoteAdapter.create(any()),
-        ]);
-      });
+          // 3. ASSERT
+          verifyInOrder([
+            // Pull phase
+            () => remoteAdapter.readAll(
+                  userId: 'user1',
+                  scope: any(named: 'scope'),
+                ),
+            // Push phase
+            () => remoteAdapter.create(any()),
+          ]);
+        },
+      );
     });
   });
 }
+
+Future<bool> _alwaysRetry(DatumException e) async => true;

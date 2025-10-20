@@ -1,3 +1,5 @@
+import 'package:equatable/equatable.dart';
+
 /// The target for serialization, allowing different fields for local vs. remote.
 enum MapTarget {
   /// For serialization to the local database.
@@ -12,9 +14,13 @@ enum MapTarget {
 /// This abstract class defines the essential properties and methods that
 /// any data model must implement to be compatible with the Datum synchronization
 /// engine. It promotes immutability through the `copyWith` method and provides
-/// mechanisms for serialization and change detection.
-abstract class DatumEntity {
+/// mechanisms for serialization and change detection. It extends [Equatable]
+/// to provide value-based equality on the entity's [id].
+abstract class DatumEntity extends Equatable {
   /// A unique identifier for the entity. Typically a UUID.
+  /// Creates a `const` [DatumEntity].
+  const DatumEntity();
+
   String get id;
 
   /// The ID of the user who owns this entity.
@@ -36,11 +42,17 @@ abstract class DatumEntity {
   /// synced to other clients.
   bool get isDeleted;
 
+  /// Indicates whether this entity supports relationships.
+  ///
+  /// This is `false` by default for [DatumEntity] and `true` for
+  /// [RelationalDatumEntity].
+  bool get isRelational => false;
+
   /// Serializes the entity to a map.
   ///
   /// The [target] parameter can be used to customize the output for different
   /// destinations (e.g., omitting certain fields for the remote API).
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local});
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local});
 
   /// Creates a copy of the entity with updated fields.
   ///
@@ -51,4 +63,14 @@ abstract class DatumEntity {
   /// Compares this entity with an older version and returns a map of the
   /// fields that have changed. Returns `null` if there are no differences.
   Map<String, dynamic>? diff(DatumEntity oldVersion);
+
+  @override
+  List<Object?> get props => [
+        id,
+        userId,
+        modifiedAt,
+        createdAt,
+        version,
+        isDeleted,
+      ];
 }

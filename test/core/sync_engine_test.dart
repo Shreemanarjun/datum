@@ -1,11 +1,8 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/engine/conflict_detector.dart';
-import 'package:datum/source/core/engine/datum_sync_engine.dart';
-import 'package:datum/source/core/engine/isolate_helper.dart';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:rxdart/rxdart.dart';
@@ -166,6 +163,9 @@ void main() {
       ).thenAnswer((_) async {});
       when(
         () => localAdapter.getSyncMetadata(any()),
+      ).thenAnswer((_) async => null);
+      when(
+        () => localAdapter.getLastSyncResult(any()),
       ).thenAnswer((_) async => null);
       when(() => localAdapter.update(any())).thenAnswer((_) async {});
       when(() => localAdapter.create(any())).thenAnswer((inv) async {
@@ -588,10 +588,12 @@ void main() {
             context: any(named: 'context'),
           ),
         ).thenAnswer(
-          (_) async => const DatumConflictResolution(
-            strategy: DatumResolutionStrategy.merge,
-            resolvedData: null, // This is the invalid state we are testing.
-          ),
+          // We can't call the private `_` constructor.
+          // To test the StateError, we can simulate an invalid resolution
+          // by using a valid constructor and then creating an invalid state.
+          (_) async => DatumConflictResolution.merge(
+            TestEntity.create('e1', 'user-1', 'Merged'),
+          ).copyWith(setResolvedDataToNull: true),
         );
 
         final engineWithCustomResolver = DatumSyncEngine<TestEntity>(
@@ -612,11 +614,13 @@ void main() {
         // Act & Assert
         await expectLater(
           engineWithCustomResolver.synchronize('user-1'),
-          throwsA(isA<SyncExceptionWithEvents>().having(
-            (e) => e.originalError,
-            'originalError',
-            isA<StateError>(),
-          )),
+          throwsA(
+            isA<SyncExceptionWithEvents>().having(
+              (e) => e.originalError,
+              'originalError',
+              isA<StateError>(),
+            ),
+          ),
         );
       });
     });

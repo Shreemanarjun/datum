@@ -1,5 +1,7 @@
+import 'package:equatable/equatable.dart';
+
 /// Aggregated statistics about multiple sync cycles.
-class DatumSyncStatistics {
+class DatumSyncStatistics extends Equatable {
   /// The total number of sync operations that have been initiated.
   final int totalSyncs;
 
@@ -60,4 +62,16 @@ class DatumSyncStatistics {
       totalSyncDuration: totalSyncDuration ?? this.totalSyncDuration,
     );
   }
+
+  @override
+  List<Object?> get props => [
+    totalSyncs,
+    successfulSyncs,
+    failedSyncs,
+    conflictsDetected,
+    conflictsAutoResolved,
+    conflictsUserResolved,
+    averageDuration,
+    totalSyncDuration,
+  ];
 }

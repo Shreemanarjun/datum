@@ -1,12 +1,17 @@
-import 'package:datum/source/core/models/datum_entity.dart';
+// ignore_for_file: public_member_api_docs, sort_constructors_first
+import 'package:equatable/equatable.dart';
+
 import 'package:datum/source/core/migration/migration.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_exception.dart';
+import 'package:datum/source/core/models/error_strategy.dart';
 import 'package:datum/source/core/models/user_switch_models.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart';
 
 /// A handler for migration errors.
-typedef MigrationErrorHandler =
-    Future<void> Function(Object error, StackTrace stackTrace);
+typedef MigrationErrorHandler = Future<void> Function(
+    Object error, StackTrace stackTrace);
 
 /// Defines the direction of a synchronization operation.
 /// Defines the order of operations during a synchronization cycle.
@@ -25,19 +30,13 @@ enum SyncDirection {
 }
 
 /// Configuration for the Datum engine and its managers.
-class DatumConfig<T extends DatumEntity> {
+class DatumConfig<T extends DatumEntity> extends Equatable {
   /// The interval for any automatic background synchronization.
   final Duration autoSyncInterval;
 
   /// Whether to automatically start auto-sync for all users with local data
   /// upon initialization.
   final bool autoStartSync;
-
-  /// The maximum number of times a failed sync operation will be retried.
-  final int maxRetries;
-
-  /// The base delay before retrying a failed operation.
-  final Duration retryDelay;
 
   /// The maximum duration for a single sync cycle before it times out.
   final Duration syncTimeout;
@@ -76,11 +75,23 @@ class DatumConfig<T extends DatumEntity> {
   /// implement a custom recovery strategy, like clearing all local data.
   final MigrationErrorHandler? onMigrationError;
 
+  /// The strategy for handling errors and retries during synchronization.
+  final DatumErrorRecoveryStrategy errorRecoveryStrategy;
+
+  /// The duration to buffer remote changes before processing a batch.
+  /// Helps to group rapid-fire updates from a server push into a single operation.
+  final Duration remoteEventDebounceTime;
+
+  /// The duration to keep a change ID in the cache to prevent duplicate processing.
+  ///
+  /// This should be long enough to account for network latency and potential
+  /// delivery of the same event via multiple channels (e.g., WebSocket + Push),
+  /// but short enough not to consume excessive memory.
+  final Duration changeCacheDuration;
+
   const DatumConfig({
     this.autoSyncInterval = const Duration(minutes: 15),
     this.autoStartSync = false,
-    this.maxRetries = 3,
-    this.retryDelay = const Duration(seconds: 30),
     this.syncTimeout = const Duration(minutes: 2),
     this.defaultConflictResolver,
     this.defaultUserSwitchStrategy = UserSwitchStrategy.syncThenSwitch,
@@ -91,6 +102,13 @@ class DatumConfig<T extends DatumEntity> {
     this.migrations = const [],
     this.syncExecutionStrategy = const SequentialStrategy(),
     this.onMigrationError,
+    this.errorRecoveryStrategy = const DatumErrorRecoveryStrategy(
+      shouldRetry: _defaultShouldRetry,
+      maxRetries: 3,
+      backoffStrategy: ExponentialBackoff(),
+    ),
+    this.remoteEventDebounceTime = const Duration(milliseconds: 50),
+    this.changeCacheDuration = const Duration(seconds: 5),
   });
 
   /// A default configuration with sensible production values.
@@ -102,8 +120,6 @@ class DatumConfig<T extends DatumEntity> {
   DatumConfig<E> copyWith<E extends DatumEntity>({
     Duration? autoSyncInterval,
     bool? autoStartSync,
-    int? maxRetries,
-    Duration? retryDelay,
     Duration? syncTimeout,
     DatumConflictResolver<E>? defaultConflictResolver,
     UserSwitchStrategy? defaultUserSwitchStrategy,
@@ -114,17 +130,17 @@ class DatumConfig<T extends DatumEntity> {
     List<Migration>? migrations,
     DatumSyncExecutionStrategy? syncExecutionStrategy,
     MigrationErrorHandler? onMigrationError,
+    DatumErrorRecoveryStrategy? errorRecoveryStrategy,
+    Duration? remoteEventDebounceTime,
+    Duration? changeCacheDuration,
   }) {
     return DatumConfig<E>(
       autoSyncInterval: autoSyncInterval ?? this.autoSyncInterval,
       autoStartSync: autoStartSync ?? this.autoStartSync,
-      maxRetries: maxRetries ?? this.maxRetries,
-      retryDelay: retryDelay ?? this.retryDelay,
       syncTimeout: syncTimeout ?? this.syncTimeout,
       // Only copy the resolver if the new type E is assignable from the old type T.
       // This is safe when copyWith is called without a new generic type.
-      defaultConflictResolver:
-          defaultConflictResolver ??
+      defaultConflictResolver: defaultConflictResolver ??
           (this.defaultConflictResolver is DatumConflictResolver<E>
               ? this.defaultConflictResolver as DatumConflictResolver<E>
               : null),
@@ -138,6 +154,42 @@ class DatumConfig<T extends DatumEntity> {
       syncExecutionStrategy:
           syncExecutionStrategy ?? this.syncExecutionStrategy,
       onMigrationError: onMigrationError ?? this.onMigrationError,
+      errorRecoveryStrategy:
+          errorRecoveryStrategy ?? this.errorRecoveryStrategy,
+      remoteEventDebounceTime:
+          remoteEventDebounceTime ?? this.remoteEventDebounceTime,
+      changeCacheDuration: changeCacheDuration ?? this.changeCacheDuration,
     );
   }
+
+  @override
+  String toString() {
+    return 'DatumConfig(autoSyncInterval: $autoSyncInterval, autoStartSync: $autoStartSync, syncTimeout: $syncTimeout, defaultConflictResolver: $defaultConflictResolver, defaultUserSwitchStrategy: $defaultUserSwitchStrategy, initialUserId: $initialUserId, enableLogging: $enableLogging, defaultSyncDirection: $defaultSyncDirection, schemaVersion: $schemaVersion, migrations: $migrations, syncExecutionStrategy: $syncExecutionStrategy, onMigrationError: $onMigrationError, errorRecoveryStrategy: $errorRecoveryStrategy, remoteEventDebounceTime: $remoteEventDebounceTime, changeCacheDuration: $changeCacheDuration)';
+  }
+
+  @override
+  List<Object?> get props {
+    return [
+      autoSyncInterval,
+      autoStartSync,
+      syncTimeout,
+      defaultConflictResolver,
+      defaultUserSwitchStrategy,
+      initialUserId,
+      enableLogging,
+      defaultSyncDirection,
+      schemaVersion,
+      migrations,
+      syncExecutionStrategy,
+      onMigrationError,
+      errorRecoveryStrategy,
+      remoteEventDebounceTime,
+      changeCacheDuration,
+    ];
+  }
+}
+
+/// The default retry condition: only retry on a retryable NetworkException.
+Future<bool> _defaultShouldRetry(DatumException error) async {
+  return Future.value(error is NetworkException && error.isRetryable);
 }

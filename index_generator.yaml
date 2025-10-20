@@ -1,0 +1,6 @@
+index_generator:
+  exclude:
+    - "**.g.dart"
+  # Define the paths of the folders in which to generate the index files
+  libraries:
+    - directory_path: lib

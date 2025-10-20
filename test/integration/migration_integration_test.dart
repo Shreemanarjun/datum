@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 import 'package:datum/datum.dart';
 import 'package:mocktail/mocktail.dart';
@@ -232,6 +232,7 @@ void main() {
           migrations: [V2toV3()], // Missing V1->V2 migration
           onMigrationError: errorHandler,
         ),
+        connectivity: connectivityChecker,
       );
       await manager.initialize();
 

@@ -1,9 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:datum/datum.dart';
 
 /// A mock entity for testing purposes.
-@immutable
-class TestEntity implements DatumEntity {
+class TestEntity extends DatumEntity {
   /// Creates a [TestEntity].
   const TestEntity({
     required this.id,
@@ -18,18 +16,18 @@ class TestEntity implements DatumEntity {
   });
 
   factory TestEntity.fromJson(Map<String, dynamic> json) => TestEntity(
-    id: json['id'] as String? ?? '',
-    userId: json['userId'] as String? ?? '',
-    name: json['name'] as String? ?? json['title'] as String? ?? '',
-    value: json['value'] as int? ?? 0,
-    modifiedAt:
-        DateTime.tryParse(json['modifiedAt'] as String? ?? '') ?? DateTime(0),
-    createdAt:
-        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime(0),
-    version: json['version'] as int? ?? 1,
-    isDeleted: json['isDeleted'] as bool? ?? false,
-    completed: json['completed'] as bool? ?? false,
-  );
+        id: json['id'] as String? ?? '',
+        userId: json['userId'] as String? ?? '',
+        name: json['name'] as String? ?? json['title'] as String? ?? '',
+        value: json['value'] as int? ?? 0,
+        modifiedAt: DateTime.tryParse(json['modifiedAt'] as String? ?? '') ??
+            DateTime(0),
+        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+            DateTime(0),
+        version: json['version'] as int? ?? 1,
+        isDeleted: json['isDeleted'] as bool? ?? false,
+        completed: json['completed'] as bool? ?? false,
+      );
 
   /// Creates a new [TestEntity] with default values for testing.
   factory TestEntity.create(String id, String userId, String name) =>
@@ -67,17 +65,17 @@ class TestEntity implements DatumEntity {
   final bool completed;
 
   @override
-  Map<String, dynamic> toMap({MapTarget target = MapTarget.local}) => {
-    'id': id,
-    'userId': userId,
-    'name': name,
-    'value': value,
-    'modifiedAt': modifiedAt.toIso8601String(),
-    'createdAt': createdAt.toIso8601String(),
-    'version': version,
-    'isDeleted': isDeleted,
-    'completed': completed,
-  };
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
+        'id': id,
+        'userId': userId,
+        'name': name,
+        'value': value,
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'createdAt': createdAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+        'completed': completed,
+      };
 
   @override
   TestEntity copyWith({
@@ -90,50 +88,27 @@ class TestEntity implements DatumEntity {
     int? version,
     bool? isDeleted,
     bool? completed,
-  }) => TestEntity(
-    id: id ?? this.id,
-    userId: userId ?? this.userId,
-    name: name ?? this.name,
-    value: value ?? this.value,
-    modifiedAt: modifiedAt ?? this.modifiedAt,
-    createdAt: createdAt ?? this.createdAt,
-    version: version ?? this.version,
-    isDeleted: isDeleted ?? this.isDeleted,
-    completed: completed ?? this.completed,
-  );
+  }) =>
+      TestEntity(
+        id: id ?? this.id,
+        userId: userId ?? this.userId,
+        name: name ?? this.name,
+        value: value ?? this.value,
+        modifiedAt: modifiedAt ?? this.modifiedAt,
+        createdAt: createdAt ?? this.createdAt,
+        version: version ?? this.version,
+        isDeleted: isDeleted ?? this.isDeleted,
+        completed: completed ?? this.completed,
+      );
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TestEntity &&
-          runtimeType == other.runtimeType &&
-          id == other.id &&
-          userId == other.userId &&
-          name == other.name &&
-          value == other.value &&
-          modifiedAt == other.modifiedAt &&
-          createdAt == other.createdAt &&
-          version == other.version &&
-          isDeleted == other.isDeleted &&
-          completed == other.completed;
-
-  @override
-  int get hashCode =>
-      id.hashCode ^
-      userId.hashCode ^
-      name.hashCode ^
-      value.hashCode ^
-      modifiedAt.hashCode ^
-      createdAt.hashCode ^
-      version.hashCode ^
-      isDeleted.hashCode ^
-      completed.hashCode;
+  List<Object?> get props => [...super.props, name, value, completed];
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) {
     if (oldVersion is! TestEntity) {
       // If types don't match, return the full object as a "diff"
-      return toMap(target: MapTarget.remote);
+      return toDatumMap(target: MapTarget.remote);
     }
 
     final diffMap = <String, dynamic>{};
@@ -144,4 +119,7 @@ class TestEntity implements DatumEntity {
 
     return diffMap.isEmpty ? null : diffMap;
   }
+
+  @override
+  bool get stringify => true;
 }

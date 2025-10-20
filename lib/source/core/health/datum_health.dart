@@ -1,67 +1,41 @@
-/// Overall health status levels for the Datum system.
-enum DatumHealthStatus {
-  /// System is operating normally.
-  healthy,
+import 'package:equatable/equatable.dart';
 
-  /// System has non-critical issues that should be monitored.
-  warning,
+/// Represents the operational health of a sync manager.
+class DatumHealth extends Equatable {
+  /// The overall status of the manager.
+  final DatumSyncHealth status;
 
-  /// System has critical issues that require immediate attention.
-  critical,
-}
+  /// The health status of the local data adapter.
+  final AdapterHealthStatus localAdapterStatus;
 
-/// Represents a snapshot of the overall health of the Datum synchronization system.
-class DatumHealthCheck {
-  /// Creates a health check result.
-  const DatumHealthCheck({
-    required this.isLocalStorageHealthy,
-    required this.isRemoteConnected,
-    required this.hasPendingOperations,
-    required this.pendingOperationCount,
-    required this.hasFailedOperations,
-    required this.failedOperationCount,
-    this.lastSuccessfulSync,
-    this.warnings = const [],
-    this.errors = const [],
+  /// The health status of the remote data adapter.
+  final AdapterHealthStatus remoteAdapterStatus;
+
+  const DatumHealth({
+    this.status = DatumSyncHealth.healthy,
+    this.localAdapterStatus = AdapterHealthStatus.ok,
+    this.remoteAdapterStatus = AdapterHealthStatus.ok,
   });
 
-  /// Whether the local storage adapter is functioning correctly.
-  final bool isLocalStorageHealthy;
+  @override
+  List<Object?> get props => [status, localAdapterStatus, remoteAdapterStatus];
+}
 
-  /// Whether a connection to the remote data source is available.
-  final bool isRemoteConnected;
+/// Describes the overall health of a synchronization process.
+enum DatumSyncHealth {
+  healthy,
+  syncing,
+  pending,
+  degraded,
+  offline,
+  error,
+}
 
-  /// Whether there are pending operations waiting to be synced.
-  final bool hasPendingOperations;
+/// Describes the health of an individual adapter.
+enum AdapterHealthStatus {
+  /// The adapter is functioning correctly.
+  ok,
 
-  /// The total number of pending operations.
-  final int pendingOperationCount;
-
-  /// Whether there are operations that have failed permanently.
-  final bool hasFailedOperations;
-
-  /// The total number of failed operations.
-  final int failedOperationCount;
-
-  /// The timestamp of the last successful synchronization.
-  final DateTime? lastSuccessfulSync;
-
-  /// A list of non-critical warning messages.
-  final List<String> warnings;
-
-  /// A list of critical error messages.
-  final List<String> errors;
-
-  /// A computed property indicating if the system is healthy overall.
-  bool get isHealthy =>
-      isLocalStorageHealthy && !hasFailedOperations && errors.isEmpty;
-
-  /// The current overall health status level.
-  DatumHealthStatus get status {
-    if (!isHealthy) return DatumHealthStatus.critical;
-    if (warnings.isNotEmpty || hasPendingOperations) {
-      return DatumHealthStatus.warning;
-    }
-    return DatumHealthStatus.healthy;
-  }
+  /// The adapter is unreachable or has failed.
+  unhealthy,
 }

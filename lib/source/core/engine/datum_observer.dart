@@ -1,4 +1,5 @@
 import 'package:datum/source/core/models/conflict_context.dart';
+import 'package:datum/source/core/models/user_switch_models.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_result.dart';
@@ -38,6 +39,16 @@ abstract class DatumObserver<T extends DatumEntity> {
 
   /// Called after a conflict has been resolved.
   void onConflictResolved(DatumConflictResolution<T> resolution) {}
+
+  /// Called when a user switch operation is about to start.
+  void onUserSwitchStart(
+    String? oldUserId,
+    String newUserId,
+    UserSwitchStrategy strategy,
+  ) {}
+
+  /// Called when a user switch operation has finished.
+  void onUserSwitchEnd(DatumUserSwitchResult result) {}
 }
 
 /// A specialized observer that can handle any entity type.

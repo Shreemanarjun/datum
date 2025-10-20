@@ -1,0 +1,62 @@
+name: example
+description: ""
+version: 1.0.0+1
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  auto_route: ^10.2.0
+  datum:
+    path: ../
+  dio: ^5.9.0
+  dio_smart_retry: ^7.0.1
+  duration: ^4.0.3
+  flash: ^3.1.1
+  flex_color_scheme: ^8.3.0
+  flutter:
+    sdk: flutter
+
+  flutter_displaymode: ^0.7.0
+  flutter_localizations:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  flutter_secure_storage_x: ^11.3.0
+  hive_ce_flutter: ^2.3.2
+  internet_connection_checker_plus: ^2.9.0
+  intl: ^0.20.2
+  multiple_result: ^5.2.0
+  path_provider: ^2.1.5
+  platform_info: ^5.0.0
+  recase: ^4.1.0
+  responsive_framework:
+    git: https://github.com/Shreemanarjun/ResponsiveFramework.git
+  rxdart: ^0.28.0
+  shadcn_ui: ^0.38.1
+  slang: ^4.9.1
+  slang_flutter: ^4.9.0
+  supabase_flutter: ^2.10.3
+  talker_dio_logger: ^5.0.2
+  talker_flutter: ^5.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  auto_route_generator: ^10.2.5
+  build_runner: ^2.7.1
+  custom_lint: ^0.7.6
+  flutter_lints: ^6.0.0
+  mocktail: ^1.0.4
+  riverpod_lint: ^2.6.5
+  riverpod_test: ^0.1.9
+  slang_build_runner: ^4.9.0
+  spot: ^0.16.0
+  very_good_analysis: ^10.0.0
+
+
+
+
+
+flutter:
+  uses-material-design: true
