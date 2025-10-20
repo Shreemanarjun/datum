@@ -1353,10 +1353,9 @@ This project is heavily inspired by the great work of the [`synq_manager`](https
 ---
 ## 🪪 License
 
-MIT License © 2025
+MIT License
 
-Copyright (c) 2025 [**Shreeman Arjun**](https://shreeman.dev)
-
+Copyright (c) 2025 [**Shreeman Arjun Sahu**](https://shreeman.dev)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
