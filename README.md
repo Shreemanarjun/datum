@@ -1,5 +1,4 @@
 
-
 <p align="center">
   <img src="logo/datum.png" alt="Datum Logo" width="200">
 </p>
@@ -14,324 +13,507 @@
 
 ---
 
-## ✨ **Key Features**
+## Core Concepts
 
-| Feature                     | Description                                                                              |
-| :-------------------------- | :--------------------------------------------------------------------------------------- |
-| ⚡ **Offline-First Sync**    | Read/write instantly — automatic sync when connection returns.                           |
-| 🧩 **Adapter-Based Design** | Plug in any local DB (Hive, Isar, SQLite) and remote source (REST, Supabase, Firestore). |
-| 🔁 **Two-Way Sync**         | Pushes local changes and pulls remote updates automatically.                             |
-| 🚦 **Conflict Resolution**  | Built-in strategies (`LastWriteWins` or custom resolvers).                               |
-| 🧱 **Schema Migrations**    | Migrate data seamlessly between app versions.                                            |
-| 🔒 **User-Scoped Data**     | Isolated storage & queues for each user.                                                 |
-| 👥 **Multi-User Support**   | Switch users seamlessly — no data leakage.                                               |
-| 📡 **Reactive Streams**     | Observe changes live using `Stream`s.                                                    |
-| 🔔 **Sync Events**          | Listen to sync start, success, failure, and conflict events.                             |
-| 🧰 **Customizable Config**  | Control retry policies, backoff, sync intervals, etc.                                    |
-| 💾 **Background Sync**      | Auto-sync when app resumes.                                                              |
-| 🌍 **Cross-Platform**       | Works on Android, iOS, macOS, Windows, Linux, and (soon) Web.                            |
+Datum is built around a few core concepts:
+
+- **`DatumEntity`**: The base class for your data models. It requires a unique `id`, `userId`, and other metadata for synchronization.
+- **`Adapter`**: The bridge between Datum and your data sources. There are two types of adapters:
+    - **`LocalAdapter`**: Manages data persistence on the device (e.g., Hive, Isar, SQLite).
+    - **`RemoteAdapter`**: Communicates with your backend (e.g., REST API, Supabase, Firestore).
+- **`DatumManager`**: The main entry point for interacting with your data. It provides methods for CRUD operations, queries, and synchronization.
+- **`DatumRegistration`**: A class that holds the local and remote adapters for a specific `DatumEntity`.
+- **Offline-First:** All CRUD operations are performed on the local database first, ensuring a snappy user experience even without a network connection. Datum then automatically syncs the data with the remote backend when the connection is available.
 
 ---
 
-## 🧭 **Platform Support**
+## 🚀 Getting Started
 
-| Platform |          Status         |
-| :------- | :---------------------: |
-| Android  |            ✅            |
-| iOS      |            ✅            |
-| macOS    |            ✅            |
-| Windows  |            ✅            |
-| Linux    |            ✅            |
-| Web      | ⚠️ (depends on adapter) |
+### 1. Installation
 
----
-
-## 📦 **Installation**
+Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
   datum: ^0.0.1
 ```
 
-Then run:
+Then run `flutter pub get`.
 
-```bash
-flutter pub get
-```
+### 2. Initialization
 
----
-
-## 🚀 **Getting Started**
-
-### 1️⃣ Initialize Datum
+Initialize Datum once in your application. A good place for this is in your `main.dart` or a service provider.
 
 ```dart
-final datum = await Datum.initialize(
-  config: DatumConfig.defaultConfig().copyWith(
-    schemaVersion: 1,
-    autoStartSync: true,
-  ),
-  connectivityChecker: MyConnectivityChecker(),
-  registrations: [noteRegistration],
-);
-```
+import 'package:datum/datum.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+// ... other imports
 
----
-
-### 2️⃣ Define Your Entity
-
-```dart
-class Note extends DatumEntity {
-  final String title;
-  final String content;
-
-  Note({
-    required super.id,
-    required super.userId,
-    required this.title,
-    required this.content,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'userId': userId,
-    'title': title,
-    'content': content,
-  };
-
-  static Note fromJson(Map<String, dynamic> json) => Note(
-    id: json['id'],
-    userId: json['userId'],
-    title: json['title'],
-    content: json['content'],
+Future<void> main() async {
+  // ... other initializations
+  await Supabase.initialize(
+    url: 'YOUR_SUPABASE_URL',
+    anonKey: 'YOUR_SUPABASE_ANON_KEY',
   );
+
+  final config = DatumConfig(
+    enableLogging: true,
+    autoStartSync: true,
+    initialUserId: Supabase.instance.client.auth.currentUser?.id,
+  );
+
+  final datum = await Datum.initialize(
+    config: config,
+    connectivityChecker: CustomConnectivityChecker(), // Your implementation
+    registrations: [
+      DatumRegistration<Task>(
+        localAdapter: TaskLocalAdapter(),
+        remoteAdapter: SupabaseRemoteAdapter<Task>(
+          tableName: 'tasks',
+          fromMap: Task.fromMap,
+        ),
+      ),
+    ],
+  );
+  runApp(MyApp(datum: datum));
 }
 ```
 
+### 3. Database Schema
+
+When using Supabase, you need to create two tables: `tasks` for your data and `sync_metadata` for Datum to keep track of the synchronization state.
+
+#### `tasks` Table
+
+This table stores the `Task` entities.
+
+```sql
+create table public.tasks (
+  id text not null,
+  user_id uuid not null,
+  title text not null,
+  is_completed boolean not null default false,
+  created_at timestamp with time zone not null default now(),
+  modified_at timestamp with time zone not null default now(),
+  version bigint not null default 0,
+  is_deleted boolean not null default false,
+  description text null,
+  constraint tasks_pkey primary key (id)
+) TABLESPACE pg_default;
+```
+
+**Columns:**
+
+*   `id`: A unique identifier for the task.
+*   `user_id`: The ID of the user who owns the task. This is used for RLS (Row Level Security).
+*   `title`: The title of the task.
+*   `is_completed`: A boolean indicating whether the task is completed.
+*   `created_at`: The timestamp when the task was created.
+*   `modified_at`: The timestamp when the task was last modified. This is important for conflict resolution.
+*   `version`: A number that is incremented on each modification. This is also used for conflict resolution.
+*   `is_deleted`: A boolean indicating whether the task is soft-deleted.
+*   `description`: An optional description of the task.
+
+#### `sync_metadata` Table
+
+This table is used by Datum to store metadata about the synchronization process for each user.
+
+```sql
+create table public.sync_metadata (
+  user_id uuid not null,
+  last_sync_time timestamp with time zone null,
+  data_hash text null,
+  item_count integer null,
+  version integer not null default 0,
+  schema_version integer not null default 0,
+  entity_name text null,
+  device_id text null,
+  custom_metadata jsonb null,
+  entity_counts jsonb null,
+  constraint sync_metadata_pkey primary key (user_id)
+) TABLESPACE pg_default;
+```
+
+**Columns:**
+
+*   `user_id`: The ID of the user.
+*   `last_sync_time`: The timestamp of the last successful sync.
+*   `data_hash`: A hash of the data at the time of the last sync. This is used to quickly check if the data has changed.
+*   `item_count`: The number of items synced.
+*   `version`: The version of the metadata record.
+*   `schema_version`: The schema version of the app.
+*   `entity_name`: The name of the entity being synced.
+*   `device_id`: A unique identifier for the device.
+*   `custom_metadata`: A JSONB column for storing any custom metadata.
+*   `entity_counts`: A JSONB column for storing the count of each entity type.
+
 ---
 
-### 3️⃣ Define Adapters
+## 📖 Full Examples
 
-#### 🏠 **Local Adapter (Hive Example)**
+Here are complete examples of a `DatumEntity` and its adapters from the example app.
+
+### `DatumEntity` Example: `Task`
+
+This is the data model for a task. It extends `DatumEntity` and implements the required fields and methods.
 
 ```dart
-class NoteLocalAdapter extends LocalAdapter<Note> {
-  late Box<Note> _box;
+import 'package:datum/datum.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class Task extends DatumEntity {
+  @override
+  final String id;
+
+  @override
+  final String userId;
+
+  final String title;
+  final String? description;
+  final bool isCompleted;
+
+  @override
+  final DateTime createdAt;
+
+  @override
+  final DateTime modifiedAt;
+
+  @override
+  final bool isDeleted;
+
+  @override
+  final int version;
+
+  const Task({
+    required this.id,
+    required this.userId,
+    required this.title,
+    this.description,
+    this.isCompleted = false,
+    required this.createdAt,
+    required this.modifiedAt,
+    this.isDeleted = false,
+    this.version = 1,
+  });
+
+  // ... copyWith, fromMap, toDatumMap, etc.
+}
+```
+
+### `LocalAdapter` Example: `TaskLocalAdapter` (Hive)
+
+This adapter uses `Hive` to store tasks locally on the device.
+
+```dart
+import 'package:datum/datum.dart';
+import 'package:example/data/task/entity/task.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
+
+class TaskLocalAdapter extends LocalAdapter<Task> {
+  late Box<Map> _taskBox;
 
   @override
   Future<void> initialize() async {
-    if (!Hive.isAdapterRegistered(1)) {
-      Hive.registerAdapter(NoteAdapter());
-    }
-    _box = await Hive.openBox('notes');
+    _taskBox = await Hive.openBox<Map>('tasks');
   }
 
   @override
-  Future<void> create(Note note) async => _box.put(note.id, note);
+  Future<void> create(Task entity) {
+    return _taskBox.put(entity.id, entity.toDatumMap(target: MapTarget.local));
+  }
+
   @override
-  Future<Note?> read(String id, {String? userId}) async => _box.get(id);
+  Future<Task?> read(String id, {String? userId}) async {
+    final taskMap = _taskBox.get(id);
+    if (taskMap == null) return null;
+    final task = Task.fromMap(taskMap as Map<String, dynamic>);
+    return (userId == null || task.userId == userId) ? task : null;
+  }
+
   @override
-  Future<List<Note>> readAll({String? userId}) async => _box.values.toList();
+  Future<List<Task>> readAll({String? userId}) async {
+    final tasks = _taskBox.values.map((e) => Task.fromMap(e as Map<String, dynamic>)).toList();
+    return userId == null ? tasks : tasks.where((task) => task.userId == userId).toList();
+  }
+
   @override
   Future<bool> delete(String id, {String? userId}) async {
-    await _box.delete(id);
-    return true;
+    if (_taskBox.containsKey(id)) {
+      await _taskBox.delete(id);
+      return true;
+    }
+    return false;
   }
+
+  @override
+  Future<void> update(Task entity) {
+    return _taskBox.put(entity.id, entity.toDatumMap(target: MapTarget.local));
+  }
+
+  // ... other methods
 }
 ```
 
-#### ☁️ **Remote Adapter (Supabase Example)**
+### `RemoteAdapter` Example: `SupabaseRemoteAdapter`
+
+This adapter communicates with a `Supabase` backend.
 
 ```dart
-class NoteRemoteAdapter extends RemoteAdapter<Note> {
-  final SupabaseClient supabase;
+import 'package:datum/datum.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-  NoteRemoteAdapter(this.supabase);
+class SupabaseRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
+  final String tableName;
+  final T Function(Map<String, dynamic>) fromMap;
+  final SupabaseClient _client;
+
+  SupabaseRemoteAdapter({required this.tableName, required this.fromMap})
+      : _client = Supabase.instance.client;
 
   @override
-  Future<void> create(Note note) async {
-    await supabase.from('notes').insert(note.toJson());
+  Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) async {
+    final response = await _client.from(tableName).select().eq('user_id', userId);
+    return response.map<T>((json) => fromMap(json)).toList();
   }
 
   @override
-  Future<List<Note>> readAll({String? userId}) async {
-    final res = await supabase.from('notes').select().eq('userId', userId);
-    return (res as List).map((e) => Note.fromJson(e)).toList();
+  Future<void> create(T entity) async {
+    final data = entity.toDatumMap(target: MapTarget.remote);
+    await _client.from(tableName).upsert(data);
+  }
+
+  @override
+  Future<T?> read(String id, {String? userId}) async {
+    final response =
+        await _client.from(tableName).select().eq('id', id).maybeSingle();
+    if (response == null) {
+      return null;
+    }
+    return fromMap(response);
   }
 
   @override
   Future<void> delete(String id, {String? userId}) async {
-    await supabase.from('notes').delete().eq('id', id);
+    await _client.from(tableName).delete().eq('id', id);
   }
+
+  @override
+  Future<void> update(T entity) async {
+    final data = entity.toDatumMap(target: MapTarget.remote);
+    await _client.from(tableName).update(data).eq('id', entity.id);
+  }
+
+  // ... other methods
 }
 ```
 
 ---
 
-### 4️⃣ Register & Initialize
+## 📝 CRUD and Queries
+
+Once Datum is initialized, you can use the `DatumManager` to perform CRUD operations and queries.
 
 ```dart
-final noteRegistration = DatumRegistration<Note>(
-  local: NoteLocalAdapter(),
-  remote: NoteRemoteAdapter(supabaseClient),
-);
+// Get the manager for the Task entity
+final taskManager = Datum.manager<Task>();
 
-await Datum.initialize(
-  config: DatumConfig.defaultConfig(),
-  connectivityChecker: MyConnectivityChecker(),
-  registrations: [noteRegistration],
-);
+// Create a new task
+final newTask = Task.create(title: 'My new task');
+await taskManager.create(newTask);
+
+// Read a task
+final task = await taskManager.read(newTask.id);
+
+// Read all tasks for the current user
+final tasks = await taskManager.readAll();
+
+// Update a task
+final updatedTask = task!.copyWith(isCompleted: true);
+await taskManager.update(updatedTask);
+
+// Delete a task
+await taskManager.delete(task.id);
+
+// Watch for changes to a single task
+taskManager.watchById(task.id).listen((task) {
+  print('Task updated: ${task?.title}');
+});
+
+// Watch for changes to all tasks
+taskManager.watchAll().listen((tasks) {
+  print('Tasks updated: ${tasks.length}');
+});
 ```
 
 ---
 
-## 🧩 **Using Datum**
+## 🤝 Relational Data
 
-### 📝 CRUD Operations
+Datum supports `HasOne`, `HasMany`, and `ManyToMany` relationships through the `RelationalDatumEntity` class.
+
+### Defining Relationships
+
+To define a relationship, extend `RelationalDatumEntity` and override the `relations` getter.
 
 ```dart
-final note = Note(
-  id: '123',
-  userId: 'user_1',
-  title: 'Offline-first FTW!',
-  content: 'This is synced automatically.',
-);
+class Post extends RelationalDatumEntity {
+  // ... fields
 
-await Datum.instance.create(note);
-final allNotes = await Datum.instance.readAll<Note>(userId: 'user_1');
+  @override
+  Map<String, Relation> get relations => {
+        'author': BelongsTo('userId'),
+        'tags': ManyToMany(PostTag.constInstance, 'postId', 'tagId'),
+      };
+  // ...
+}
+```
+
+### Fetching Related Data
+
+Use `fetchRelated` on a `DatumManager` to get related entities.
+
+```dart
+// Fetch the author of a post
+final author = await Datum.manager<Post>().fetchRelated<User>(post, 'author');
 ```
 
 ---
 
-### 🔁 Manual Synchronization
+## 🔬 Advanced Usage
+
+### Custom Conflict Resolution
+
+You can create your own conflict resolution strategy by implementing `DatumConflictResolver`.
 
 ```dart
-final result = await Datum.instance.synchronize('user_1');
-print('Synced ${result.syncedCount} items');
-```
-
----
-
-### 📡 Reactive Functions
-
-| Function                | Description                                   |
-| :---------------------- | :-------------------------------------------- |
-| `watchAll<T>()`         | Stream all entities of type `T` in real-time. |
-| `watchById<T>(id)`      | Stream a single entity by ID.                 |
-| `statusForUser(userId)` | Observe current sync status.                  |
-| `events`                | Listen to sync lifecycle events.              |
-| `metrics`               | Observe real-time synchronization metrics.    |
-
----
-
-### 🧠 Example: Auto Background Sync
-
-```dart
-Timer.periodic(Duration(minutes: 15), (_) async {
-  if (await MyConnectivityChecker().isConnected()) {
-    await Datum.instance.synchronize('user_1');
+class TakeTheirsResolver<T extends DatumEntity> extends DatumConflictResolver<T> {
+  @override
+  Future<ConflictResolution<T>> resolve(ConflictContext<T> context) {
+    // Always prefer the remote version
+    return Future.value(ConflictResolution.takeRemote(context.remote));
   }
-});
+}
+
+// Register the resolver during initialization
+await Datum.initialize(
+  // ...
+  registrations: [
+    DatumRegistration<Task>(
+      // ...
+      conflictResolver: TakeTheirsResolver<Task>(),
+    ),
+  ],
+);
 ```
 
----
+### Observers and Middlewares
 
-### ⚙️ Cleanup
+- **`DatumObserver`**: Listen to lifecycle events like data changes and conflicts.
+- **`DatumMiddleware`**: Intercept and modify data before it's saved.
 
 ```dart
-await Datum.instance.dispose();
+// Observer
+class MyDatumObserver extends GlobalDatumObserver {
+  @override
+  void onEvent(DatumEvent event) {
+    // ...
+  }
+}
+
+// Middleware
+class EncryptionMiddleware extends DatumMiddleware<Task> {
+  @override
+  Future<Task> process(Task entity, DatumMiddlewareFlow flow) {
+    // ...
+  }
+}
+
+// Register them during initialization
+await Datum.initialize(
+  // ...
+  observers: [MyDatumObserver()],
+  registrations: [
+    DatumRegistration<Task>(
+      // ...
+      middlewares: [EncryptionMiddleware()],
+    ),
+  ],
+);
 ```
 
----
+### Sync Execution Strategy and Direction
 
-## 🩺 **Sync Health & Metrics**
-
-Stay informed about your app’s sync performance in real time.
-
-### 🔹 `DatumHealth`
-
-Represents current sync status with states like:
-`healthy`, `syncing`, `pending`, `degraded`, `offline`, and `error`.
+- **`SyncExecutionStrategy`**: Control how sync operations are executed (`parallel` or `sequential`).
+- **`SyncDirection`**: Control the direction of the sync (`pushThenPull`, `pullThenPush`, `pushOnly`, `pullOnly`).
 
 ```dart
-manager.health.listen((health) {
-  print('Current sync status: ${health.status}');
-});
+await Datum.initialize(
+  config: DatumConfig(
+    // ...
+    syncExecutionStrategy: ParallelStrategy(batchSize: 5),
+    defaultSyncDirection: SyncDirection.pullThenPush,
+  ),
+  // ...
+);
 ```
 
 ---
 
-### 🔹 `DatumMetrics`
+## ⚙️ Configuration for Other Backends
 
-| Metric                           | Description                          |
-| :------------------------------- | :----------------------------------- |
-| `totalSyncOperations`            | Total number of sync cycles started. |
-| `successfulSyncs`                | Completed successfully.              |
-| `failedSyncs`                    | Encountered errors.                  |
-| `conflictsDetected`              | Detected data conflicts.             |
-| `conflictsResolvedAutomatically` | Resolved using resolver (e.g., LWW). |
-| `userSwitchCount`                | Number of user switches in session.  |
-| `activeUsers`                    | Unique active users in session.      |
+Datum is designed to be backend-agnostic. To use a different backend (e.g., Firebase, a custom REST API), you need to create a `RemoteAdapter` for it. The `RemoteAdapter` needs to implement methods for CRUD operations and fetching data.
 
----
+For example, a `RemoteAdapter` for a REST API might look like this:
 
-## 🔄 **User Switching Made Easy**
+```dart
+class MyRestApiAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
+  final String endpoint;
+  final T Function(Map<String, dynamic>) fromJson;
+  final http.Client client;
 
-Datum handles multiple users gracefully — no manual data cleanup required!
+  MyRestApiAdapter({
+    required this.endpoint,
+    required this.fromJson,
+    required this.client
+  });
 
-### ✨ Strategies
+  @override
+  Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) async {
+    final response = await client.get(Uri.parse('$endpoint?userId=$userId'));
+    final data = json.decode(response.body) as List;
+    return data.map((item) => fromJson(item)).toList();
+  }
 
-| Strategy                  | Behavior                                       |
-| :------------------------ | :--------------------------------------------- |
-| 🧭 `syncThenSwitch`       | Sync old user’s pending data, then switch.     |
-| 🔒 `promptIfUnsyncedData` | Prevent switch if unsynced data exists.        |
-| 🧼 `clearAndFetch`        | Clear new user data & fetch fresh remote data. |
-| 💾 `keepLocal`            | Switch immediately, keeping local data intact. |
-
----
-
-### 🧩 Mermaid Workflow
-
-```mermaid
-flowchart TD
-    A[Start: Current User] --> B{Pending Operations?}
-    B -- Yes & Strategy=promptIfUnsyncedData --> C[Prevent Switch & Notify User]
-    B -- Yes & Strategy=syncThenSwitch --> D[Sync Old User]
-    B -- No or after Sync --> E{Strategy Choice}
-    E -- clearAndFetch --> F[Clear New User Data & Fetch Remote]
-    E -- keepLocal --> G[Keep Local Data Intact]
-    E -- syncThenSwitch --> H[Switch After Sync]
-    F --> I[Switch Completed]
-    G --> I
-    H --> I
-    C --> I
-    I --> J[onUserSwitched Event Triggered]
+  // ... implement other methods
+}
 ```
 
-> 🔍 Automatically syncs or cleans data per your selected strategy before switching.
+You would then register this adapter during Datum's initialization.
 
 ---
+## 🪪 License
 
-## 🧩 **Coming Soon**
+MIT License © 2025
 
-* 🔥 Built-in adapters for **Isar**, **Drift**, **Supabase**, **Firestore**
-* 🕸️ IndexedDB adapter for **Web**
-* ⚔️ Smarter conflict resolution strategies
-* 🧪 Developer Dashboard for real-time sync insights
+MIT License
 
----
+Copyright (c) 2025 [**Shreeman Arjun**](https://shreeman.dev)
 
-## 🧑‍💻 **Contributing**
 
-Pull requests welcome!
-Found a bug 🐞 or want a new adapter?
-👉 Open an issue or PR — we’d love your help.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
----
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-## 🪪 **License**
-
-MIT License © 2025 [**Shreeman Arjun**](https://flutterexplorer.dev)
-
----
-
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
