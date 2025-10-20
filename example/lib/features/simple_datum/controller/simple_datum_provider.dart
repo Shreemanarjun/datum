@@ -3,7 +3,7 @@ import 'package:example/custom_connectivity_checker.dart';
 import 'package:example/custom_datum_logger.dart';
 import 'package:example/data/task/entity/task.dart';
 import 'package:example/data/user/adapters/supabase_adapter.dart';
-import 'package:example/features/simple_datum/controller/local.dart';
+import 'package:example/data/task/adapters/local.dart';
 import 'package:example/my_datum_observer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
