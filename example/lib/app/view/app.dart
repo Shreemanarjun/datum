@@ -33,8 +33,7 @@ class _AppState extends ConsumerState<App> with GlobalHelper {
     final currentTheme = ref.watch(themecontrollerProvider);
     return ShadApp.router(
       debugShowCheckedModeBanner: false,
-      //TODO: change app name
-      title: 'example App',
+      title: 'Datum Test App',
       themeMode: currentTheme,
       darkTheme: ShadThemeData(
         brightness: Brightness.dark,

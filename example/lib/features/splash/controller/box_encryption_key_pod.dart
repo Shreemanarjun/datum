@@ -15,8 +15,7 @@ final boxEncryptionKeyPod = FutureProvider.autoDispose<Uint8List>((ref) async {
         accessibility: KeychainAccessibility.first_unlock,
       ));
 
-  ///TODO: change your unique storage key
-  const secureStorageKey = "UniqueStorage";
+  const secureStorageKey = "DatumStorage";
   // if key not exists return null
   final encryptionKeyString = await secureStorage.read(key: secureStorageKey);
 
