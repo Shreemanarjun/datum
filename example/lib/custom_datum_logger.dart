@@ -7,8 +7,10 @@ import 'package:datum/datum.dart';
 class CustomDatumLogger implements DatumLogger {
   @override
   final bool enabled;
+  @override
+  final bool colors;
 
-  CustomDatumLogger({this.enabled = true});
+  CustomDatumLogger({this.enabled = true, this.colors = true});
 
   @override
   void debug(String message) {
@@ -31,7 +33,10 @@ class CustomDatumLogger implements DatumLogger {
   }
 
   @override
-  CustomDatumLogger copyWith({bool? enabled}) {
-    return CustomDatumLogger(enabled: enabled ?? this.enabled);
+  CustomDatumLogger copyWith({bool? enabled, bool? colors}) {
+    return CustomDatumLogger(
+      enabled: enabled ?? this.enabled,
+      colors: colors ?? this.colors,
+    );
   }
 }

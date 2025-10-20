@@ -1,19 +1,7 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-
 import 'package:rxdart/rxdart.dart';
-
-// ANSI color codes for logging
-const _ansiReset = '\x1B[0m';
-const _ansiYellow = '\x1B[33m';
-const _ansiGreen = '\x1B[32m';
-const _ansiCyan = '\x1B[36m';
-
-// Top-level private functions for colored logging
-String _green(Object text) => '$_ansiGreen$text$_ansiReset';
-String _yellow(Object text) => '$_ansiYellow$text$_ansiReset';
-String _cyan(Object text) => '$_ansiCyan$text$_ansiReset';
 
 class Datum {
   /// The singleton instance of the Datum engine.
@@ -165,6 +153,16 @@ class Datum {
     datum._listenToEventsForMetrics();
     return _instance = datum;
   }
+
+  // Helper functions for logging that respect the logger's color setting.
+  String _green(Object text) =>
+      logger.colors ? '\x1B[32m$text\x1B[0m' : text.toString();
+
+  String _yellow(Object text) =>
+      logger.colors ? '\x1B[33m$text\x1B[0m' : text.toString();
+
+  String _cyan(Object text) =>
+      logger.colors ? '\x1B[36m$text\x1B[0m' : text.toString();
 
   void _logInitializationHeader(
     StringBuffer logBuffer, {

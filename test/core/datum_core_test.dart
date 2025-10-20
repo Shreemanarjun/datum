@@ -50,7 +50,9 @@ class AnotherTestEntity extends DatumEntity {
 
 class MockGlobalObserver extends Mock implements GlobalDatumObserver {}
 
-class MockLogger extends Mock implements DatumLogger {}
+class MockLogger extends Mock implements DatumLogger {
+  // This is now a getter, so it can be stubbed by mocktail.
+}
 
 void main() {
   group('Datum Core', () {
@@ -852,6 +854,86 @@ void main() {
 
         // Assert
         verifyNever(() => mockLogger.info(any()));
+      });
+    });
+
+    group('Initialization Header Logging (_logInitializationHeader)', () {
+      late MockLogger mockLogger;
+
+      setUp(() {
+        mockLogger = MockLogger();
+        when(() => mockLogger.info(any())).thenAnswer((_) {});
+        // Disable colors for this test group to simplify assertions.
+        when(() => mockLogger.colors).thenReturn(false);
+      });
+
+      test('logs default configuration values correctly', () async {
+        // Arrange
+        const config = DatumConfig(enableLogging: true);
+
+        // Act
+        await Datum.initialize(
+          config: config,
+          connectivityChecker: connectivityChecker,
+          logger: mockLogger,
+        );
+
+        // Assert
+        final captured = verify(() => mockLogger.info(captureAny()))
+            .captured
+            .single as String;
+
+        expect(captured, contains('🚀 Initializing Datum...'));
+        expect(captured, contains('Logging: true'));
+        expect(captured, contains('Auto-sync: false'));
+        expect(captured, contains('Schema: v0'));
+        expect(captured, contains('Sync Direction: pushThenPull'));
+        expect(captured, contains('Sync Strategy: SequentialStrategy'));
+      });
+
+      test('logs auto-sync with initialUserId when provided', () async {
+        // Arrange
+        const config = DatumConfig(
+          enableLogging: true,
+          autoStartSync: true,
+          initialUserId: 'user-123',
+        );
+
+        // Act
+        await Datum.initialize(
+          config: config,
+          connectivityChecker: connectivityChecker,
+          logger: mockLogger,
+        );
+
+        // Assert
+        final captured = verify(() => mockLogger.info(captureAny()))
+            .captured
+            .single as String;
+        expect(captured, contains('Auto-sync: true'));
+        expect(captured, contains('Targeting initial user: user-123'));
+      });
+
+      test('logs auto-sync with discovery message when no initialUserId',
+          () async {
+        // Arrange
+        const config = DatumConfig(
+          enableLogging: true,
+          autoStartSync: true,
+        );
+
+        // Act
+        await Datum.initialize(
+          config: config,
+          connectivityChecker: connectivityChecker,
+          logger: mockLogger,
+        );
+
+        // Assert
+        final captured = verify(() => mockLogger.info(captureAny()))
+            .captured
+            .single as String;
+        expect(captured, contains('Discovering all local users to sync'));
       });
     });
   });

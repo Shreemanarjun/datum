@@ -374,11 +374,74 @@ void main() {
         expect(syncResult.syncedCount, 1);
       });
 
+      test('Datum.updateAndSync() delegates and performs both actions',
+          () async {
+        // Arrange
+        await initializeDatum();
+        final initialEntity = TestEntity.create('e1', 'u1', 'Item 1');
+        final updatedEntity = initialEntity.copyWith(name: 'Item 1 Updated');
+
+        // Stub the initial state in the local adapter
+        when(() => localAdapter1.read('e1', userId: 'u1'))
+            .thenAnswer((_) async => initialEntity);
+
+        // Stub the patch call that will happen during the 'push' phase
+        when(
+          () => localAdapter1.patch(
+            id: 'e1',
+            delta: any(named: 'delta'),
+            userId: 'u1',
+          ),
+        ).thenAnswer((_) async => updatedEntity);
+
+        // Arrange: Stub the pending update operation for the sync phase.
+        when(() => localAdapter1.getPendingOperations('u1')).thenAnswer(
+          (_) async => [
+            DatumSyncOperation(
+              id: 'op-e1-update',
+              userId: 'u1',
+              entityId: 'e1',
+              type: DatumOperationType.update,
+              timestamp: _fallbackDate,
+              data: updatedEntity,
+              delta: updatedEntity.diff(initialEntity),
+            ),
+          ],
+        );
+
+        // Act
+        final (savedItem, syncResult) = await Datum.instance
+            .updateAndSync<TestEntity>(item: updatedEntity, userId: 'u1');
+
+        // Assert
+        // 1. Update was called (via patch)
+        verify(
+          () => localAdapter1.patch(
+            id: 'e1',
+            delta: any(named: 'delta'),
+            userId: 'u1',
+          ),
+        ).called(1);
+        verify(() => localAdapter1.addPendingOperation('u1', any())).called(1);
+
+        // 2. Sync was called (via patch on remote)
+        verify(
+          () => remoteAdapter1.patch(
+              id: 'e1', delta: any(named: 'delta'), userId: 'u1'),
+        ).called(1);
+
+        // 3. Check results
+        expect(savedItem.name, 'Item 1 Updated');
+        expect(syncResult.isSuccess, isTrue);
+        expect(syncResult.syncedCount, 1);
+      });
+
       test('Datum.deleteAndSync() delegates and performs both actions',
           () async {
         // Arrange
         await initializeDatum();
         final entity1 = TestEntity.create('e1', 'u1', 'Item 1');
+        entity1.copyWith(name: 'Item 1 Updated');
         when(() => localAdapter1.read('e1', userId: 'u1'))
             .thenAnswer((_) async => entity1);
         // Arrange: Stub the pending delete operation for the sync phase.
@@ -545,6 +608,11 @@ void _stubAdapterBehaviors<T extends DatumEntity>(
         userId: any(named: 'userId'),
         scope: any(named: 'scope'),
       )).thenAnswer((_) async => []);
+  when(() => remoteAdapter.patch(
+        id: any(named: 'id'),
+        delta: any(named: 'delta'),
+        userId: any(named: 'userId'),
+      )).thenAnswer((_) async => localAdapter.sampleInstance);
 
   // Sync-related Operations
   when(() => localAdapter.getPendingOperations(any()))

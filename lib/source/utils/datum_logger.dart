@@ -2,8 +2,9 @@
 /// A simple logger for the Datum package.
 class DatumLogger {
   final bool enabled;
+  final bool colors;
 
-  DatumLogger({this.enabled = true});
+  DatumLogger({this.enabled = true, this.colors = true});
 
   void info(String message) {
     if (enabled) {
@@ -34,9 +35,11 @@ class DatumLogger {
 
   DatumLogger copyWith({
     bool? enabled,
+    bool? colors,
   }) {
     return DatumLogger(
       enabled: enabled ?? this.enabled,
+      colors: colors ?? this.colors,
     );
   }
 }
