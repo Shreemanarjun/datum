@@ -1,63 +1,52 @@
 
 
 <p align="center">
-  <!--
-    Replace this with the path to your logo.
-    It's best to use a raw GitHub content URL for broad compatibility.
-    Example: https://raw.githubusercontent.com/your-username/datum/main/assets/logo.png
-  -->
   <img src="logo/datum.png" alt="Datum Logo" width="200">
 </p>
 
+# 🧠 **Datum** — Offline-First Data Synchronization Framework for Dart & Flutter
 
-# 🧠 Datum — The Offline-First Data Synchronization Framework for Flutter
+<a href="https://pub.dev/packages/datum"><img src="https://img.shields.io/pub/v/datum.svg" alt="Pub"></a> <a href="https://github.com/your-username/datum/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a> <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Code Coverage"> <img src="https://img.shields.io/badge/tests-400%2B-brightgreen" alt="Tests">
 
-<a href="https://pub.dev/packages/datum"><img src="https://img.shields.io/pub/v/datum.svg" alt="Pub"></a>
-<a href="https://github.com/your-username/datum/actions"><img src="https://github.com/your-username/datum/workflows/CI/badge.svg" alt="CI"></a>
-<a href="https://github.com/your-username/datum/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-<img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Code Coverage">
-<img src="https://img.shields.io/badge/tests-400%2B-brightgreen" alt="Tests">
-
-> **Smart. Reactive. Universal.**
-> Datum brings together your local database and remote backend with automatic synchronization, conflict resolution, and real-time updates — all under a single, type-safe API.
+> **Smart ⚡ Reactive 🔄 Universal 🌍**
+>
+> Datum unifies your **local database** and **remote backend** with intelligent syncing, automatic conflict resolution, and real-time data updates — all through a single, type-safe API.
 
 ---
 
-## ✨ Features
+## ✨ **Key Features**
 
-| Feature                      | Description                                                                                                 |
-| :--------------------------- | :---------------------------------------------------------------------------------------------------------- |
-| ⚡ **Offline-First Sync**     | Read/write data instantly — syncs automatically when connection is restored.                                |
-| 🧩 **Adapter-Based Design**  | Plug in any local DB (Hive, Isar, SQLite) and any remote source (REST, Supabase, Firestore).                |
-| 🔁 **Two-Way Sync**          | Automatically pushes local changes and pulls remote updates.                                                |
-| 🚦 **Conflict Resolution**   | Built-in strategies (`LastWriteWins`, custom resolvers supported).                                          |
-| 🧱 **Schema Migrations**     | Easily migrate data between versions with custom migration logic.                                           |
-| 🔒 **User-Scoped Data**      | Separate storage and sync queues per user.                                                                  |
-| 🧍‍♂️ **Multi-User Support** | Switch between multiple signed-in users seamlessly.                                                         |
-| 🧭 **Reactive Data Streams** | Real-time change tracking using `Stream`s.                                                                  |
-| 🔔 **Sync Events**           | Listen to sync start, success, error, and conflict events.                                                  |
-| 🧰 **Customizable Config**   | Define retry policies, backoff strategy, auto-sync intervals, and more.                                     |
-| 💾 **Background Sync Ready** | Works even when your app resumes from background.                                                           |
-| 🧩 **Cross-Platform**        | Works on **Android**, **iOS**, **macOS**, **Windows**, **Linux**, and **Web** (when supported by adapters). |
-
----
-
-## 🧭 Platform Support
-
-| Platform |                 Status                 |
-| :------- | :------------------------------------: |
-| Android  |                    ✅                   |
-| iOS      |                    ✅                   |
-| macOS    |                    ✅                   |
-| Windows  |                    ✅                   |
-| Linux    |                    ✅                   |
-| Web      | ⚠️ (depends on adapter implementation) |
+| Feature                     | Description                                                                              |
+| :-------------------------- | :--------------------------------------------------------------------------------------- |
+| ⚡ **Offline-First Sync**    | Read/write instantly — automatic sync when connection returns.                           |
+| 🧩 **Adapter-Based Design** | Plug in any local DB (Hive, Isar, SQLite) and remote source (REST, Supabase, Firestore). |
+| 🔁 **Two-Way Sync**         | Pushes local changes and pulls remote updates automatically.                             |
+| 🚦 **Conflict Resolution**  | Built-in strategies (`LastWriteWins` or custom resolvers).                               |
+| 🧱 **Schema Migrations**    | Migrate data seamlessly between app versions.                                            |
+| 🔒 **User-Scoped Data**     | Isolated storage & queues for each user.                                                 |
+| 👥 **Multi-User Support**   | Switch users seamlessly — no data leakage.                                               |
+| 📡 **Reactive Streams**     | Observe changes live using `Stream`s.                                                    |
+| 🔔 **Sync Events**          | Listen to sync start, success, failure, and conflict events.                             |
+| 🧰 **Customizable Config**  | Control retry policies, backoff, sync intervals, etc.                                    |
+| 💾 **Background Sync**      | Auto-sync when app resumes.                                                              |
+| 🌍 **Cross-Platform**       | Works on Android, iOS, macOS, Windows, Linux, and (soon) Web.                            |
 
 ---
 
-## 📦 Installation
+## 🧭 **Platform Support**
 
-Add **Datum** to your project:
+| Platform |          Status         |
+| :------- | :---------------------: |
+| Android  |            ✅            |
+| iOS      |            ✅            |
+| macOS    |            ✅            |
+| Windows  |            ✅            |
+| Linux    |            ✅            |
+| Web      | ⚠️ (depends on adapter) |
+
+---
+
+## 📦 **Installation**
 
 ```yaml
 dependencies:
@@ -72,11 +61,9 @@ flutter pub get
 
 ---
 
-## 🚀 Getting Started
+## 🚀 **Getting Started**
 
 ### 1️⃣ Initialize Datum
-
-At app startup, configure Datum once:
 
 ```dart
 final datum = await Datum.initialize(
@@ -85,17 +72,13 @@ final datum = await Datum.initialize(
     autoStartSync: true,
   ),
   connectivityChecker: MyConnectivityChecker(),
-  registrations: [
-    noteRegistration,
-  ],
+  registrations: [noteRegistration],
 );
 ```
 
 ---
 
 ### 2️⃣ Define Your Entity
-
-All models must extend `DatumEntity`:
 
 ```dart
 class Note extends DatumEntity {
@@ -129,7 +112,7 @@ class Note extends DatumEntity {
 
 ### 3️⃣ Define Adapters
 
-#### 🏠 Local Adapter (Hive Example)
+#### 🏠 **Local Adapter (Hive Example)**
 
 ```dart
 class NoteLocalAdapter extends LocalAdapter<Note> {
@@ -157,16 +140,13 @@ class NoteLocalAdapter extends LocalAdapter<Note> {
 }
 ```
 
-#### ☁️ Remote Adapter (Supabase Example)
+#### ☁️ **Remote Adapter (Supabase Example)**
 
 ```dart
 class NoteRemoteAdapter extends RemoteAdapter<Note> {
   final SupabaseClient supabase;
 
   NoteRemoteAdapter(this.supabase);
-
-  @override
-  Future<void> initialize() async {}
 
   @override
   Future<void> create(Note note) async {
@@ -188,7 +168,7 @@ class NoteRemoteAdapter extends RemoteAdapter<Note> {
 
 ---
 
-### 4️⃣ Register and Initialize
+### 4️⃣ Register & Initialize
 
 ```dart
 final noteRegistration = DatumRegistration<Note>(
@@ -205,7 +185,7 @@ await Datum.initialize(
 
 ---
 
-## 🧩 Using Datum
+## 🧩 **Using Datum**
 
 ### 📝 CRUD Operations
 
@@ -223,9 +203,7 @@ final allNotes = await Datum.instance.readAll<Note>(userId: 'user_1');
 
 ---
 
-### 🔁 Synchronization
-
-Manually trigger a full sync:
+### 🔁 Manual Synchronization
 
 ```dart
 final result = await Datum.instance.synchronize('user_1');
@@ -238,45 +216,15 @@ print('Synced ${result.syncedCount} items');
 
 | Function                | Description                                   |
 | :---------------------- | :-------------------------------------------- |
-| `watchAll<T>()`         | Streams all entities of type `T` in real-time |
-| `watchById<T>(id)`      | Stream a single entity by ID                  |
-| `statusForUser(userId)` | Observe current sync status                   |
-| `events`                | Listen to all sync lifecycle events           |
-| `metrics`               | Observe real-time synchronization metrics     |
-
-Example:
-
-```dart
-Datum.instance.watchAll<Note>(userId: 'user_1').listen((notes) {
-  print('Notes updated: ${notes.length}');
-});
-
-Datum.instance.events.listen((event) {
-  if (event is DatumSyncErrorEvent) {
-    print('Sync failed: ${event.error}');
-  }
-});
-
-Datum.instance.metrics.listen((metrics) {
-  print('Total syncs: ${metrics.totalSyncOperations}, Successful: ${metrics.successfulSyncs}');
-});
-```
+| `watchAll<T>()`         | Stream all entities of type `T` in real-time. |
+| `watchById<T>(id)`      | Stream a single entity by ID.                 |
+| `statusForUser(userId)` | Observe current sync status.                  |
+| `events`                | Listen to sync lifecycle events.              |
+| `metrics`               | Observe real-time synchronization metrics.    |
 
 ---
 
-### 🧭 Tracking & Grouping Functions
-
-| Category              | Common Functions                                            |
-| :-------------------- | :---------------------------------------------------------- |
-| **Entity Management** | `create()`, `read()`, `update()`, `delete()`                |
-| **Reactive Streams**  | `watchAll()`, `watchById()`, `statusForUser()`              |
-| **Synchronization**   | `synchronize()`, `resolveConflicts()`, `retryFailedSyncs()` |
-| **Diagnostics**       | `Datum.instance.events`, `Datum.instance.currentStatus()`   |
-| **Migrations**        | `Datum.instance.migrate()`, `DatumConfig.migrations`        |
-
----
-
-### 🧠 Example: Automatic Background Sync
+### 🧠 Example: Auto Background Sync
 
 ```dart
 Timer.periodic(Duration(minutes: 15), (_) async {
@@ -288,9 +236,7 @@ Timer.periodic(Duration(minutes: 15), (_) async {
 
 ---
 
-### ⚙️ Clean Up
-
-Dispose resources when app closes:
+### ⚙️ Cleanup
 
 ```dart
 await Datum.instance.dispose();
@@ -298,27 +244,14 @@ await Datum.instance.dispose();
 
 ---
 
-## 🩺 Sync Health & Metrics
+## 🩺 **Sync Health & Metrics**
 
-Datum provides built-in observability for your synchronization layer — enabling you to **monitor real-time health** and **analyze sync performance**.
+Stay informed about your app’s sync performance in real time.
 
 ### 🔹 `DatumHealth`
 
-`DatumHealth` represents the current operational health of a sync manager.
-It emits live updates via a `Stream<DatumHealth>` so you can reactively display or log status changes in your app.
-
-```dart
-enum DatumSyncHealth {
-  healthy,   // Everything is working normally.
-  syncing,   // A synchronization cycle is in progress.
-  pending,   // Local changes are waiting to be synced.
-  degraded,  // Non-critical issues (e.g., network flakiness).
-  offline,   // Remote data source is unreachable.
-  error,     // Critical failure; sync cannot continue.
-}
-```
-
-You can listen to the health stream:
+Represents current sync status with states like:
+`healthy`, `syncing`, `pending`, `degraded`, `offline`, and `error`.
 
 ```dart
 manager.health.listen((health) {
@@ -326,351 +259,38 @@ manager.health.listen((health) {
 });
 ```
 
-**Example Usage (UI Binding):**
-
-```dart
-StreamBuilder<DatumHealth>(
-  stream: manager.health,
-  builder: (context, snapshot) {
-    final status = snapshot.data?.status ?? DatumSyncHealth.healthy;
-    return Text('Status: ${describeEnum(status)}');
-  },
-);
-```
-
 ---
 
 ### 🔹 `DatumMetrics`
 
-`DatumMetrics` provides an immutable snapshot of all key synchronization statistics collected by Datum:
-
-| Metric                           | Description                                               |
-| -------------------------------- | --------------------------------------------------------- |
-| `totalSyncOperations`            | Total number of sync cycles started.                      |
-| `successfulSyncs`                | Sync cycles completed successfully.                       |
-| `failedSyncs`                    | Sync cycles that encountered errors.                      |
-| `conflictsDetected`              | Number of data conflicts detected.                        |
-| `conflictsResolvedAutomatically` | Conflicts resolved via the active resolver (e.g. LWW).    |
-| `userSwitchCount`                | Number of times the active user changed during a session. |
-| `activeUsers`                    | Set of unique user IDs active in this session.            |
-
-Example usage:
-
-```dart
-// Access current metrics snapshot
-final metrics = datum.currentMetrics;
-
-print('Total syncs: ${metrics.totalSyncOperations}');
-print('Conflicts resolved automatically: ${metrics.conflictsResolvedAutomatically}');
-```
-
-You can also subscribe to real-time metric updates:
-
-```dart
-datum.metrics.listen((metrics) {
-  debugPrint('Sync metrics updated: $metrics');
-});
-```
-
-## ⛓️ Managing Relational Data & Advanced Querying
-
-Datum goes beyond simple CRUD by providing powerful tools for handling relational data and building complex queries.
-
-### 1. Defining Relationships
-
-To enable relations, your model must extend `RelationalDatumEntity`. Define relationships in the `relations` map.
-
-```dart
-class User extends RelationalDatumEntity {
-  // ... fields
-  @override
-  Map<String, Relation> get relations => {
-    'posts': HasMany('userId'), // User has many Posts
-    'profile': HasOne('userId'),  // User has one Profile
-  };
-  // ...
-}
-
-class Post extends RelationalDatumEntity {
-  // ... fields
-  @override
-  Map<String, Relation> get relations => {
-    'author': BelongsTo('userId'), // Post belongs to a User
-    'tags': ManyToMany(PostTag.constInstance, 'postId', 'tagId'), // Post has and belongs to many Tags
-  };
-  // ...
-}
-```
-
-### 2. Fetching & Watching Relational Data
-
-Use `fetchRelated` for a one-time fetch and `watchRelated` for a real-time stream of related entities.
-
-```dart
-// Get the parent entity
-final user = await userManager.read('user-1');
-
-// One-time fetch of all posts for the user
-final posts = await userManager.fetchRelated<Post>(user!, 'posts');
-print('User has ${posts.length} posts.');
-
-// Reactively watch the user's posts for any changes
-userManager.watchRelated<Post>(user, 'posts').listen((updatedPosts) {
-  print('User posts updated: ${updatedPosts.length}');
-});
-```
-
-### 3. Building Advanced Queries
-
-Use the fluent `DatumQueryBuilder` to create sophisticated queries with filtering, sorting, and pagination.
-
-```dart
-// Build a query to find the 10 most recent, published posts containing 'Flutter'
-final query = DatumQueryBuilder<Post>()
-  .where('title', contains: 'Flutter')
-  .where('isPublished', isEqualTo: true)
-  .orderBy('createdAt', descending: true)
-  .limit(10)
-  .build();
-
-// Execute the query against the local or remote data source
-final localResults = await postManager.query(query, source: DataSource.local);
-final remoteResults = await postManager.query(query, source: DataSource.remote);
-
-// You can also watch a query for real-time updates
-postManager.watchQuery(query).listen((posts) {
-  // This list will update automatically when data changes
-});
-```
+| Metric                           | Description                          |
+| :------------------------------- | :----------------------------------- |
+| `totalSyncOperations`            | Total number of sync cycles started. |
+| `successfulSyncs`                | Completed successfully.              |
+| `failedSyncs`                    | Encountered errors.                  |
+| `conflictsDetected`              | Detected data conflicts.             |
+| `conflictsResolvedAutomatically` | Resolved using resolver (e.g., LWW). |
+| `userSwitchCount`                | Number of user switches in session.  |
+| `activeUsers`                    | Unique active users in session.      |
 
 ---
 
-## 🩺 Sync Health & Metrics
+## 🔄 **User Switching Made Easy**
 
-Datum provides built-in observability for your synchronization layer — enabling you to **monitor real-time health** and **analyze sync performance**.
+Datum handles multiple users gracefully — no manual data cleanup required!
 
-### 🔹 `DatumHealth`
+### ✨ Strategies
 
-`DatumHealth` represents the current operational health of a sync manager.
-It emits live updates via a `Stream<DatumHealth>` so you can reactively display or log status changes in your app.
-
-```dart
-enum DatumSyncHealth {
-  healthy,   // Everything is working normally.
-  syncing,   // A synchronization cycle is in progress.
-  pending,   // Local changes are waiting to be synced.
-  degraded,  // Non-critical issues (e.g., network flakiness).
-  offline,   // Remote data source is unreachable.
-  error,     // Critical failure; sync cannot continue.
-}
-```
-
-You can listen to the health stream:
-
-```dart
-manager.health.listen((health) {
-  print('Current sync status: ${health.status}');
-});
-```
-
-**Example Usage (UI Binding):**
-
-```dart
-StreamBuilder<DatumHealth>(
-  stream: manager.health,
-  builder: (context, snapshot) {
-    final status = snapshot.data?.status ?? DatumSyncHealth.healthy;
-    return Text('Status: ${describeEnum(status)}');
-  },
-);
-```
+| Strategy                  | Behavior                                       |
+| :------------------------ | :--------------------------------------------- |
+| 🧭 `syncThenSwitch`       | Sync old user’s pending data, then switch.     |
+| 🔒 `promptIfUnsyncedData` | Prevent switch if unsynced data exists.        |
+| 🧼 `clearAndFetch`        | Clear new user data & fetch fresh remote data. |
+| 💾 `keepLocal`            | Switch immediately, keeping local data intact. |
 
 ---
 
-### 🔹 `DatumMetrics`
-
-`DatumMetrics` provides an immutable snapshot of all key synchronization statistics collected by Datum:
-
-| Metric                           | Description                                               |
-| -------------------------------- | --------------------------------------------------------- |
-| `totalSyncOperations`            | Total number of sync cycles started.                      |
-| `successfulSyncs`                | Sync cycles completed successfully.                       |
-| `failedSyncs`                    | Sync cycles that encountered errors.                      |
-| `conflictsDetected`              | Number of data conflicts detected.                        |
-| `conflictsResolvedAutomatically` | Conflicts resolved via the active resolver (e.g. LWW).    |
-| `userSwitchCount`                | Number of times the active user changed during a session. |
-| `activeUsers`                    | Set of unique user IDs active in this session.            |
-
-Example usage:
-
-```dart
-// Access current metrics snapshot
-final metrics = datum.currentMetrics;
-
-print('Total syncs: ${metrics.totalSyncOperations}');
-print('Conflicts resolved automatically: ${metrics.conflictsResolvedAutomatically}');
-```
-
-You can also subscribe to real-time metric updates:
-
-```dart
-datum.metrics.listen((metrics) {
-  debugPrint('Sync metrics updated: $metrics');
-});
-```
-
----
-
-### 📊 Example Output
-
-```
-DatumMetrics(
-  totalSyncs: 14,
-  successful: 12,
-  failed: 2,
-  conflicts: 3
-)
-```
-
-### ✅ Why It Matters
-
-These APIs allow you to:
-
-* Build **dashboards or developer diagnostics**.
-* Track **sync performance across users**.
-* Detect **connectivity or reliability issues** early.
-* Provide **visible sync status feedback** to users.
-
----
-
-Got it! GitHub supports **Mermaid diagrams** in Markdown, so we can use a GitHub-compatible Mermaid flowchart. Here's the updated **User Switching section** with a GitHub-ready diagram:
-
----
-
-## User Switching with `DatumManager`
-
-`DatumManager` allows seamless switching between users while handling local and remote data automatically. You can choose a strategy depending on whether you want to keep unsynced data, synchronize it, or start fresh for the new user.
-
-### Step 1: Import Dependencies
-
-```dart
-import 'package:datum/datum.dart';
-```
-
-### Step 2: Initialize `DatumManager`
-
-```dart
-final manager = DatumManager<MyEntity>(
-  localAdapter: myLocalAdapter,
-  remoteAdapter: myRemoteAdapter,
-  connectivity: myConnectivityChecker,
-  datumConfig: const DatumConfig(),
-  localObservers: [myObserver], // optional observer hooks
-);
-
-await manager.initialize();
-```
-
-### Step 3: Switch Users
-
-```dart
-final result = await manager.switchUser(
-  oldUserId: 'oldUser',
-  newUserId: 'newUser',
-  strategy: UserSwitchStrategy.syncThenSwitch,
-);
-
-if (result.success) {
-  print('Switched to newUser successfully');
-} else {
-  print('Switch failed: ${result.errorMessage}');
-}
-```
-
-**Available Strategies:**
-
-| Strategy               | Behavior                                                         |
-| ---------------------- | ---------------------------------------------------------------- |
-| `promptIfUnsyncedData` | Prevent switch if old user has unsynced data.                    |
-| `syncThenSwitch`       | Synchronize old user's pending operations, then switch.          |
-| `clearAndFetch`        | Clears new user's local data and fetches fresh data from remote. |
-| `keepLocal`            | Switch without touching local or remote data.                    |
-
-### Step 4: Listen for User Switch Events
-
-### Strategy Cheat Sheet
-
-Here are quick copy-paste examples for each strategy:
-
-| Strategy | Example Usage |
-| :--- | :--- |
-| `syncThenSwitch` | ```dart
-// Syncs old user's data, then switches.
-// Good for ensuring data isn't lost.
-await manager.switchUser(
-  oldUserId: 'user-A',
-  newUserId: 'user-B',
-  strategy: UserSwitchStrategy.syncThenSwitch,
-);
-``` |
-| `clearAndFetch` | ```dart
-// Wipes local data for the new user and pulls fresh data.
-// Good for a clean login.
-await manager.switchUser(
-  oldUserId: 'user-A',
-  newUserId: 'user-B',
-  strategy: UserSwitchStrategy.clearAndFetch,
-);
-``` |
-| `promptIfUnsyncedData` | ```dart
-// Fails if the old user has unsynced changes.
-// Good for preventing data loss with user confirmation.
-final result = await manager.switchUser(
-  oldUserId: 'user-A',
-  newUserId: 'user-B',
-  strategy: UserSwitchStrategy.promptIfUnsyncedData,
-);
-if (!result.success) {
-  // Show a dialog: "You have unsynced changes. Sync now?"
-}
-``` |
-| `keepLocal` | ```dart
-// Switches immediately, keeping any existing local data for the new user.
-await manager.switchUser(
-  oldUserId: 'user-A',
-  newUserId: 'user-B',
-  strategy: UserSwitchStrategy.keepLocal,
-);
-``` |
-
-```dart
-manager.onUserSwitched.listen((event) {
-  print('Switched from ${event.previousUserId} to ${event.newUserId}');
-  if (event.hadUnsyncedData) {
-    print('Old user had unsynced data!');
-  }
-});
-```
-
-### Step 5: Optional Observer Hooks
-
-```dart
-class MyObserver extends DatumObserver<MyEntity> {
-  @override
-  void onUserSwitchStart(String? oldUserId, String newUserId, UserSwitchStrategy strategy) {
-    print('Switch started from $oldUserId to $newUserId using $strategy');
-  }
-
-  @override
-  void onUserSwitchEnd(DatumUserSwitchResult result) {
-    print('Switch ended with success: ${result.success}');
-  }
-}
-```
-
----
-
-### Workflow Diagram
+### 🧩 Mermaid Workflow
 
 ```mermaid
 flowchart TD
@@ -679,8 +299,8 @@ flowchart TD
     B -- Yes & Strategy=syncThenSwitch --> D[Sync Old User]
     B -- No or after Sync --> E{Strategy Choice}
     E -- clearAndFetch --> F[Clear New User Data & Fetch Remote]
-    E -- keepLocal --> G[Keep New User Local Data Intact]
-    E -- syncThenSwitch --> H[Switch User After Sync]
+    E -- keepLocal --> G[Keep Local Data Intact]
+    E -- syncThenSwitch --> H[Switch After Sync]
     F --> I[Switch Completed]
     G --> I
     H --> I
@@ -688,34 +308,34 @@ flowchart TD
     I --> J[onUserSwitched Event Triggered]
 ```
 
-**Diagram Explanation:**
-
-1. Checks if the old user has pending operations.
-2. Depending on the chosen strategy, it may prevent switching, synchronize, or clear/fetch data.
-3. After the switch, the `onUserSwitched` event is triggered, so your UI or business logic can respond.
+> 🔍 Automatically syncs or cleans data per your selected strategy before switching.
 
 ---
 
-If you want, I can **also create a minimal “cheat sheet table” with short code snippets for all 4 strategies** so users can quickly copy-paste them.
+## 🧩 **Coming Soon**
 
-Do you want me to do that next?
-
-
-## 🧩 Coming Soon
-
-* 🔥 Built-in adapters for **Isar**, **Drift**, **Supabase**, and **Firestore**
-* 🕸️ Web support with IndexedDB adapter
-* ⚔️ Advanced conflict resolution strategies
-* 🧪 Developer dashboard for sync monitoring
+* 🔥 Built-in adapters for **Isar**, **Drift**, **Supabase**, **Firestore**
+* 🕸️ IndexedDB adapter for **Web**
+* ⚔️ Smarter conflict resolution strategies
+* 🧪 Developer Dashboard for real-time sync insights
 
 ---
 
-## 🧑‍💻 Contributing
+## 🧑‍💻 **Contributing**
 
-Contributions are welcome! Please open issues or PRs on GitHub — whether it's documentation improvements, feature ideas, or adapter implementations.
+Pull requests welcome!
+Found a bug 🐞 or want a new adapter?
+👉 Open an issue or PR — we’d love your help.
 
 ---
 
-## 🪪 License
+## 🪪 **License**
 
-MIT License © 2025 [Shreeman Arjun](https://flutterexplorer.dev)
+MIT License © 2025 [**Shreeman Arjun**](https://flutterexplorer.dev)
+
+---
+
+Would you like me to:
+
+* 🧭 Add a **“Quick Demo App”** section with runnable example code (showing both local + remote sync)?
+* Or 🎨 include **badges + emoji-style section dividers** (e.g., 🚀 / 🧠 / 🧩) to make it more visually distinctive on GitHub?

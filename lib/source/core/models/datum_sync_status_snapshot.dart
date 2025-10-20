@@ -1,5 +1,5 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
-import 'package:collection/collection.dart';
+import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
 
 import 'package:datum/source/core/health/datum_health.dart';
@@ -27,7 +27,7 @@ enum DatumSyncStatus {
 
 /// An immutable snapshot describing the current sync state for a user.
 @immutable
-class DatumSyncStatusSnapshot {
+class DatumSyncStatusSnapshot extends Equatable {
   /// User ID for this snapshot.
   final String userId;
 
@@ -130,42 +130,23 @@ class DatumSyncStatusSnapshot {
   }
 
   @override
-  bool operator ==(covariant DatumSyncStatusSnapshot other) {
-    if (identical(this, other)) return true;
-    final listEquals = const DeepCollectionEquality().equals;
-
-    return other.userId == userId &&
-        other.status == status &&
-        other.pendingOperations == pendingOperations &&
-        other.completedOperations == completedOperations &&
-        other.failedOperations == failedOperations &&
-        other.progress == progress &&
-        other.lastStartedAt == lastStartedAt &&
-        other.lastCompletedAt == lastCompletedAt &&
-        listEquals(other.errors, errors) &&
-        other.syncedCount == syncedCount &&
-        other.conflictsResolved == conflictsResolved &&
-        other.health == health;
-  }
-
-  @override
-  int get hashCode {
-    return userId.hashCode ^
-        status.hashCode ^
-        pendingOperations.hashCode ^
-        completedOperations.hashCode ^
-        failedOperations.hashCode ^
-        progress.hashCode ^
-        lastStartedAt.hashCode ^
-        lastCompletedAt.hashCode ^
-        errors.hashCode ^
-        syncedCount.hashCode ^
-        conflictsResolved.hashCode ^
-        health.hashCode;
-  }
-
-  @override
   String toString() {
     return 'DatumSyncStatusSnapshot(userId: $userId, status: $status, pendingOperations: $pendingOperations, completedOperations: $completedOperations, failedOperations: $failedOperations, progress: $progress, lastStartedAt: $lastStartedAt, lastCompletedAt: $lastCompletedAt, errors: $errors, syncedCount: $syncedCount, conflictsResolved: $conflictsResolved, health: $health)';
   }
+
+  @override
+  List<Object?> get props => [
+        userId,
+        status,
+        pendingOperations,
+        completedOperations,
+        failedOperations,
+        progress,
+        lastStartedAt,
+        lastCompletedAt,
+        errors,
+        syncedCount,
+        conflictsResolved,
+        health,
+      ];
 }

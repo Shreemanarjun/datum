@@ -1,3 +1,4 @@
+import 'package:datum/source/core/health/datum_health.dart';
 import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
 import 'package:test/test.dart';
 
@@ -13,6 +14,12 @@ void main() {
       expect(snapshot.failedOperations, 0);
       expect(snapshot.progress, 0.0);
       expect(snapshot.hasUnsyncedData, isFalse);
+      expect(snapshot.hasFailures, isFalse);
+      expect(snapshot.lastStartedAt, isNull);
+      expect(snapshot.lastCompletedAt, isNull);
+      expect(snapshot.errors, isEmpty);
+      expect(snapshot.syncedCount, 0);
+      expect(snapshot.conflictsResolved, 0);
       expect(snapshot.hasFailures, isFalse);
     });
 
@@ -72,5 +79,100 @@ void main() {
         expect(copied.pendingOperations, initial.pendingOperations);
       },
     );
+
+    group('Equality and HashCode', () {
+      final now = DateTime.now();
+      final health = const DatumHealth(status: DatumSyncHealth.syncing);
+      final errors = [Exception('Test')];
+      final snapshot1 = DatumSyncStatusSnapshot(
+        userId: 'user1',
+        status: DatumSyncStatus.syncing,
+        pendingOperations: 5,
+        completedOperations: 2,
+        failedOperations: 1,
+        progress: 0.4,
+        lastStartedAt: now,
+        errors: errors,
+        syncedCount: 2,
+        conflictsResolved: 1,
+        health: health,
+      );
+
+      test('instances with same values are equal', () {
+        final snapshot2 = DatumSyncStatusSnapshot(
+          userId: 'user1',
+          status: DatumSyncStatus.syncing,
+          pendingOperations: 5,
+          completedOperations: 2,
+          failedOperations: 1,
+          progress: 0.4,
+          lastStartedAt: now,
+          errors: errors,
+          syncedCount: 2,
+          conflictsResolved: 1,
+          health: health,
+        );
+
+        expect(snapshot1, equals(snapshot2));
+        expect(snapshot1.hashCode, equals(snapshot2.hashCode));
+      });
+
+      test('instances with different values are not equal', () {
+        final differentStatus =
+            snapshot1.copyWith(status: DatumSyncStatus.completed);
+        final differentPending = snapshot1.copyWith(pendingOperations: 10);
+        final differentProgress = snapshot1.copyWith(progress: 0.8);
+        final differentHealth = snapshot1.copyWith(
+          health: const DatumHealth(status: DatumSyncHealth.healthy),
+        );
+
+        expect(snapshot1, isNot(equals(differentStatus)));
+        expect(snapshot1, isNot(equals(differentPending)));
+        expect(snapshot1, isNot(equals(differentProgress)));
+        expect(snapshot1, isNot(equals(differentHealth)));
+      });
+
+      test('instances with different error lists are not equal', () {
+        final differentErrors = snapshot1.copyWith(errors: []);
+        expect(snapshot1, isNot(equals(differentErrors)));
+      });
+    });
+
+    test('toString provides a useful representation', () {
+      final now = DateTime.now();
+      final snapshot = DatumSyncStatusSnapshot(
+        userId: 'user-xyz',
+        status: DatumSyncStatus.syncing,
+        pendingOperations: 10,
+        completedOperations: 5,
+        failedOperations: 1,
+        progress: 0.5,
+        lastStartedAt: now,
+        errors: [Exception('Network Error')],
+        syncedCount: 4,
+        conflictsResolved: 1,
+        health: const DatumHealth(status: DatumSyncHealth.degraded),
+      );
+
+      final stringRepresentation = snapshot.toString();
+
+      expect(stringRepresentation, contains('userId: user-xyz'));
+      expect(stringRepresentation, contains('status: DatumSyncStatus.syncing'));
+      expect(stringRepresentation, contains('pendingOperations: 10'));
+      expect(stringRepresentation, contains('completedOperations: 5'));
+      expect(stringRepresentation, contains('failedOperations: 1'));
+      expect(stringRepresentation, contains('progress: 0.5'));
+      expect(stringRepresentation, contains('lastStartedAt: $now'));
+      expect(
+          stringRepresentation, contains('errors: [Exception: Network Error]'));
+      expect(stringRepresentation, contains('syncedCount: 4'));
+      expect(stringRepresentation, contains('conflictsResolved: 1'));
+      expect(
+        stringRepresentation,
+        contains(
+          'health: DatumHealth(DatumSyncHealth.degraded, AdapterHealthStatus.ok, AdapterHealthStatus.ok)',
+        ),
+      );
+    });
   });
 }
