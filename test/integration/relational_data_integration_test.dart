@@ -33,8 +33,8 @@ class User extends RelationalDatumEntity {
 
   @override
   Map<String, Relation> get relations => {
-        'posts': HasMany('userId'), // A user has many posts.
-        'profile': HasOne('userId'), // A user has one profile.
+        'posts': const HasMany('userId'), // A user has many posts.
+        'profile': const HasOne('userId'), // A user has one profile.
       };
 
   @override
@@ -67,24 +67,12 @@ class User extends RelationalDatumEntity {
   bool operator ==(covariant User other) {
     if (identical(this, other)) return true;
 
-    return other.id == id &&
-        other.userId == userId &&
-        other.name == name &&
-        other.modifiedAt == modifiedAt &&
-        other.createdAt == createdAt &&
-        other.version == version &&
-        other.isDeleted == isDeleted;
+    return other.id == id && other.userId == userId && other.name == name && other.modifiedAt == modifiedAt && other.createdAt == createdAt && other.version == version && other.isDeleted == isDeleted;
   }
 
   @override
   int get hashCode {
-    return id.hashCode ^
-        userId.hashCode ^
-        name.hashCode ^
-        modifiedAt.hashCode ^
-        createdAt.hashCode ^
-        version.hashCode ^
-        isDeleted.hashCode;
+    return id.hashCode ^ userId.hashCode ^ name.hashCode ^ modifiedAt.hashCode ^ createdAt.hashCode ^ version.hashCode ^ isDeleted.hashCode;
   }
 }
 
@@ -117,7 +105,7 @@ class Post extends RelationalDatumEntity {
   // Define the relationships
   @override
   Map<String, Relation> get relations => {
-        'author': BelongsTo('userId'),
+        'author': const BelongsTo('userId'),
         'tags': ManyToMany(PostTag.constInstance, 'postId', 'tagId'),
       };
 
@@ -160,24 +148,12 @@ class Post extends RelationalDatumEntity {
   bool operator ==(covariant Post other) {
     if (identical(this, other)) return true;
 
-    return other.id == id &&
-        other.userId == userId &&
-        other.title == title &&
-        other.modifiedAt == modifiedAt &&
-        other.createdAt == createdAt &&
-        other.version == version &&
-        other.isDeleted == isDeleted;
+    return other.id == id && other.userId == userId && other.title == title && other.modifiedAt == modifiedAt && other.createdAt == createdAt && other.version == version && other.isDeleted == isDeleted;
   }
 
   @override
   int get hashCode {
-    return id.hashCode ^
-        userId.hashCode ^
-        title.hashCode ^
-        modifiedAt.hashCode ^
-        createdAt.hashCode ^
-        version.hashCode ^
-        isDeleted.hashCode;
+    return id.hashCode ^ userId.hashCode ^ title.hashCode ^ modifiedAt.hashCode ^ createdAt.hashCode ^ version.hashCode ^ isDeleted.hashCode;
   }
 }
 
@@ -233,24 +209,12 @@ class Tag extends RelationalDatumEntity {
   bool operator ==(covariant Tag other) {
     if (identical(this, other)) return true;
 
-    return other.id == id &&
-        other.userId == userId &&
-        other.name == name &&
-        other.modifiedAt == modifiedAt &&
-        other.createdAt == createdAt &&
-        other.version == version &&
-        other.isDeleted == isDeleted;
+    return other.id == id && other.userId == userId && other.name == name && other.modifiedAt == modifiedAt && other.createdAt == createdAt && other.version == version && other.isDeleted == isDeleted;
   }
 
   @override
   int get hashCode {
-    return id.hashCode ^
-        userId.hashCode ^
-        name.hashCode ^
-        modifiedAt.hashCode ^
-        createdAt.hashCode ^
-        version.hashCode ^
-        isDeleted.hashCode;
+    return id.hashCode ^ userId.hashCode ^ name.hashCode ^ modifiedAt.hashCode ^ createdAt.hashCode ^ version.hashCode ^ isDeleted.hashCode;
   }
 }
 
@@ -300,8 +264,7 @@ class PostTag extends RelationalDatumEntity {
       };
 
   @override
-  PostTag copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) =>
-      this;
+  PostTag copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) => this;
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
@@ -335,7 +298,7 @@ class Profile extends RelationalDatumEntity {
 
   // Define the relationship
   @override
-  Map<String, Relation> get relations => {'user': BelongsTo('userId')};
+  Map<String, Relation> get relations => {'user': const BelongsTo('userId')};
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
@@ -800,16 +763,14 @@ void main() {
         await postManager.push(item: testPost, userId: testUser.id);
 
         // Pre-Assert: Ensure the relationship exists before deletion.
-        final initialAuthors =
-            await postManager.fetchRelated<User>(testPost, 'author');
+        final initialAuthors = await postManager.fetchRelated<User>(testPost, 'author');
         expect(initialAuthors, isNotEmpty);
 
         // Act: Delete the user (the "parent" in the belongsTo relationship).
         await userManager.delete(id: testUser.id, userId: testUser.id);
 
         // Assert: Fetching the author for the post should now return an empty list.
-        final authorsAfterDelete =
-            await postManager.fetchRelated<User>(testPost, 'author');
+        final authorsAfterDelete = await postManager.fetchRelated<User>(testPost, 'author');
         expect(authorsAfterDelete, isEmpty);
       },
     );
@@ -825,16 +786,14 @@ void main() {
         await postTagManager.push(item: postTag2, userId: postTag2.userId);
 
         // Pre-Assert: Ensure both tags are related initially.
-        final initialTags =
-            await postManager.fetchRelated<Tag>(testPost, 'tags');
+        final initialTags = await postManager.fetchRelated<Tag>(testPost, 'tags');
         expect(initialTags, hasLength(2));
 
         // Act: Delete one of the pivot table entries (the link between post and tag).
         await postTagManager.delete(id: postTag1.id, userId: postTag1.userId);
 
         // Assert: Fetching the tags for the post should now only return one tag.
-        final tagsAfterDelete =
-            await postManager.fetchRelated<Tag>(testPost, 'tags');
+        final tagsAfterDelete = await postManager.fetchRelated<Tag>(testPost, 'tags');
         expect(tagsAfterDelete, hasLength(1));
         expect(tagsAfterDelete.first.id, 'tag-2');
       },

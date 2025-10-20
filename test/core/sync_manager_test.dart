@@ -8,17 +8,13 @@ import 'package:rxdart/rxdart.dart';
 import '../mocks/test_entity.dart';
 
 // Use proper mocktail mocks for adapters
-class MockLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
-class MockConnectivityChecker extends Mock
-    implements DatumConnectivityChecker {}
+class MockConnectivityChecker extends Mock implements DatumConnectivityChecker {}
 
-class MockSyncEngine<T extends DatumEntity> extends Mock
-    implements DatumSyncEngine<T> {}
+class MockSyncEngine<T extends DatumEntity> extends Mock implements DatumSyncEngine<T> {}
 
 /// A custom logger for tests that omits stack traces for cleaner output.
 class TestLogger extends DatumLogger {
@@ -35,7 +31,7 @@ class MockMiddleware extends Mock implements DatumMiddleware<TestEntity> {}
 
 void _registerFallbacks() {
   registerFallbackValue(
-    DatumSyncMetadata(userId: 'fallback', dataHash: 'fallback'),
+    const DatumSyncMetadata(userId: 'fallback', dataHash: 'fallback'),
   );
   registerFallbackValue(
     TestEntity(
@@ -128,8 +124,7 @@ void main() async {
       when(() => localAdapter.transaction(any())).thenAnswer((
         invocation,
       ) async {
-        final action =
-            invocation.positionalArguments.first as Future<dynamic> Function();
+        final action = invocation.positionalArguments.first as Future<dynamic> Function();
         return action();
       });
       when(
@@ -220,9 +215,7 @@ void main() async {
     });
 
     group('SyncExceptionWithEvents Handling', () {
-      test(
-          'processes events and re-throws original error from SyncExceptionWithEvents',
-          () async {
+      test('processes events and re-throws original error from SyncExceptionWithEvents', () async {
         // This test requires a custom manager to inject the mock sync engine.
         // We can't easily do this with the group's setUp, so we create it here.
 
@@ -450,14 +443,8 @@ void main() async {
         expect(
           stream,
           emitsInOrder([
-            isA<DatumSyncProgressEvent>()
-                .having((e) => e.progress, 'progress', 0.5)
-                .having((e) => e.completed, 'completed', 1)
-                .having((e) => e.total, 'total', 2),
-            isA<DatumSyncProgressEvent>()
-                .having((e) => e.progress, 'progress', 1.0)
-                .having((e) => e.completed, 'completed', 2)
-                .having((e) => e.total, 'total', 2),
+            isA<DatumSyncProgressEvent>().having((e) => e.progress, 'progress', 0.5).having((e) => e.completed, 'completed', 1).having((e) => e.total, 'total', 2),
+            isA<DatumSyncProgressEvent>().having((e) => e.progress, 'progress', 1.0).having((e) => e.completed, 'completed', 2).having((e) => e.total, 'total', 2),
           ]),
         );
 
@@ -1027,10 +1014,7 @@ void main() async {
           expect(
             manager.eventStream.whereType<DataChangeEvent<TestEntity>>(),
             emits(
-              isA<DataChangeEvent<TestEntity>>()
-                  .having((e) => e.changeType, 'changeType', ChangeType.created)
-                  .having((e) => e.data!.id, 'data.id', entity.id)
-                  .having((e) => e.source, 'source', DataSource.local),
+              isA<DataChangeEvent<TestEntity>>().having((e) => e.changeType, 'changeType', ChangeType.created).having((e) => e.data!.id, 'data.id', entity.id).having((e) => e.source, 'source', DataSource.local),
             ),
           );
 
@@ -1060,10 +1044,7 @@ void main() async {
           expect(
             manager.eventStream.whereType<DataChangeEvent<TestEntity>>(),
             emits(
-              isA<DataChangeEvent<TestEntity>>()
-                  .having((e) => e.changeType, 'changeType', ChangeType.updated)
-                  .having((e) => e.data!.id, 'data.id', updatedEntity.id)
-                  .having((e) => e.source, 'source', DataSource.local),
+              isA<DataChangeEvent<TestEntity>>().having((e) => e.changeType, 'changeType', ChangeType.updated).having((e) => e.data!.id, 'data.id', updatedEntity.id).having((e) => e.source, 'source', DataSource.local),
             ),
           );
 
@@ -1088,9 +1069,7 @@ void main() async {
           expect(
             manager.eventStream.whereType<DataChangeEvent<TestEntity>>(),
             emits(
-              isA<DataChangeEvent<TestEntity>>()
-                  .having((e) => e.changeType, 'changeType', ChangeType.deleted)
-                  .having((e) => e.data!.id, 'data.id', entity.id),
+              isA<DataChangeEvent<TestEntity>>().having((e) => e.changeType, 'changeType', ChangeType.deleted).having((e) => e.data!.id, 'data.id', entity.id),
             ),
           );
 
@@ -1121,10 +1100,8 @@ void main() async {
             ).thenAnswer((_) async {});
 
             // Act & Assert
-            final startedFuture =
-                manager.eventStream.whereType<DatumSyncStartedEvent>().first;
-            final completedFuture =
-                manager.eventStream.whereType<DatumSyncCompletedEvent>().first;
+            final startedFuture = manager.eventStream.whereType<DatumSyncStartedEvent>().first;
+            final completedFuture = manager.eventStream.whereType<DatumSyncCompletedEvent>().first;
 
             await manager.synchronize(userId);
 
@@ -1180,9 +1157,7 @@ void main() async {
           final conflictFuture = expectLater(
             manager.onConflict,
             emits(
-              isA<ConflictDetectedEvent<TestEntity>>()
-                  .having((e) => e.context.entityId, 'entityId', 'e1')
-                  .having(
+              isA<ConflictDetectedEvent<TestEntity>>().having((e) => e.context.entityId, 'entityId', 'e1').having(
                     (e) => e.context.type,
                     'type',
                     DatumConflictType.bothModified,
@@ -1283,9 +1258,7 @@ void main() async {
             );
 
             // Act 1: Fire all push calls concurrently to populate the queue
-            final futures = entities
-                .map((e) => manager.push(item: e, userId: userId))
-                .toList();
+            final futures = entities.map((e) => manager.push(item: e, userId: userId)).toList();
             await Future.wait(futures);
 
             // Act 2: Trigger a sync to process the queue
@@ -1343,9 +1316,7 @@ void main() async {
           // Act: Fire all pushSync calls concurrently
           // pushAndSync is no longer a public method. This is tested by
           // calling push and then synchronize.
-          final futures = entities
-              .map((e) => manager.push(item: e, userId: userId))
-              .toList();
+          final futures = entities.map((e) => manager.push(item: e, userId: userId)).toList();
           await Future.wait(futures);
           await manager.synchronize(userId);
 
@@ -1399,9 +1370,7 @@ void main() async {
 
           // Act: Fire all deleteSync calls concurrently
           // deleteAndSync is no longer a public method.
-          final futures = entities
-              .map((e) => manager.delete(id: e.id, userId: userId))
-              .toList();
+          final futures = entities.map((e) => manager.delete(id: e.id, userId: userId)).toList();
           await Future.wait(futures);
           await manager.synchronize(userId);
 
@@ -1495,8 +1464,7 @@ void main() async {
             // Instead of checking for the exact exception instance,
             // check for the type and a property (like the message) to make
             // the test more robust against stack trace differences.
-            throwsA(isA<Exception>().having((e) => e.toString(), 'toString()',
-                'Exception: Remote push failed')),
+            throwsA(isA<Exception>().having((e) => e.toString(), 'toString()', 'Exception: Remote push failed')),
           );
 
           // Assert
@@ -1665,19 +1633,14 @@ void main() async {
       // Basic stubs
       when(() => localAdapter.initialize()).thenAnswer((_) async {});
       when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
-      when(() => localAdapter.getStoredSchemaVersion())
-          .thenAnswer((_) async => 0);
-      when(() => localAdapter.changeStream())
-          .thenAnswer((_) => const Stream.empty());
+      when(() => localAdapter.getStoredSchemaVersion()).thenAnswer((_) async => 0);
+      when(() => localAdapter.changeStream()).thenAnswer((_) => const Stream.empty());
       when(() => localAdapter.dispose()).thenAnswer((_) async {});
 
-      when(() => remoteAdapter.changeStream)
-          .thenAnswer((_) => const Stream.empty());
+      when(() => remoteAdapter.changeStream).thenAnswer((_) => const Stream.empty());
       when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
-      when(() => localAdapter.getLastSyncResult(any()))
-          .thenAnswer((_) async => null);
-      when(() => localAdapter.saveLastSyncResult(any(), any()))
-          .thenAnswer((_) async {});
+      when(() => localAdapter.getLastSyncResult(any())).thenAnswer((_) async => null);
+      when(() => localAdapter.saveLastSyncResult(any(), any())).thenAnswer((_) async {});
       when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
 
       manager = DatumManager<TestEntity>(
@@ -1693,9 +1656,7 @@ void main() async {
       await manager.dispose();
     });
 
-    test(
-        'correctly processes events and re-throws original error from SyncExceptionWithEvents',
-        () async {
+    test('correctly processes events and re-throws original error from SyncExceptionWithEvents', () async {
       // Arrange
       final originalError = Exception('Permanent remote failure');
       final pendingOp = DatumSyncOperation<TestEntity>(
@@ -1714,20 +1675,14 @@ void main() async {
             createdAt: DateTime.now(),
             version: 1,
           ));
-      when(() => localAdapter.getPendingOperations('user1'))
-          .thenAnswer((_) async => [pendingOp]);
+      when(() => localAdapter.getPendingOperations('user1')).thenAnswer((_) async => [pendingOp]);
       when(() => remoteAdapter.create(any())).thenThrow(originalError);
       // Stub dequeue to prevent it from blocking the test
-      when(() => localAdapter.removePendingOperation(any()))
-          .thenAnswer((_) async {});
+      when(() => localAdapter.removePendingOperation(any())).thenAnswer((_) async {});
 
       // Act & Assert
-      final errorEventFuture = expectLater(
-          manager.onSyncError,
-          emits(isA<DatumSyncErrorEvent>()
-              .having((e) => e.error, 'error', originalError)));
-      final syncThrowsFuture = expectLater(
-          () => manager.synchronize('user1'), throwsA(originalError));
+      final errorEventFuture = expectLater(manager.onSyncError, emits(isA<DatumSyncErrorEvent>().having((e) => e.error, 'error', originalError)));
+      final syncThrowsFuture = expectLater(() => manager.synchronize('user1'), throwsA(originalError));
 
       await Future.wait([errorEventFuture, syncThrowsFuture]);
     });

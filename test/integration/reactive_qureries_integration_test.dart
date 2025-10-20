@@ -153,9 +153,7 @@ void main() {
         'Done',
       ).copyWith(completed: true);
 
-      final query = (DatumQueryBuilder<TestEntity>()
-            ..where('completed', isEqualTo: false))
-          .build();
+      final query = (DatumQueryBuilder<TestEntity>()..where('completed', isEqualTo: false)).build();
       final stream = manager.watchQuery(query, userId: 'user1');
 
       final completer = Completer<List<List<TestEntity>>>();
@@ -202,9 +200,7 @@ void main() {
         'Item C',
       ).copyWith(value: 5);
 
-      final query = (DatumQueryBuilder<TestEntity>()
-            ..orderBy('value', descending: true))
-          .build();
+      final query = (DatumQueryBuilder<TestEntity>()..orderBy('value', descending: true)).build();
 
       final stream = manager.watchQuery(query, userId: 'user1');
 
@@ -212,12 +208,9 @@ void main() {
         stream,
         emitsInOrder([
           isEmpty,
-          (List<TestEntity> list) =>
-              [10].every((v) => list.map((e) => e.value).contains(v)),
-          (List<TestEntity> list) =>
-              list.map((e) => e.value).toList().toString() == '[20, 10]',
-          (List<TestEntity> list) =>
-              list.map((e) => e.value).toList().toString() == '[20, 10, 5]',
+          (List<TestEntity> list) => [10].every((v) => list.map((e) => e.value).contains(v)),
+          (List<TestEntity> list) => list.map((e) => e.value).toList().toString() == '[20, 10]',
+          (List<TestEntity> list) => list.map((e) => e.value).toList().toString() == '[20, 10, 5]',
         ]),
       );
 
@@ -255,10 +248,8 @@ void main() {
         emitsInOrder([
           isEmpty,
           isEmpty, // After pushing completed item
-          (List<TestEntity> list) =>
-              [20].every((v) => list.map((e) => e.value).contains(v)),
-          (List<TestEntity> list) =>
-              list.map((e) => e.value).toList().toString() == '[5, 20]',
+          (List<TestEntity> list) => [20].every((v) => list.map((e) => e.value).contains(v)),
+          (List<TestEntity> list) => list.map((e) => e.value).toList().toString() == '[5, 20]',
         ]),
       );
 
@@ -299,8 +290,7 @@ void main() {
           // Pushing e1 (value > 5)
           (List<TestEntity> list) => list.length == 1 && list.first.id == 'e1',
           // Pushing e2 (completed)
-          (List<TestEntity> list) =>
-              list.length == 2 && list.any((e) => e.id == 'e2'),
+          (List<TestEntity> list) => list.length == 2 && list.any((e) => e.id == 'e2'),
           // Pushing e3 (neither condition met)
           (List<TestEntity> list) => list.length == 2,
         ]),
@@ -323,8 +313,7 @@ void main() {
         user1Stream,
         emitsInOrder([
           isEmpty,
-          (List<TestEntity> list) =>
-              list.length == 1 && list.first.id == 'entity1',
+          (List<TestEntity> list) => list.length == 1 && list.first.id == 'entity1',
         ]),
       );
 
@@ -333,8 +322,7 @@ void main() {
         user2Stream,
         emitsInOrder([
           isEmpty,
-          (List<TestEntity> list) =>
-              list.length == 1 && list.first.id == 'entity2',
+          (List<TestEntity> list) => list.length == 1 && list.first.id == 'entity2',
         ]),
       );
 

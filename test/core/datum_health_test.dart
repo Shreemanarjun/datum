@@ -53,8 +53,7 @@ void main() {
     test('toString provides a useful representation from Equatable', () {
       const health = DatumHealth(status: DatumSyncHealth.offline);
       // Equatable generates a toString like: ClassName(prop1, prop2, ...)
-      expect(health.toString(),
-          'DatumHealth(DatumSyncHealth.offline, AdapterHealthStatus.ok, AdapterHealthStatus.ok)');
+      expect(health.toString(), 'DatumHealth(DatumSyncHealth.offline, AdapterHealthStatus.ok, AdapterHealthStatus.ok)');
     });
   });
 }

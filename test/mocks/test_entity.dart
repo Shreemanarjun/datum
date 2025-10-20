@@ -20,18 +20,15 @@ class TestEntity extends DatumEntity {
         userId: json['userId'] as String? ?? '',
         name: json['name'] as String? ?? json['title'] as String? ?? '',
         value: json['value'] as int? ?? 0,
-        modifiedAt: DateTime.tryParse(json['modifiedAt'] as String? ?? '') ??
-            DateTime(0),
-        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
-            DateTime(0),
+        modifiedAt: DateTime.tryParse(json['modifiedAt'] as String? ?? '') ?? DateTime(0),
+        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime(0),
         version: json['version'] as int? ?? 1,
         isDeleted: json['isDeleted'] as bool? ?? false,
         completed: json['completed'] as bool? ?? false,
       );
 
   /// Creates a new [TestEntity] with default values for testing.
-  factory TestEntity.create(String id, String userId, String name) =>
-      TestEntity(
+  factory TestEntity.create(String id, String userId, String name) => TestEntity(
         id: id,
         userId: userId,
         name: name,

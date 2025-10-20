@@ -21,13 +21,11 @@ void main() {
 
     setUp(() {
       adapter = TestableLocalAdapter();
-      changeController =
-          StreamController<DatumChangeDetail<TestEntity>>.broadcast();
+      changeController = StreamController<DatumChangeDetail<TestEntity>>.broadcast();
 
       // The default implementation of watchStorageSize calls the adapter's own methods.
       // We use `thenAnswer` to delegate the call to the real implementation on the abstract class.
-      when(() => adapter.watchStorageSize(userId: any(named: 'userId')))
-          .thenAnswer(
+      when(() => adapter.watchStorageSize(userId: any(named: 'userId'))).thenAnswer(
         (invocation) {
           final userId = invocation.namedArguments[#userId] as String?;
           return LocalAdapter.defaultWatchStorageSize(adapter, userId: userId);
@@ -42,10 +40,8 @@ void main() {
     test('emits initial size and then new size on relevant change', () async {
       // Arrange
       // Stub the dependencies of watchStorageSize
-      when(() => adapter.changeStream())
-          .thenAnswer((_) => changeController.stream);
-      when(() => adapter.getStorageSize(userId: 'user1'))
-          .thenAnswer((_) async => 1024); // Initial size
+      when(() => adapter.changeStream()).thenAnswer((_) => changeController.stream);
+      when(() => adapter.getStorageSize(userId: 'user1')).thenAnswer((_) async => 1024); // Initial size
 
       // Act
       final stream = adapter.watchStorageSize(userId: 'user1');
@@ -63,8 +59,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       // Arrange for the second emission
-      when(() => adapter.getStorageSize(userId: 'user1'))
-          .thenAnswer((_) async => 2048); // New size
+      when(() => adapter.getStorageSize(userId: 'user1')).thenAnswer((_) async => 2048); // New size
 
       // Act: Simulate a change event for the correct user.
       changeController.add(
@@ -79,13 +74,10 @@ void main() {
       await expectation; // Wait for the stream expectations to be met.
     });
 
-    test('does not emit new size on irrelevant change (different user)',
-        () async {
+    test('does not emit new size on irrelevant change (different user)', () async {
       // Arrange
-      when(() => adapter.changeStream())
-          .thenAnswer((_) => changeController.stream);
-      when(() => adapter.getStorageSize(userId: 'user1'))
-          .thenAnswer((_) async => 1024);
+      when(() => adapter.changeStream()).thenAnswer((_) => changeController.stream);
+      when(() => adapter.getStorageSize(userId: 'user1')).thenAnswer((_) async => 1024);
 
       // Act & Assert
       final receivedValues = <int>[];
@@ -137,11 +129,9 @@ void main() {
     test('with null userId, emits new size on any change', () async {
       // Arrange
       // Stub the dependencies of watchStorageSize
-      when(() => adapter.changeStream())
-          .thenAnswer((_) => changeController.stream);
+      when(() => adapter.changeStream()).thenAnswer((_) => changeController.stream);
       // When userId is null, it should call getStorageSize with null.
-      when(() => adapter.getStorageSize(userId: null))
-          .thenAnswer((_) async => 4096); // Initial global size
+      when(() => adapter.getStorageSize(userId: null)).thenAnswer((_) async => 4096); // Initial global size
 
       // Act
       final stream = adapter.watchStorageSize(userId: null);
@@ -159,8 +149,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       // Arrange for the second emission
-      when(() => adapter.getStorageSize(userId: null))
-          .thenAnswer((_) async => 8192); // New global size
+      when(() => adapter.getStorageSize(userId: null)).thenAnswer((_) async => 8192); // New global size
 
       // Act: Simulate a change event for an arbitrary user.
       changeController.add(

@@ -18,7 +18,7 @@ void main() {
 
     test('default method implementations do not throw', () {
       final entity = TestEntity.create('e1', 'u1', 'Test');
-      final resolution = DatumConflictResolution<TestEntity>.abort('test');
+      const resolution = DatumConflictResolution<TestEntity>.abort('test');
       final context = DatumConflictContext(
         userId: 'u1',
         entityId: 'e1',
@@ -62,7 +62,7 @@ void main() {
 
     test('default method implementations do not throw', () {
       final entity = TestEntity.create('e1', 'u1', 'Test');
-      final resolution = DatumConflictResolution<DatumEntity>.abort('test');
+      const resolution = DatumConflictResolution<DatumEntity>.abort('test');
       final context = DatumConflictContext(
         userId: 'u1',
         entityId: 'e1',

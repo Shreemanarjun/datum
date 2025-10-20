@@ -14,8 +14,7 @@ abstract class DatumSyncExecutionStrategy {
   const factory DatumSyncExecutionStrategy.sequential() = SequentialStrategy;
 
   /// A strategy that processes pending operations in parallel batches.
-  const factory DatumSyncExecutionStrategy.parallel({int batchSize}) =
-      ParallelStrategy;
+  const factory DatumSyncExecutionStrategy.parallel({int batchSize}) = ParallelStrategy;
 
   /// A strategy that runs the sync process in a background isolate to avoid
   /// blocking the UI thread.
@@ -230,9 +229,7 @@ Future<void> _spawnIsolate<T extends DatumEntity>(
             final operation = operations.firstWhere(
               (op) => op.id == message.id,
             );
-            processOperation(operation)
-                .then((_) => message.responsePort.send(null))
-                .catchError((Object e, StackTrace s) {
+            processOperation(operation).then((_) => message.responsePort.send(null)).catchError((Object e, StackTrace s) {
               message.responsePort.send(_IsolateError(e, s));
             });
           } else if (message is _ProgressUpdate) {

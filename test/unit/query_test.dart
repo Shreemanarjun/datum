@@ -11,9 +11,7 @@ void main() {
     const tableName = 'items';
 
     test('converts a simple "where equals" query to SQLite SQL', () {
-      final query = (DatumQueryBuilder<TestEntity>()
-            ..where('completed', isEqualTo: false))
-          .build();
+      final query = (DatumQueryBuilder<TestEntity>()..where('completed', isEqualTo: false)).build();
 
       final result = query.toSql(tableName);
 
@@ -22,10 +20,7 @@ void main() {
     });
 
     test('converts a query with multiple "where" clauses (AND)', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('priority', isGreaterThan: 2)
-          .where('status', isNotEqualTo: 'archived')
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('priority', isGreaterThan: 2).where('status', isNotEqualTo: 'archived').build();
 
       final result = query.toSql(tableName);
 
@@ -37,11 +32,7 @@ void main() {
     });
 
     test('converts a query with OR logical operator', () {
-      final query = (DatumQueryBuilder<TestEntity>()
-            ..logicalOperator = LogicalOperator.or)
-          .where('priority', isGreaterThan: 4)
-          .where('status', isEqualTo: 'urgent')
-          .build();
+      final query = (DatumQueryBuilder<TestEntity>()..logicalOperator = LogicalOperator.or).where('priority', isGreaterThan: 4).where('status', isEqualTo: 'urgent').build();
 
       final result = query.toSql(tableName);
 
@@ -53,11 +44,7 @@ void main() {
     });
 
     test('converts a query with sorting, limit, and offset', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .orderBy('createdAt', descending: true)
-          .limit(10)
-          .offset(20)
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().orderBy('createdAt', descending: true).limit(10).offset(20).build();
 
       final result = query.toSql(tableName);
 
@@ -69,10 +56,7 @@ void main() {
     });
 
     test('converts a query to PostgreSQL dialect with placeholders', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('name', contains: 'test')
-          .where('value', isLessThanOrEqualTo: 100)
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('name', contains: 'test').where('value', isLessThanOrEqualTo: 100).build();
 
       final result = query.toSql(tableName, dialect: SqlDialect.postgresql);
 
@@ -84,8 +68,7 @@ void main() {
     });
 
     test('handles "IN" and "NOT IN" clauses correctly', () {
-      final query = DatumQueryBuilder<TestEntity>().where('status',
-          isIn: ['new', 'open']).where('id', isNotIn: ['id1', 'id2']).build();
+      final query = DatumQueryBuilder<TestEntity>().where('status', isIn: ['new', 'open']).where('id', isNotIn: ['id1', 'id2']).build();
 
       final result = query.toSql(tableName);
 
@@ -97,23 +80,20 @@ void main() {
     });
 
     test('handles empty "IN" list to prevent SQL errors', () {
-      final query =
-          DatumQueryBuilder<TestEntity>().where('status', isIn: []).build();
+      final query = DatumQueryBuilder<TestEntity>().where('status', isIn: []).build();
       final result = query.toSql(tableName);
       expect(result.sql, 'SELECT * FROM "$tableName" WHERE 0=1');
     });
 
     test('handles empty "NOT IN" list to prevent SQL errors', () {
-      final query =
-          DatumQueryBuilder<TestEntity>().where('status', isNotIn: []).build();
+      final query = DatumQueryBuilder<TestEntity>().where('status', isNotIn: []).build();
       final result = query.toSql(tableName);
       // `NOT IN ()` is always true, so the condition should be `1=1`.
       expect(result.sql, 'SELECT * FROM "$tableName" WHERE 1=1');
     });
 
     test('handles "BETWEEN" clause correctly', () {
-      final query = DatumQueryBuilder<TestEntity>().where('createdAt',
-          between: [DateTime(2023), DateTime(2024)]).build();
+      final query = DatumQueryBuilder<TestEntity>().where('createdAt', between: [DateTime(2023), DateTime(2024)]).build();
 
       final result = query.toSql(tableName);
 
@@ -125,10 +105,7 @@ void main() {
     });
 
     test('handles "IS NULL" and "IS NOT NULL" clauses', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .whereNull('deletedAt')
-          .whereNotNull('updatedAt')
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().whereNull('deletedAt').whereNotNull('updatedAt').build();
 
       final result = query.toSql(tableName);
 
@@ -140,10 +117,7 @@ void main() {
     });
 
     test('handles "startsWith" and "endsWith" clauses', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('name', startsWith: 'prefix')
-          .where('path', endsWith: '.txt')
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('name', startsWith: 'prefix').where('path', endsWith: '.txt').build();
 
       final result = query.toSql(tableName);
 
@@ -155,10 +129,7 @@ void main() {
     });
 
     test('converts a query with >= and < operators', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('value', isGreaterThanOrEqualTo: 10)
-          .where('priority', isLessThan: 3)
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('value', isGreaterThanOrEqualTo: 10).where('priority', isLessThan: 3).build();
 
       final result = query.toSql(tableName);
 
@@ -170,9 +141,7 @@ void main() {
     });
 
     test('handles "containsIgnoreCase" for SQLite and PostgreSQL', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('name', containsIgnoreCase: 'Case')
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('name', containsIgnoreCase: 'Case').build();
 
       // SQLite
       final sqliteResult = query.toSql(tableName);
@@ -189,8 +158,7 @@ void main() {
     });
 
     test('handles composite "OR" filter', () {
-      final query =
-          DatumQueryBuilder<TestEntity>().where('category', isEqualTo: 'A').or([
+      final query = DatumQueryBuilder<TestEntity>().where('category', isEqualTo: 'A').or([
         const Filter('status', FilterOperator.equals, 'new'),
         const Filter('priority', FilterOperator.greaterThan, 3),
       ]).build();
@@ -205,10 +173,7 @@ void main() {
     });
 
     test('handles composite "AND" filter for explicit grouping', () {
-      final query = (DatumQueryBuilder<TestEntity>()
-            ..logicalOperator = LogicalOperator.or)
-          .where('category', isEqualTo: 'A')
-          .and([
+      final query = (DatumQueryBuilder<TestEntity>()..logicalOperator = LogicalOperator.or).where('category', isEqualTo: 'A').and([
         const Filter('status', FilterOperator.equals, 'active'),
         const Filter('priority', FilterOperator.lessThan, 2),
       ]).build();
@@ -223,10 +188,7 @@ void main() {
     });
 
     test('handles multiple sorting conditions', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .orderBy('priority', descending: true)
-          .orderBy('createdAt', nullSortOrder: NullSortOrder.first)
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().orderBy('priority', descending: true).orderBy('createdAt', nullSortOrder: NullSortOrder.first).build();
 
       final result = query.toSql(tableName);
 
@@ -237,16 +199,13 @@ void main() {
     });
 
     test('throws for arrayContains operator without a custom builder', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('tags', arrayContains: 'urgent')
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('tags', arrayContains: 'urgent').build();
 
       expect(() => query.toSql(tableName), throwsA(isA<UnsupportedError>()));
     });
 
     test('throws for arrayContainsAny operator without a custom builder', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('tags', arrayContainsAny: ['urgent']).build();
+      final query = DatumQueryBuilder<TestEntity>().where('tags', arrayContainsAny: ['urgent']).build();
 
       expect(() => query.toSql(tableName), throwsA(isA<UnsupportedError>()));
     });
@@ -266,9 +225,7 @@ void main() {
     test(
       'throws for "matches" operator with custom dialect without custom builder',
       () {
-        final query = DatumQueryBuilder<TestEntity>()
-            .where('name', matches: 'pattern')
-            .build();
+        final query = DatumQueryBuilder<TestEntity>().where('name', matches: 'pattern').build();
 
         expect(
           () => query.toSql(
@@ -320,9 +277,7 @@ void main() {
     });
 
     test('uses custom placeholderBuilder for custom dialect', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('name', isEqualTo: 'test')
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().where('name', isEqualTo: 'test').build();
 
       final result = query.toSql(
         tableName,
@@ -337,9 +292,7 @@ void main() {
 
   group('DatumQueryBuilder functionality', () {
     test('builds a query with arrayContains and arrayContainsAny', () {
-      final query = DatumQueryBuilder<TestEntity>()
-          .where('tags', arrayContains: 'urgent')
-          .where('labels', arrayContainsAny: ['a', 'b']).build();
+      final query = DatumQueryBuilder<TestEntity>().where('tags', arrayContains: 'urgent').where('labels', arrayContainsAny: ['a', 'b']).build();
 
       expect(query.filters, hasLength(2));
       final filter1 = query.filters[0] as Filter;
@@ -353,9 +306,7 @@ void main() {
 
     test('builds a query with whereWithinDistance', () {
       final center = {'latitude': 40.7128, 'longitude': -74.0060};
-      final query = DatumQueryBuilder<TestEntity>()
-          .whereWithinDistance('location', center, 1000)
-          .build();
+      final query = DatumQueryBuilder<TestEntity>().whereWithinDistance('location', center, 1000).build();
 
       expect(query.filters, hasLength(1));
       final filter = query.filters.first as Filter;
@@ -365,17 +316,14 @@ void main() {
 
     test('builds a query with whereRaw', () {
       const rawCondition = Filter('customField', FilterOperator.equals, true);
-      final query =
-          DatumQueryBuilder<TestEntity>().whereRaw(rawCondition).build();
+      final query = DatumQueryBuilder<TestEntity>().whereRaw(rawCondition).build();
 
       expect(query.filters, hasLength(1));
       expect(query.filters.first, same(rawCondition));
     });
 
     test('clearFilters removes all filters', () {
-      final builder = DatumQueryBuilder<TestEntity>()
-          .where('name', isEqualTo: 'test')
-          .where('value', isGreaterThan: 10);
+      final builder = DatumQueryBuilder<TestEntity>().where('name', isEqualTo: 'test').where('value', isGreaterThan: 10);
 
       expect(builder.build().filters, isNotEmpty);
 
@@ -384,9 +332,7 @@ void main() {
     });
 
     test('clearSorting removes all sorting', () {
-      final builder = DatumQueryBuilder<TestEntity>()
-          .orderBy('name')
-          .orderBy('value', descending: true);
+      final builder = DatumQueryBuilder<TestEntity>().orderBy('name').orderBy('value', descending: true);
 
       expect(builder.build().sorting, isNotEmpty);
 
@@ -395,12 +341,7 @@ void main() {
     });
 
     test('reset clears all filters, sorting, limit, and offset', () {
-      final builder = DatumQueryBuilder<TestEntity>()
-          .where('name', isEqualTo: 'test')
-          .orderBy('name')
-          .limit(10)
-          .offset(5)
-        ..logicalOperator = LogicalOperator.or;
+      final builder = DatumQueryBuilder<TestEntity>().where('name', isEqualTo: 'test').orderBy('name').limit(10).offset(5)..logicalOperator = LogicalOperator.or;
 
       final initialQuery = builder.build();
       expect(initialQuery.filters, isNotEmpty);
@@ -424,9 +365,9 @@ void main() {
     test(
       'copyWith creates an identical copy when no arguments are provided',
       () {
-        final original = DatumQuery(
-          filters: const [Filter('name', FilterOperator.equals, 'test')],
-          sorting: const [SortDescriptor('createdAt')],
+        const original = DatumQuery(
+          filters: [Filter('name', FilterOperator.equals, 'test')],
+          sorting: [SortDescriptor('createdAt')],
           limit: 10,
           offset: 5,
           logicalOperator: LogicalOperator.or,
@@ -517,21 +458,20 @@ void main() {
     });
 
     test('DatumQuery.toString() returns a readable representation', () {
-      final query = DatumQuery(
-        filters: const [
+      const query = DatumQuery(
+        filters: [
           Filter('name', FilterOperator.equals, 'test'),
           CompositeFilter([
             Filter('status', FilterOperator.equals, 'active'),
           ], LogicalOperator.and),
         ],
-        sorting: const [SortDescriptor('createdAt', descending: true)],
+        sorting: [SortDescriptor('createdAt', descending: true)],
         limit: 10,
         offset: 5,
         logicalOperator: LogicalOperator.or,
       );
 
-      const expected =
-          'DatumQuery(filters: [Filter(name equals test), CompositeFilter(and: [Filter(status equals active)])], '
+      const expected = 'DatumQuery(filters: [Filter(name equals test), CompositeFilter(and: [Filter(status equals active)])], '
           'sorting: [SortDescriptor(createdAt, DESC, nulls: last)], limit: 10, offset: 5, operator: or)';
       expect(query.toString(), expected);
     });
@@ -542,10 +482,7 @@ void main() {
 
     test('builds a query using custom field methods', () {
       // Arrange
-      final customQuery = TestEntityQuery()
-          .whereNameIs('test')
-          .whereValueIsGreaterThan(10)
-          .orderBy(TestEntityQuery.nameField);
+      final customQuery = TestEntityQuery().whereNameIs('test').whereValueIsGreaterThan(10).orderBy(TestEntityQuery.nameField);
 
       // Act
       final query = customQuery.build();

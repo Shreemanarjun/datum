@@ -5,11 +5,9 @@ import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('Conflict Resolution Integration Tests', () {
@@ -42,7 +40,7 @@ void main() {
     setUpAll(() {
       registerFallbackValue(TestEntity.create('fb', 'fb', 'fb'));
       registerFallbackValue(<String, dynamic>{});
-      registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
+      registerFallbackValue(const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
       registerFallbackValue(
         DatumSyncOperation<TestEntity>(
           id: 'fb-op',
@@ -77,8 +75,7 @@ void main() {
       when(() => localAdapter.dispose()).thenAnswer((_) async {});
       when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
       when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
-      when(() => localAdapter.changeStream())
-          .thenAnswer((_) => const Stream.empty());
+      when(() => localAdapter.changeStream()).thenAnswer((_) => const Stream.empty());
       when(
         () => remoteAdapter.changeStream,
       ).thenAnswer((_) => const Stream.empty());
@@ -246,8 +243,7 @@ void main() {
       late TestEntity localPatch;
       final pendingOps = <DatumSyncOperation<TestEntity>>[];
 
-      test('LastWriteWinsResolver: remote wins, overwriting the local patch',
-          () async {
+      test('LastWriteWinsResolver: remote wins, overwriting the local patch', () async {
         // Arrange
         await setupManager(LastWriteWinsResolver<TestEntity>());
         // Use manager.push to correctly add the operation to the queue.

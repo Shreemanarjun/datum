@@ -19,6 +19,5 @@ class ConflictResolvedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   final DatumConflictResolution<T> resolution;
 
   @override
-  String toString() =>
-      '${super.toString()}: ConflictResolvedEvent(entityId: $entityId, resolution: $resolution)';
+  String toString() => '${super.toString()}: ConflictResolvedEvent(entityId: $entityId, resolution: $resolution)';
 }

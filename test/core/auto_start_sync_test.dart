@@ -431,8 +431,7 @@ void main() {
       registerFallbackValue(StackTrace.empty);
       // Stub the `copyWith` method. The DatumManager constructor calls this
       // immediately. It must return a valid logger instance (itself).
-      when(() => mockLogger.copyWith(enabled: any(named: 'enabled')))
-          .thenReturn(mockLogger);
+      when(() => mockLogger.copyWith(enabled: any(named: 'enabled'))).thenReturn(mockLogger);
 
       final exception = Exception('Auto-sync failed');
       await setupInitialData([TestEntity.create('e1', 'user1', 'Item 1')]);

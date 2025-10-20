@@ -7,14 +7,11 @@ import 'package:mocktail/mocktail.dart';
 import '../mocks/test_entity.dart';
 
 // Use proper mocktail mocks for adapters
-class MockLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
-class MockConnectivityChecker extends Mock
-    implements DatumConnectivityChecker {}
+class MockConnectivityChecker extends Mock implements DatumConnectivityChecker {}
 
 /// A custom logger for tests that omits stack traces for cleaner output.
 class TestLogger extends DatumLogger {
@@ -203,10 +200,7 @@ void main() {
       // Instead of checking for the exact exception instance,
       // check for the type and a property (like the message) to make
       // the test more robust against stack trace differences.
-      await expectLater(
-          syncFuture,
-          throwsA(isA<Exception>().having((e) => e.toString(), 'toString()',
-              'Exception: Remote create failed')));
+      await expectLater(syncFuture, throwsA(isA<Exception>().having((e) => e.toString(), 'toString()', 'Exception: Remote create failed')));
 
       // Verify that processing stopped after the error.
       expect(processedOrder, ['e0', 'e1']);
@@ -282,8 +276,7 @@ void main() {
           // Instead of checking for the exact exception instance,
           // check for the type and a property (like the message) to make
           // the test more robust against stack trace differences.
-          throwsA(isA<Exception>().having((e) => e.toString(), 'toString()',
-              'Exception: Remote push failed')),
+          throwsA(isA<Exception>().having((e) => e.toString(), 'toString()', 'Exception: Remote push failed')),
         );
         final errorEventFuture = expectLater(
           manager.onSyncError,
@@ -334,10 +327,7 @@ void main() {
           // Instead of checking for the exact exception instance,
           // check for the type and a property (like the message) to make
           // the test more robust against stack trace differences.
-          await expectLater(
-              syncFuture,
-              throwsA(isA<Exception>().having((e) => e.toString(), 'toString()',
-                  'Exception: Remote push failed 1')));
+          await expectLater(syncFuture, throwsA(isA<Exception>().having((e) => e.toString(), 'toString()', 'Exception: Remote push failed 1')));
 
           // Even though the sync failed, all non-failing operations should have
           // been processed because failFast is false.
@@ -411,10 +401,8 @@ void main() {
           () => isolatedConnectivityChecker.isConnected,
         ).thenAnswer((_) async => true);
         // Add the missing stubs for the sync lifecycle
-        when(() => isolatedLocalAdapter.getLastSyncResult(any()))
-            .thenAnswer((_) async => null);
-        when(() => isolatedLocalAdapter.saveLastSyncResult(any(), any()))
-            .thenAnswer((_) async {});
+        when(() => isolatedLocalAdapter.getLastSyncResult(any())).thenAnswer((_) async => null);
+        when(() => isolatedLocalAdapter.saveLastSyncResult(any(), any())).thenAnswer((_) async {});
 
         final exception = Exception('Isolate push failed');
         final processedIds = <String>{};
@@ -426,11 +414,11 @@ void main() {
           remoteAdapter: isolatedRemoteAdapter,
           connectivity: isolatedConnectivityChecker, // Now required
           logger: isolatedLogger,
-          datumConfig: DatumConfig(
+          datumConfig: const DatumConfig(
             // Using a fail-fast strategy inside the isolate is the most
             // logical approach, as we want errors to propagate out immediately.
             syncExecutionStrategy: IsolateStrategy(
-              const ParallelStrategy(batchSize: 2, failFast: true),
+              ParallelStrategy(batchSize: 2, failFast: true),
             ),
           ),
         );

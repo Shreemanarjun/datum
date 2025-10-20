@@ -21,6 +21,5 @@ class UserSwitchedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   final bool hadUnsyncedData;
 
   @override
-  String toString() =>
-      '${super.toString()}: UserSwitchedEvent(previousUserId: $previousUserId, newUserId: $newUserId, hadUnsyncedData: $hadUnsyncedData)';
+  String toString() => '${super.toString()}: UserSwitchedEvent(previousUserId: $previousUserId, newUserId: $newUserId, hadUnsyncedData: $hadUnsyncedData)';
 }

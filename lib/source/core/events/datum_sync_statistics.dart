@@ -54,10 +54,8 @@ class DatumSyncStatistics extends Equatable {
       successfulSyncs: successfulSyncs ?? this.successfulSyncs,
       failedSyncs: failedSyncs ?? this.failedSyncs,
       conflictsDetected: conflictsDetected ?? this.conflictsDetected,
-      conflictsAutoResolved:
-          conflictsAutoResolved ?? this.conflictsAutoResolved,
-      conflictsUserResolved:
-          conflictsUserResolved ?? this.conflictsUserResolved,
+      conflictsAutoResolved: conflictsAutoResolved ?? this.conflictsAutoResolved,
+      conflictsUserResolved: conflictsUserResolved ?? this.conflictsUserResolved,
       averageDuration: averageDuration ?? this.averageDuration,
       totalSyncDuration: totalSyncDuration ?? this.totalSyncDuration,
     );

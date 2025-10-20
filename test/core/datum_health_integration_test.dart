@@ -72,8 +72,7 @@ void main() {
       );
       // Add the missing fallback for DatumSyncMetadata.
       registerFallbackValue(
-        const DatumSyncMetadata(
-            userId: 'fallback-user', dataHash: 'fallback-hash'),
+        const DatumSyncMetadata(userId: 'fallback-user', dataHash: 'fallback-hash'),
       );
     });
 

@@ -82,21 +82,18 @@ extension DatumQuerySqlConverter on DatumQuery {
         final field = '"${condition.field}"';
         final operator = _getSqlOperator(condition.operator, dialect);
 
-        if (condition.operator == FilterOperator.isNull ||
-            condition.operator == FilterOperator.isNotNull) {
+        if (condition.operator == FilterOperator.isNull || condition.operator == FilterOperator.isNotNull) {
           return '$field $operator';
         }
 
-        if (condition.operator == FilterOperator.isIn ||
-            condition.operator == FilterOperator.isNotIn) {
+        if (condition.operator == FilterOperator.isIn || condition.operator == FilterOperator.isNotIn) {
           if (condition.value is! List || (condition.value as List).isEmpty) {
             // An empty IN list is problematic in SQL.
             // `IN ()` is a syntax error. We can return a condition that is
             // always false for `IN` and always true for `NOT IN`.
             return condition.operator == FilterOperator.isIn ? '0=1' : '1=1';
           }
-          final placeholders =
-              (condition.value as List).map((_) => getPlaceholder()).join(', ');
+          final placeholders = (condition.value as List).map((_) => getPlaceholder()).join(', ');
           params.addAll(condition.value as List);
           return '$field $operator ($placeholders)';
         }
@@ -138,9 +135,7 @@ extension DatumQuerySqlConverter on DatumQuery {
       }
 
       if (condition is CompositeFilter) {
-        final clauses = condition.conditions
-            .map(processCondition)
-            .join(' ${condition.operator.name.toUpperCase()} ');
+        final clauses = condition.conditions.map(processCondition).join(' ${condition.operator.name.toUpperCase()} ');
         return '($clauses)';
       }
 
@@ -149,15 +144,12 @@ extension DatumQuerySqlConverter on DatumQuery {
 
     final whereClauses = filters.map(processCondition).toList();
 
-    final whereSql = whereClauses.isNotEmpty
-        ? 'WHERE ${whereClauses.join(' ${logicalOperator.name.toUpperCase()} ')}'
-        : '';
+    final whereSql = whereClauses.isNotEmpty ? 'WHERE ${whereClauses.join(' ${logicalOperator.name.toUpperCase()} ')}' : '';
 
     final sortingSql = sorting.isNotEmpty
         ? 'ORDER BY ${sorting.map((s) {
             final direction = s.descending ? 'DESC' : 'ASC';
-            final nulls =
-                'NULLS ${s.nullSortOrder == NullSortOrder.first ? "FIRST" : "LAST"}';
+            final nulls = 'NULLS ${s.nullSortOrder == NullSortOrder.first ? "FIRST" : "LAST"}';
             return '"${s.field}" $direction $nulls';
           }).join(', ')}'
         : '';
@@ -225,7 +217,6 @@ extension DatumQuerySqlConverter on DatumQuery {
     }
     // This line should be unreachable if all cases are handled, but it
     // satisfies the non-nullable return type requirement.
-    throw UnsupportedError(
-        'Unsupported operator $operator for dialect $dialect');
+    throw UnsupportedError('Unsupported operator $operator for dialect $dialect');
   }
 }

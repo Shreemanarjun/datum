@@ -144,17 +144,14 @@ class DatumSyncEngine<T extends DatumEntity> {
       switch (direction) {
         case SyncDirection.pushThenPull:
           bytesPushedThisCycle += await _pushChanges(userId, generatedEvents);
-          bytesPulledThisCycle +=
-              await _pullChanges(userId, options, scope, generatedEvents);
+          bytesPulledThisCycle += await _pullChanges(userId, options, scope, generatedEvents);
         case SyncDirection.pullThenPush:
-          bytesPulledThisCycle +=
-              await _pullChanges(userId, options, scope, generatedEvents);
+          bytesPulledThisCycle += await _pullChanges(userId, options, scope, generatedEvents);
           bytesPushedThisCycle += await _pushChanges(userId, generatedEvents);
         case SyncDirection.pushOnly:
           bytesPushedThisCycle += await _pushChanges(userId, generatedEvents);
         case SyncDirection.pullOnly:
-          bytesPulledThisCycle +=
-              await _pullChanges(userId, options, scope, generatedEvents);
+          bytesPulledThisCycle += await _pullChanges(userId, options, scope, generatedEvents);
       }
 
       // After operations, check if the sync was cancelled by a dispose call.
@@ -179,10 +176,8 @@ class DatumSyncEngine<T extends DatumEntity> {
         pendingOperations: finalPending,
         bytesPushedInCycle: bytesPushedThisCycle,
         bytesPulledInCycle: bytesPulledThisCycle,
-        totalBytesPushed:
-            (lastSyncResult?.totalBytesPushed ?? 0) + bytesPushedThisCycle,
-        totalBytesPulled:
-            (lastSyncResult?.totalBytesPulled ?? 0) + bytesPulledThisCycle,
+        totalBytesPushed: (lastSyncResult?.totalBytesPushed ?? 0) + bytesPushedThisCycle,
+        totalBytesPulled: (lastSyncResult?.totalBytesPulled ?? 0) + bytesPulledThisCycle,
       );
 
       // Check if controllers are closed before adding events, as the manager
@@ -262,8 +257,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     await config.syncExecutionStrategy.execute(
       operationsToProcess,
       (op) async {
-        final size = await _processPendingOperation(op,
-            generatedEvents: generatedEvents);
+        final size = await _processPendingOperation(op, generatedEvents: generatedEvents);
         cumulativeBytesPushed += size;
         bytesPushed += size;
       },
@@ -358,8 +352,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     } on EntityNotFoundException catch (e, stackTrace) {
       // If a patch fails because the entity doesn't exist on the remote,
       // convert the operation to a full 'create' and re-process it immediately.
-      if (operation.type == DatumOperationType.update &&
-          operation.data != null) {
+      if (operation.type == DatumOperationType.update && operation.data != null) {
         logger.warn(
           'Patch for ${operation.entityId} failed because it was not found on remote. Retrying as a create operation. Error: $e',
         );
@@ -382,9 +375,7 @@ class DatumSyncEngine<T extends DatumEntity> {
       // If it's already the correct type, just rethrow it.
       rethrow;
     } on Object catch (e, stackTrace) {
-      final isRetryable = e is DatumException &&
-          operation.retryCount < config.errorRecoveryStrategy.maxRetries &&
-          await config.errorRecoveryStrategy.shouldRetry(e);
+      final isRetryable = e is DatumException && operation.retryCount < config.errorRecoveryStrategy.maxRetries && await config.errorRecoveryStrategy.shouldRetry(e);
 
       if (isRetryable) {
         final updatedOp = operation.copyWith(
@@ -652,8 +643,7 @@ class DatumSyncEngine<T extends DatumEntity> {
         for (final observer in globalObservers) {
           // We need to cast the resolution to the generic DatumEntity type
           // that the GlobalDatumObserver expects.
-          final genericResolution =
-              resolvedEvent.resolution.copyWithNewType<DatumEntity>();
+          final genericResolution = resolvedEvent.resolution.copyWithNewType<DatumEntity>();
           observer.onConflictResolved(genericResolution);
         }
       case DatumSyncErrorEvent<T>():
@@ -714,8 +704,7 @@ class DatumSyncEngine<T extends DatumEntity> {
     DatumSyncHealth overallStatus;
     if (!isConnected) {
       overallStatus = DatumSyncHealth.offline;
-    } else if (localStatus == AdapterHealthStatus.unhealthy ||
-        remoteStatus == AdapterHealthStatus.unhealthy) {
+    } else if (localStatus == AdapterHealthStatus.unhealthy || remoteStatus == AdapterHealthStatus.unhealthy) {
       overallStatus = DatumSyncHealth.degraded;
     } else {
       overallStatus = DatumSyncHealth.healthy;

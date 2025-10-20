@@ -27,8 +27,7 @@ class TestEntity extends DatumEntity {
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {};
   @override
-  TestEntity copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) =>
-      this;
+  TestEntity copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) => this;
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
 }
@@ -79,16 +78,11 @@ void main() {
         expect(deserializedResult.duration, originalResult.duration);
         expect(deserializedResult.syncedCount, originalResult.syncedCount);
         expect(deserializedResult.failedCount, originalResult.failedCount);
-        expect(deserializedResult.conflictsResolved,
-            originalResult.conflictsResolved);
-        expect(deserializedResult.totalBytesPushed,
-            originalResult.totalBytesPushed);
-        expect(deserializedResult.totalBytesPulled,
-            originalResult.totalBytesPulled);
-        expect(deserializedResult.bytesPushedInCycle,
-            originalResult.bytesPushedInCycle);
-        expect(deserializedResult.bytesPulledInCycle,
-            originalResult.bytesPulledInCycle);
+        expect(deserializedResult.conflictsResolved, originalResult.conflictsResolved);
+        expect(deserializedResult.totalBytesPushed, originalResult.totalBytesPushed);
+        expect(deserializedResult.totalBytesPulled, originalResult.totalBytesPulled);
+        expect(deserializedResult.bytesPushedInCycle, originalResult.bytesPushedInCycle);
+        expect(deserializedResult.bytesPulledInCycle, originalResult.bytesPulledInCycle);
         expect(deserializedResult.wasSkipped, originalResult.wasSkipped);
         expect(deserializedResult.wasCancelled, originalResult.wasCancelled);
 

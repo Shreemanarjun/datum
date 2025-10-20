@@ -6,8 +6,7 @@ import 'package:meta/meta.dart';
 @immutable
 abstract class DatumSyncEvent<T extends DatumEntity> {
   /// Creates a base sync event.
-  DatumSyncEvent({required this.userId, DateTime? timestamp})
-      : timestamp = timestamp ?? DateTime.now();
+  DatumSyncEvent({required this.userId, DateTime? timestamp}) : timestamp = timestamp ?? DateTime.now();
 
   /// The user ID associated with this event.
   final String userId;
@@ -32,8 +31,7 @@ class DatumSyncStartedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   final int pendingOperations;
 
   @override
-  String toString() =>
-      '${super.toString()}: DatumSyncStartedEvent(pendingOperations: $pendingOperations)';
+  String toString() => '${super.toString()}: DatumSyncStartedEvent(pendingOperations: $pendingOperations)';
 }
 
 /// Event fired to report synchronization progress.
@@ -64,8 +62,7 @@ class DatumSyncProgressEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   double get progress => total > 0 ? completed / total : 0.0;
 
   @override
-  String toString() =>
-      '${super.toString()}: DatumSyncProgressEvent(completed: $completed, total: $total, progress: $progress, pushed: $bytesPushed, pulled: $bytesPulled)';
+  String toString() => '${super.toString()}: DatumSyncProgressEvent(completed: $completed, total: $total, progress: $progress, pushed: $bytesPushed, pulled: $bytesPulled)';
 }
 
 /// Event fired when a synchronization cycle completes.
@@ -81,8 +78,7 @@ class DatumSyncCompletedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   final DatumSyncResult result;
 
   @override
-  String toString() =>
-      '${super.toString()}: DatumSyncCompletedEvent(result: $result)';
+  String toString() => '${super.toString()}: DatumSyncCompletedEvent(result: $result)';
 }
 
 /// Event fired when an error occurs during synchronization.
@@ -102,6 +98,5 @@ class DatumSyncErrorEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   final StackTrace? stackTrace;
 
   @override
-  String toString() =>
-      '${super.toString()}: DatumSyncErrorEvent(error: $error, stackTrace: $stackTrace)';
+  String toString() => '${super.toString()}: DatumSyncErrorEvent(error: $error, stackTrace: $stackTrace)';
 }

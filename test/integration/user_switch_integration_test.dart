@@ -5,14 +5,11 @@ import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
-class MockDatumObserver<T extends DatumEntity> extends Mock
-    implements DatumObserver<T> {}
+class MockDatumObserver<T extends DatumEntity> extends Mock implements DatumObserver<T> {}
 
 void main() {
   group('User Switch Integration Tests', () {
@@ -119,10 +116,7 @@ void main() {
       final eventFuture = expectLater(
         manager.onUserSwitched,
         emits(
-          isA<UserSwitchedEvent>()
-              .having((e) => e.previousUserId, 'previousUserId', 'user1')
-              .having((e) => e.newUserId, 'newUserId', 'user2')
-              .having((e) => e.hadUnsyncedData, 'hadUnsyncedData', isTrue),
+          isA<UserSwitchedEvent>().having((e) => e.previousUserId, 'previousUserId', 'user1').having((e) => e.newUserId, 'newUserId', 'user2').having((e) => e.hadUnsyncedData, 'hadUnsyncedData', isTrue),
         ),
       );
 
@@ -153,10 +147,7 @@ void main() {
         final eventFuture = expectLater(
           manager.onUserSwitched,
           emits(
-            isA<UserSwitchedEvent>()
-                .having((e) => e.previousUserId, 'previousUserId', 'user1')
-                .having((e) => e.newUserId, 'newUserId', 'user2')
-                .having((e) => e.hadUnsyncedData, 'hadUnsyncedData', isFalse),
+            isA<UserSwitchedEvent>().having((e) => e.previousUserId, 'previousUserId', 'user1').having((e) => e.newUserId, 'newUserId', 'user2').having((e) => e.hadUnsyncedData, 'hadUnsyncedData', isFalse),
           ),
         );
 
@@ -232,12 +223,10 @@ void main() {
 
       // Stub getPendingOperations for both users
       when(() => localAdapter.getPendingOperations('user1')).thenAnswer(
-        (_) async =>
-            [_createTestOperation(user1Entity, DatumOperationType.create)],
+        (_) async => [_createTestOperation(user1Entity, DatumOperationType.create)],
       );
       when(() => localAdapter.getPendingOperations('user2')).thenAnswer(
-        (_) async =>
-            [_createTestOperation(user2Entity, DatumOperationType.create)],
+        (_) async => [_createTestOperation(user2Entity, DatumOperationType.create)],
       );
 
       // Stub remote create for both

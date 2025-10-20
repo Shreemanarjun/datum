@@ -23,18 +23,14 @@ class Datum {
   final DatumConnectivityChecker connectivityChecker;
   final List<GlobalDatumObserver> globalObservers = [];
   final DatumLogger logger;
-  final List<StreamSubscription<DatumSyncEvent<DatumEntity>>>
-      _managerSubscriptions = [];
+  final List<StreamSubscription<DatumSyncEvent<DatumEntity>>> _managerSubscriptions = [];
 
   // Stream controllers for events and status
-  final StreamController<DatumSyncEvent<DatumEntity>> _eventController =
-      StreamController.broadcast();
+  final StreamController<DatumSyncEvent<DatumEntity>> _eventController = StreamController.broadcast();
   Stream<DatumSyncEvent> get events => _eventController.stream;
 
-  final BehaviorSubject<Map<String, DatumSyncStatusSnapshot>> _statusSubject =
-      BehaviorSubject.seeded({});
-  Stream<DatumSyncStatusSnapshot?> statusForUser(String userId) =>
-      _statusSubject.stream.map((map) => map[userId]);
+  final BehaviorSubject<Map<String, DatumSyncStatusSnapshot>> _statusSubject = BehaviorSubject.seeded({});
+  Stream<DatumSyncStatusSnapshot?> statusForUser(String userId) => _statusSubject.stream.map((map) => map[userId]);
 
   final Map<String, DatumSyncStatusSnapshot> _snapshots = {};
 
@@ -90,8 +86,7 @@ class Datum {
     // If logging is disabled in the config, we should not produce any logs,
     // even if a custom logger is provided.
     if (!config.enableLogging) {
-      return _initializeSilently(
-          config, connectivityChecker, logger, registrations, observers);
+      return _initializeSilently(config, connectivityChecker, logger, registrations, observers);
     }
     // Initialize logger early to use it for initialization logging.
     final initLogger = logger ?? DatumLogger(enabled: config.enableLogging);
@@ -104,8 +99,7 @@ class Datum {
     );
     datum.globalObservers.addAll(observers);
 
-    datum._logInitializationHeader(logBuffer,
-        config: config, connectivityChecker: connectivityChecker);
+    datum._logInitializationHeader(logBuffer, config: config, connectivityChecker: connectivityChecker);
     datum._logObservers(logBuffer);
     if (registrations.isNotEmpty) {
       logBuffer.writeln('├─ 📦 Registering Entities');
@@ -114,8 +108,7 @@ class Datum {
       // ignore: unused_local_variable
       // Use <TT> to avoid shadowing the generic type from the capture method.
       reg.capture(
-        <TT extends DatumEntity>() =>
-            datum._register<TT>(reg as DatumRegistration<TT>, logBuffer),
+        <TT extends DatumEntity>() => datum._register<TT>(reg as DatumRegistration<TT>, logBuffer),
       );
     }
     await datum._initializeManagers(logBuffer);
@@ -145,8 +138,7 @@ class Datum {
 
     for (final reg in registrations) {
       reg.capture(
-        <TT extends DatumEntity>() =>
-            datum._register<TT>(reg as DatumRegistration<TT>),
+        <TT extends DatumEntity>() => datum._register<TT>(reg as DatumRegistration<TT>),
       );
     }
     await datum._initializeManagers(StringBuffer());
@@ -155,14 +147,11 @@ class Datum {
   }
 
   // Helper functions for logging that respect the logger's color setting.
-  String _green(Object text) =>
-      logger.colors ? '\x1B[32m$text\x1B[0m' : text.toString();
+  String _green(Object text) => logger.colors ? '\x1B[32m$text\x1B[0m' : text.toString();
 
-  String _yellow(Object text) =>
-      logger.colors ? '\x1B[33m$text\x1B[0m' : text.toString();
+  String _yellow(Object text) => logger.colors ? '\x1B[33m$text\x1B[0m' : text.toString();
 
-  String _cyan(Object text) =>
-      logger.colors ? '\x1B[36m$text\x1B[0m' : text.toString();
+  String _cyan(Object text) => logger.colors ? '\x1B[36m$text\x1B[0m' : text.toString();
 
   void _logInitializationHeader(
     StringBuffer logBuffer, {
@@ -170,42 +159,28 @@ class Datum {
     required DatumConnectivityChecker connectivityChecker,
   }) {
     logBuffer.writeln('🚀 Initializing Datum...');
-    logBuffer.writeln(_cyan(
-        '   Hello! Datum is your smart offline-first data synchronization framework 😊'));
+    logBuffer.writeln(_cyan('   Hello! Datum is your smart offline-first data synchronization framework 😊'));
     logBuffer.writeln('├─ ⚙️  Configuration');
-    logBuffer.writeln(
-        '│  ├─ 📝 ${_yellow('Logging')}: ${_green(config.enableLogging)} (Shows detailed logs in console)');
-    logBuffer.writeln(
-        '│  ├─ 🔄 ${_yellow('Auto-sync')}: ${_green(config.autoStartSync)} (Interval: ${_cyan(formatDuration(config.autoSyncInterval))} - how often to sync in background)');
+    logBuffer.writeln('│  ├─ 📝 ${_yellow('Logging')}: ${_green(config.enableLogging)} (Shows detailed logs in console)');
+    logBuffer.writeln('│  ├─ 🔄 ${_yellow('Auto-sync')}: ${_green(config.autoStartSync)} (Interval: ${_cyan(formatDuration(config.autoSyncInterval))} - how often to sync in background)');
     if (config.autoStartSync) {
       final initialUserId = config.initialUserId;
       if (initialUserId != null) {
-        logBuffer.writeln(
-            '│  │  └─ 🎯 Targeting initial user: ${_green(initialUserId)}');
+        logBuffer.writeln('│  │  └─ 🎯 Targeting initial user: ${_green(initialUserId)}');
       } else {
         logBuffer.writeln('│  │  └─ 🎯 Discovering all local users to sync.');
       }
     }
-    logBuffer.writeln(
-        '│  ├─ 🏗️  ${_yellow('Schema')}: v${_green(config.schemaVersion)} (Migrations: ${_green(config.migrations.length)} - your data model version)');
-    logBuffer.writeln(
-        '│  ├─ 🌐 ${_yellow('Connectivity')}: ${_green(connectivityChecker.runtimeType)} (How the app checks for internet)');
-    logBuffer.writeln(
-        '│  ├─ 🧭 ${_yellow('Sync Direction')}: ${_green(config.defaultSyncDirection.name)} (Order of push/pull operations)');
-    logBuffer.writeln(
-        '│  ├─ 🚦 ${_yellow('Sync Strategy')}: ${_green(config.syncExecutionStrategy.runtimeType)} (How to process pending changes)');
-    logBuffer.writeln(
-        '│  ├─ ⏳ ${_yellow('Sync Timeout')}: ${_cyan(formatDuration(config.syncTimeout))} (Max time for one sync cycle)');
-    logBuffer.writeln(
-        '│  ├─ ↪️  ${_yellow('User Switch')}: ${_green(config.defaultUserSwitchStrategy.name)} (Action on user login/logout)');
-    logBuffer.writeln(
-        '│  ├─ 🛡️  ${_yellow('Error Recovery')}: ${_green(config.errorRecoveryStrategy.runtimeType)} (Retries: ${_cyan(config.errorRecoveryStrategy.maxRetries)} - how to handle temporary network errors)');
-    logBuffer.writeln(
-        '│  └─ ⚡ ${_yellow('Event Handling')} (For real-time updates from server):');
-    logBuffer.writeln(
-        '│     ├─ ⏱️  Debounce: ${_cyan(formatDuration(config.remoteEventDebounceTime))} (Groups multiple remote changes into one)');
-    logBuffer.writeln(
-        '│     └─ 🗑️  Cache TTL: ${_cyan(formatDuration(config.changeCacheDuration))} (Prevents processing the same event twice)');
+    logBuffer.writeln('│  ├─ 🏗️  ${_yellow('Schema')}: v${_green(config.schemaVersion)} (Migrations: ${_green(config.migrations.length)} - your data model version)');
+    logBuffer.writeln('│  ├─ 🌐 ${_yellow('Connectivity')}: ${_green(connectivityChecker.runtimeType)} (How the app checks for internet)');
+    logBuffer.writeln('│  ├─ 🧭 ${_yellow('Sync Direction')}: ${_green(config.defaultSyncDirection.name)} (Order of push/pull operations)');
+    logBuffer.writeln('│  ├─ 🚦 ${_yellow('Sync Strategy')}: ${_green(config.syncExecutionStrategy.runtimeType)} (How to process pending changes)');
+    logBuffer.writeln('│  ├─ ⏳ ${_yellow('Sync Timeout')}: ${_cyan(formatDuration(config.syncTimeout))} (Max time for one sync cycle)');
+    logBuffer.writeln('│  ├─ ↪️  ${_yellow('User Switch')}: ${_green(config.defaultUserSwitchStrategy.name)} (Action on user login/logout)');
+    logBuffer.writeln('│  ├─ 🛡️  ${_yellow('Error Recovery')}: ${_green(config.errorRecoveryStrategy.runtimeType)} (Retries: ${_cyan(config.errorRecoveryStrategy.maxRetries)} - how to handle temporary network errors)');
+    logBuffer.writeln('│  └─ ⚡ ${_yellow('Event Handling')} (For real-time updates from server):');
+    logBuffer.writeln('│     ├─ ⏱️  Debounce: ${_cyan(formatDuration(config.remoteEventDebounceTime))} (Groups multiple remote changes into one)');
+    logBuffer.writeln('│     └─ 🗑️  Cache TTL: ${_cyan(formatDuration(config.changeCacheDuration))} (Prevents processing the same event twice)');
   }
 
   Future<void> _logPendingOperationsSummary(StringBuffer logBuffer) async {
@@ -232,8 +207,7 @@ class Datum {
     }
 
     if (allUserIds.isEmpty) {
-      logBuffer
-          .writeln('├─ 📊 Sync Status & Metrics: No local users found yet.');
+      logBuffer.writeln('├─ 📊 Sync Status & Metrics: No local users found yet.');
       logBuffer.writeln(
         '│  └─ 📈 Initial Metrics: ${_green(currentMetrics.toString())}',
       );
@@ -249,14 +223,11 @@ class Datum {
       DatumSyncMetadata? metadata;
       // Try to get metadata from any manager
       if (_managers.isNotEmpty) {
-        metadata =
-            await _managers.values.first.localAdapter.getSyncMetadata(userId);
+        metadata = await _managers.values.first.localAdapter.getSyncMetadata(userId);
       }
 
       // Fetch and log last sync result for data transfer info
-      final lastSyncResult = _managers.isNotEmpty
-          ? await _managers.values.first.getLastSyncResult(userId)
-          : null;
+      final lastSyncResult = _managers.isNotEmpty ? await _managers.values.first.getLastSyncResult(userId) : null;
 
       if (metadata?.lastSyncTime != null) {
         logBuffer.writeln(
@@ -267,14 +238,10 @@ class Datum {
       }
 
       if (lastSyncResult != null) {
-        final totalPushed =
-            (lastSyncResult.totalBytesPushed / 1024).toStringAsFixed(2);
-        final totalPulled =
-            (lastSyncResult.totalBytesPulled / 1024).toStringAsFixed(2);
-        final cyclePushed =
-            (lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2);
-        final cyclePulled =
-            (lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2);
+        final totalPushed = (lastSyncResult.totalBytesPushed / 1024).toStringAsFixed(2);
+        final totalPulled = (lastSyncResult.totalBytesPulled / 1024).toStringAsFixed(2);
+        final cyclePushed = (lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2);
+        final cyclePulled = (lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2);
 
         logBuffer.writeln(
           '│  │  ├─ 💾 Total Data: ${_green('↑$totalPushed KB')} / ${_green('↓$totalPulled KB')}',
@@ -291,10 +258,8 @@ class Datum {
         final entityType = managerEntry.key;
         final manager = managerEntry.value;
         final count = await manager.getPendingCount(userId);
-        final itemCount =
-            (await manager.localAdapter.readAll(userId: userId)).length;
-        final storageSize =
-            await manager.localAdapter.getStorageSize(userId: userId);
+        final itemCount = (await manager.localAdapter.readAll(userId: userId)).length;
+        final storageSize = await manager.localAdapter.getStorageSize(userId: userId);
         totalItems += itemCount;
         totalPending += count;
 
@@ -311,8 +276,7 @@ class Datum {
         logBuffer.writeln('│  │  └─ 📭 No local data or pending operations.');
       }
     }
-    logBuffer.writeln(
-        '│  └─ 📈 Totals: Items: ${_green(totalItems)}, Pending: ${_yellow(totalPending)}');
+    logBuffer.writeln('│  └─ 📈 Totals: Items: ${_green(totalItems)}, Pending: ${_yellow(totalPending)}');
   }
 
   void _logObservers(StringBuffer logBuffer) {
@@ -375,38 +339,30 @@ class Datum {
       // If creating a sample instance fails, we just skip this log.
     }
 
-    final lastCharForConfig =
-        hasMiddlewares || hasObservers || isRelational ? '├' : '└';
+    final lastCharForConfig = hasMiddlewares || hasObservers || isRelational ? '├' : '└';
 
     logBuffer?.writeln('│  └─ 🧩 Entity: ${_cyan(T)}');
-    logBuffer?.writeln(
-        '│     ├─ 🏠 Local Adapter: ${_green(registration.localAdapter.runtimeType)}');
-    logBuffer?.writeln(
-        '│     ├─ ☁️   Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
-    logBuffer?.writeln(
-        '│     ├─ ⚖️  Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
-    logBuffer?.writeln(
-        '│     $lastCharForConfig─ 🔧 Custom Config: ${_green(registration.config != null)}');
+    logBuffer?.writeln('│     ├─ 🏠 Local Adapter: ${_green(registration.localAdapter.runtimeType)}');
+    logBuffer?.writeln('│     ├─ ☁️   Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
+    logBuffer?.writeln('│     ├─ ⚖️  Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
+    logBuffer?.writeln('│     $lastCharForConfig─ 🔧 Custom Config: ${_green(registration.config != null)}');
 
     if (hasMiddlewares) {
       final lastCharForMiddleware = hasObservers || isRelational ? '├' : '└';
-      logBuffer?.writeln(
-          '│     $lastCharForMiddleware─ 🔗 Middlewares (${_green(registration.middlewares!.length)}):');
+      logBuffer?.writeln('│     $lastCharForMiddleware─ 🔗 Middlewares (${_green(registration.middlewares!.length)}):');
       for (final middleware in registration.middlewares!) {
         logBuffer?.writeln('│     │  └─ ${_green(middleware.runtimeType)}');
       }
     }
     if (hasObservers) {
       final lastCharForObserver = isRelational ? '├' : '└';
-      logBuffer?.writeln(
-          '│     $lastCharForObserver─ 👀 Observers (${_green(registration.observers!.length)}):');
+      logBuffer?.writeln('│     $lastCharForObserver─ 👀 Observers (${_green(registration.observers!.length)}):');
       for (final observer in registration.observers!) {
         logBuffer?.writeln('│     │  └─ ${_green(observer.runtimeType)}');
       }
     }
     if (isRelational) {
-      logBuffer?.writeln(
-          '│     └─ 🤝 Relational: ${_green(true)} (Relations: ${_cyan(relationCount)})');
+      logBuffer?.writeln('│     └─ 🤝 Relational: ${_green(true)} (Relations: ${_cyan(relationCount)})');
     } else {
       // Explicitly log that it's not relational if no other optional logs follow.
       if (!hasMiddlewares && !hasObservers) {
@@ -427,8 +383,7 @@ class Datum {
     }
   }
 
-  Future<void> _initializeManagerForType(
-      Type type, StringBuffer logBuffer) async {
+  Future<void> _initializeManagerForType(Type type, StringBuffer logBuffer) async {
     final adapters = _adapterPairs[type];
     if (adapters == null) {
       throw StateError(
@@ -465,26 +420,20 @@ class Datum {
           if (event.result.failedCount == 0) {
             next = current.copyWith(
               successfulSyncs: current.successfulSyncs + 1,
-              conflictsDetected:
-                  current.conflictsDetected + event.result.conflictsResolved,
+              conflictsDetected: current.conflictsDetected + event.result.conflictsResolved,
               activeUsers: newActiveUsers,
               // Add the bytes from this cycle to the running total.
-              totalBytesPushed:
-                  current.totalBytesPushed + event.result.bytesPushedInCycle,
-              totalBytesPulled:
-                  current.totalBytesPulled + event.result.bytesPulledInCycle,
+              totalBytesPushed: current.totalBytesPushed + event.result.bytesPushedInCycle,
+              totalBytesPulled: current.totalBytesPulled + event.result.bytesPulledInCycle,
             );
           } else {
             next = current.copyWith(
               failedSyncs: current.failedSyncs + 1,
-              conflictsDetected:
-                  current.conflictsDetected + event.result.conflictsResolved,
+              conflictsDetected: current.conflictsDetected + event.result.conflictsResolved,
               activeUsers: newActiveUsers,
               // Add the bytes from this cycle to the running total.
-              totalBytesPushed:
-                  current.totalBytesPushed + event.result.bytesPushedInCycle,
-              totalBytesPulled:
-                  current.totalBytesPulled + event.result.bytesPulledInCycle,
+              totalBytesPushed: current.totalBytesPushed + event.result.bytesPushedInCycle,
+              totalBytesPulled: current.totalBytesPulled + event.result.bytesPulledInCycle,
             );
           }
         case DatumSyncErrorEvent():
@@ -493,8 +442,7 @@ class Datum {
           next = current.copyWith(userSwitchCount: current.userSwitchCount + 1);
         case ConflictResolvedEvent():
           next = current.copyWith(
-            conflictsResolvedAutomatically:
-                current.conflictsResolvedAutomatically + 1,
+            conflictsResolvedAutomatically: current.conflictsResolvedAutomatically + 1,
           );
         case _:
           return; // No change, don't emit a new value.
@@ -763,8 +711,7 @@ class Datum {
     required String userId,
     DatumSyncOptions? syncOptions,
   }) =>
-      Datum.manager<T>()
-          .deleteAndSync(id: id, userId: userId, syncOptions: syncOptions);
+      Datum.manager<T>().deleteAndSync(id: id, userId: userId, syncOptions: syncOptions);
 
   Future<void> dispose() async {
     // Pause all syncs before disposing to prevent new operations during shutdown.

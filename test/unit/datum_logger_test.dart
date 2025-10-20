@@ -17,8 +17,7 @@ void main() {
         expect(newLogger, isNot(same(logger))); // Should be a new instance
       });
 
-      test('creates a copy with the same value if no new value is provided',
-          () {
+      test('creates a copy with the same value if no new value is provided', () {
         // Arrange
         final logger = DatumLogger(enabled: false);
 

@@ -61,8 +61,7 @@ class DatumMetrics extends Equatable {
       successfulSyncs: successfulSyncs ?? this.successfulSyncs,
       failedSyncs: failedSyncs ?? this.failedSyncs,
       conflictsDetected: conflictsDetected ?? this.conflictsDetected,
-      conflictsResolvedAutomatically:
-          conflictsResolvedAutomatically ?? this.conflictsResolvedAutomatically,
+      conflictsResolvedAutomatically: conflictsResolvedAutomatically ?? this.conflictsResolvedAutomatically,
       userSwitchCount: userSwitchCount ?? this.userSwitchCount,
       activeUsers: activeUsers ?? this.activeUsers,
       totalBytesPushed: totalBytesPushed ?? this.totalBytesPushed,

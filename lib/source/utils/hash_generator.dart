@@ -14,8 +14,7 @@ class DatumHashGenerator {
   /// order, resulting in a stable hash for the same set of data.
   String hashEntities<T extends DatumEntity>(List<T> entities) {
     final sorted = List<T>.from(entities)..sort((a, b) => a.id.compareTo(b.id));
-    final jsonList =
-        sorted.map((e) => e.toDatumMap(target: MapTarget.remote)).toList();
+    final jsonList = sorted.map((e) => e.toDatumMap(target: MapTarget.remote)).toList();
     return _hashJson(jsonList);
   }
 

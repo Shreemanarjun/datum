@@ -7,11 +7,9 @@ import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
 // Create mocktail-based mocks for this test file to allow `when()` stubs.
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('DatumManager Lifecycle & Memory Leak Verification', () {
@@ -23,8 +21,7 @@ void main() {
     setUpAll(() {
       // Register a fallback value for any custom types used with `any()`
       registerFallbackValue(
-        const DatumSyncMetadata(
-            userId: 'fallback-user', dataHash: 'fallback-hash'),
+        const DatumSyncMetadata(userId: 'fallback-user', dataHash: 'fallback-hash'),
       );
       registerFallbackValue(const DatumQuery());
     });
@@ -40,26 +37,19 @@ void main() {
       when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
       when(() => localAdapter.dispose()).thenAnswer((_) async {});
       when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
-      when(() => localAdapter.getStoredSchemaVersion())
-          .thenAnswer((_) async => 0);
-      when(() => localAdapter.getPendingOperations(any()))
-          .thenAnswer((_) async => []);
+      when(() => localAdapter.getStoredSchemaVersion()).thenAnswer((_) async => 0);
+      when(() => localAdapter.getPendingOperations(any())).thenAnswer((_) async => []);
       when(
         () => remoteAdapter.readAll(
           userId: any(named: 'userId'),
           scope: any(named: 'scope'),
         ),
       ).thenAnswer((_) async => []);
-      when(() => localAdapter.readByIds(any(), userId: any(named: 'userId')))
-          .thenAnswer((_) async => {});
-      when(() => localAdapter.updateSyncMetadata(any(), any()))
-          .thenAnswer((_) async {});
-      when(() => localAdapter.changeStream())
-          .thenAnswer((_) => const Stream.empty());
-      when(() => remoteAdapter.changeStream)
-          .thenAnswer((_) => const Stream.empty());
-      when(() => remoteAdapter.updateSyncMetadata(any(), any()))
-          .thenAnswer((_) async {});
+      when(() => localAdapter.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {});
+      when(() => localAdapter.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
+      when(() => localAdapter.changeStream()).thenAnswer((_) => const Stream.empty());
+      when(() => remoteAdapter.changeStream).thenAnswer((_) => const Stream.empty());
+      when(() => remoteAdapter.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
 
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
@@ -202,8 +192,7 @@ void main() {
           await manager.watchNextSyncTime.first;
 
           // Assert: Expect the next event to be null.
-          final expectation =
-              expectLater(manager.watchNextSyncTime, emits(isNull));
+          final expectation = expectLater(manager.watchNextSyncTime, emits(isNull));
 
           // Act
           manager.stopAutoSync(userId: 'user-A');

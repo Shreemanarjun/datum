@@ -5,14 +5,11 @@ import 'package:mocktail/mocktail.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
-class MockLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
-class MockDatumObserver<T extends DatumEntity> extends Mock
-    implements DatumObserver<T> {}
+class MockDatumObserver<T extends DatumEntity> extends Mock implements DatumObserver<T> {}
 
 void main() {
   group('DatumManager User Switching', () {
@@ -356,9 +353,7 @@ void main() {
         final eventFuture = expectLater(
           manager.onUserSwitched,
           emits(
-            isA<UserSwitchedEvent>()
-                .having((e) => e.previousUserId, 'previousUserId', 'oldUser')
-                .having((e) => e.newUserId, 'newUserId', 'newUser'),
+            isA<UserSwitchedEvent>().having((e) => e.previousUserId, 'previousUserId', 'oldUser').having((e) => e.newUserId, 'newUserId', 'newUser'),
           ),
         );
 

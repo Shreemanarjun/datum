@@ -31,9 +31,7 @@ class DatumEntitySyncDetails {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
 
-    return other is DatumEntitySyncDetails &&
-        other.count == count &&
-        other.hash == hash;
+    return other is DatumEntitySyncDetails && other.count == count && other.hash == hash;
   }
 
   @override
@@ -60,9 +58,7 @@ class DatumSyncMetadata extends Equatable {
   factory DatumSyncMetadata.fromMap(Map<String, dynamic> json) {
     return DatumSyncMetadata(
       userId: json['userId'] as String,
-      lastSyncTime: json['lastSyncTime'] != null
-          ? DateTime.parse(json['lastSyncTime'] as String)
-          : null,
+      lastSyncTime: json['lastSyncTime'] != null ? DateTime.parse(json['lastSyncTime'] as String) : null,
       dataHash: json['dataHash'] as String?,
       deviceId: json['deviceId'] as String?,
       customMetadata: json['customMetadata'] as Map<String, dynamic>?,
@@ -117,8 +113,7 @@ class DatumSyncMetadata extends Equatable {
   /// Converts to a map.
   Map<String, dynamic> toMap() => {
         'userId': userId,
-        if (lastSyncTime != null)
-          'lastSyncTime': lastSyncTime!.toUtc().toIso8601String(),
+        if (lastSyncTime != null) 'lastSyncTime': lastSyncTime!.toUtc().toIso8601String(),
         if (dataHash != null) 'dataHash': dataHash,
         if (deviceId != null) 'deviceId': deviceId,
         if (customMetadata != null) 'customMetadata': customMetadata,

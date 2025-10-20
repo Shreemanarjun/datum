@@ -4,11 +4,9 @@ import 'package:datum/datum.dart';
 
 import '../mocks/mock_connectivity_checker.dart';
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('ExcludableEntity Integration Tests', () {
@@ -29,7 +27,7 @@ void main() {
         ),
       );
       registerFallbackValue(<String, dynamic>{});
-      registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
+      registerFallbackValue(const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
       registerFallbackValue(
         DatumSyncOperation<ExcludableEntity>(
           id: 'fb-op',
@@ -332,9 +330,7 @@ void main() {
         // includes the remote-only field by checking what is sent to the remote.
         await manager.synchronize('u1');
 
-        final captured = verify(() => remoteAdapter.create(captureAny()))
-            .captured
-            .single as ExcludableEntity;
+        final captured = verify(() => remoteAdapter.create(captureAny())).captured.single as ExcludableEntity;
 
         final remoteMap = captured.toDatumMap(target: MapTarget.remote);
         expect(remoteMap, containsPair('sessionToken', 'token-123'));
@@ -441,9 +437,7 @@ void main() {
       await manager.synchronize('u1');
 
       // Assert: The data saved to the local adapter should contain the field.
-      final capturedLocal = verify(() => localAdapter.create(captureAny()))
-          .captured
-          .single as ExcludableEntity;
+      final capturedLocal = verify(() => localAdapter.create(captureAny())).captured.single as ExcludableEntity;
       final localMap = capturedLocal.toDatumMap(target: MapTarget.local);
 
       expect(localMap, containsPair('localCacheKey', 'cache-data'));
@@ -452,8 +446,7 @@ void main() {
         () => remoteAdapter.create(captureAny()),
       ).captured;
       expect(
-        (captured.first as ExcludableEntity)
-            .toDatumMap(target: MapTarget.remote),
+        (captured.first as ExcludableEntity).toDatumMap(target: MapTarget.remote),
         isNot(contains('localCacheKey')),
       );
     });

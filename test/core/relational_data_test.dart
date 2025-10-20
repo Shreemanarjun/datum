@@ -48,8 +48,8 @@ class User extends RelationalDatumEntity {
 
   @override
   Map<String, Relation> get relations => {
-        'posts': HasMany('userId'), // A user has many posts.
-        'profile': HasOne('userId'), // A user has one profile.
+        'posts': const HasMany('userId'), // A user has many posts.
+        'profile': const HasOne('userId'), // A user has one profile.
       };
 
   @override
@@ -131,7 +131,7 @@ class Post extends RelationalDatumEntity {
 
   // Define the relationship
   @override
-  Map<String, Relation> get relations => {'author': BelongsTo('userId')};
+  Map<String, Relation> get relations => {'author': const BelongsTo('userId')};
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
@@ -201,7 +201,7 @@ class Profile extends RelationalDatumEntity {
 
   // Define the relationship
   @override
-  Map<String, Relation> get relations => {'user': BelongsTo('userId')};
+  Map<String, Relation> get relations => {'user': const BelongsTo('userId')};
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
@@ -237,8 +237,7 @@ class Profile extends RelationalDatumEntity {
 }
 
 /// A local adapter that intentionally does not implement fetchRelated.
-class _UnimplementedLocalAdapter<T extends DatumEntity>
-    extends LocalAdapter<T> {
+class _UnimplementedLocalAdapter<T extends DatumEntity> extends LocalAdapter<T> {
   @override
   Future<List<R>> fetchRelated<R extends DatumEntity>(
     RelationalDatumEntity parent,
@@ -282,8 +281,7 @@ class _UnimplementedLocalAdapter<T extends DatumEntity>
   @override
   Future<List<String>> getAllUserIds() async => [];
   @override
-  Future<List<Map<String, dynamic>>> getAllRawData({String? userId}) async =>
-      [];
+  Future<List<Map<String, dynamic>>> getAllRawData({String? userId}) async => [];
   @override
   Future<List<DatumSyncOperation<T>>> getPendingOperations(
     String userId,
@@ -424,13 +422,11 @@ void main() {
         connectivityChecker: MockConnectivityChecker(),
         registrations: [
           DatumRegistration<User>(
-            localAdapter: MockLocalAdapter<User>()
-              ..addLocalItem(testUser.id, testUser),
+            localAdapter: MockLocalAdapter<User>()..addLocalItem(testUser.id, testUser),
             remoteAdapter: MockRemoteAdapter<User>(),
           ),
           DatumRegistration<Post>(
-            localAdapter: MockLocalAdapter<Post>()
-              ..addLocalItem(testUser.id, testPost),
+            localAdapter: MockLocalAdapter<Post>()..addLocalItem(testUser.id, testPost),
             remoteAdapter: MockRemoteAdapter<Post>(),
           ),
         ],
@@ -463,8 +459,7 @@ void main() {
         connectivityChecker: MockConnectivityChecker(),
         registrations: [
           DatumRegistration<User>(
-            localAdapter: MockLocalAdapter<User>()
-              ..addLocalItem(testUser.id, testUser),
+            localAdapter: MockLocalAdapter<User>()..addLocalItem(testUser.id, testUser),
             remoteAdapter: MockRemoteAdapter<User>(),
           ),
           DatumRegistration<Post>(
@@ -498,13 +493,11 @@ void main() {
         connectivityChecker: MockConnectivityChecker(),
         registrations: [
           DatumRegistration<User>(
-            localAdapter: MockLocalAdapter<User>()
-              ..addLocalItem(testUser.id, testUser),
+            localAdapter: MockLocalAdapter<User>()..addLocalItem(testUser.id, testUser),
             remoteAdapter: MockRemoteAdapter<User>(),
           ),
           DatumRegistration<Profile>(
-            localAdapter: MockLocalAdapter<Profile>()
-              ..addLocalItem(testUser.id, testProfile),
+            localAdapter: MockLocalAdapter<Profile>()..addLocalItem(testUser.id, testProfile),
             remoteAdapter: MockRemoteAdapter<Profile>(),
           ),
         ],
@@ -535,8 +528,7 @@ void main() {
             remoteAdapter: MockRemoteAdapter<User>(),
           ),
           DatumRegistration<Post>(
-            localAdapter: MockLocalAdapter<Post>()
-              ..addLocalItem(testUser.id, testPost),
+            localAdapter: MockLocalAdapter<Post>()..addLocalItem(testUser.id, testPost),
             remoteAdapter: MockRemoteAdapter<Post>(),
           ),
         ],
@@ -561,8 +553,7 @@ void main() {
             remoteAdapter: MockRemoteAdapter<User>(),
           ),
           DatumRegistration<Post>(
-            localAdapter: MockLocalAdapter<Post>()
-              ..addLocalItem(testUser.id, testPost),
+            localAdapter: MockLocalAdapter<Post>()..addLocalItem(testUser.id, testPost),
             remoteAdapter: MockRemoteAdapter<Post>(),
           ),
         ],

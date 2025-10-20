@@ -29,7 +29,7 @@ class User extends RelationalDatumEntity {
   }) : userId = id;
 
   @override
-  Map<String, Relation> get relations => {'posts': HasMany('userId')};
+  Map<String, Relation> get relations => {'posts': const HasMany('userId')};
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {};
@@ -48,8 +48,7 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   ) =>
       throw UnimplementedError();
   @override
-  Stream<DatumChangeDetail<TestEntity>>? changeStream() =>
-      throw UnimplementedError();
+  Stream<DatumChangeDetail<TestEntity>>? changeStream() => throw UnimplementedError();
   @override
   Future<void> clear() => throw UnimplementedError();
   @override
@@ -57,15 +56,13 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   @override
   Future<void> create(TestEntity entity) => throw UnimplementedError();
   @override
-  Future<bool> delete(String id, {String? userId}) =>
-      throw UnimplementedError();
+  Future<bool> delete(String id, {String? userId}) => throw UnimplementedError();
   @override
   Future<void> dispose() => throw UnimplementedError();
   @override
   Future<List<String>> getAllUserIds() => throw UnimplementedError();
   @override
-  Future<List<Map<String, dynamic>>> getAllRawData({String? userId}) =>
-      throw UnimplementedError();
+  Future<List<Map<String, dynamic>>> getAllRawData({String? userId}) => throw UnimplementedError();
   @override
   Future<List<DatumSyncOperation<TestEntity>>> getPendingOperations(
     String userId,
@@ -74,8 +71,7 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   @override
   Future<int> getStoredSchemaVersion() => throw UnimplementedError();
   @override
-  Future<DatumSyncMetadata?> getSyncMetadata(String userId) =>
-      throw UnimplementedError();
+  Future<DatumSyncMetadata?> getSyncMetadata(String userId) => throw UnimplementedError();
   @override
   Future<void> initialize() => throw UnimplementedError();
   @override
@@ -92,14 +88,11 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   }) =>
       throw UnimplementedError();
   @override
-  Future<List<TestEntity>> query(DatumQuery query, {String? userId}) =>
-      throw UnimplementedError();
+  Future<List<TestEntity>> query(DatumQuery query, {String? userId}) => throw UnimplementedError();
   @override
-  Future<TestEntity?> read(String id, {String? userId}) =>
-      throw UnimplementedError();
+  Future<TestEntity?> read(String id, {String? userId}) => throw UnimplementedError();
   @override
-  Future<List<TestEntity>> readAll({String? userId}) =>
-      throw UnimplementedError();
+  Future<List<TestEntity>> readAll({String? userId}) => throw UnimplementedError();
   @override
   Future<PaginatedResult<TestEntity>> readAllPaginated(
     PaginationConfig config, {
@@ -113,19 +106,15 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   }) =>
       throw UnimplementedError();
   @override
-  Future<void> removePendingOperation(String operationId) =>
-      throw UnimplementedError();
+  Future<void> removePendingOperation(String operationId) => throw UnimplementedError();
   @override
-  Future<void> setStoredSchemaVersion(int version) =>
-      throw UnimplementedError();
+  Future<void> setStoredSchemaVersion(int version) => throw UnimplementedError();
   @override
-  Future<R> transaction<R>(Future<R> Function() action) =>
-      throw UnimplementedError();
+  Future<R> transaction<R>(Future<R> Function() action) => throw UnimplementedError();
   @override
   Future<void> update(TestEntity entity) => throw UnimplementedError();
   @override
-  Future<void> updateSyncMetadata(DatumSyncMetadata metadata, String userId) =>
-      throw UnimplementedError();
+  Future<void> updateSyncMetadata(DatumSyncMetadata metadata, String userId) => throw UnimplementedError();
 
   @override
   Future<List<R>> fetchRelated<R extends DatumEntity>(
@@ -146,8 +135,7 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   }
 
   @override
-  Future<void> saveLastSyncResult(
-      String userId, DatumSyncResult<TestEntity> result) {
+  Future<void> saveLastSyncResult(String userId, DatumSyncResult<TestEntity> result) {
     throw UnimplementedError();
   }
 }
@@ -157,14 +145,11 @@ class _TestRemoteAdapter extends RemoteAdapter<TestEntity> {
   @override
   Future<void> create(TestEntity entity) => throw UnimplementedError();
   @override
-  Future<void> delete(String id, {String? userId}) =>
-      throw UnimplementedError();
+  Future<void> delete(String id, {String? userId}) => throw UnimplementedError();
   @override
-  Stream<DatumChangeDetail<TestEntity>>? get changeStream =>
-      throw UnimplementedError();
+  Stream<DatumChangeDetail<TestEntity>>? get changeStream => throw UnimplementedError();
   @override
-  Future<DatumSyncMetadata?> getSyncMetadata(String userId) =>
-      throw UnimplementedError();
+  Future<DatumSyncMetadata?> getSyncMetadata(String userId) => throw UnimplementedError();
   @override
   Future<void> initialize() => throw UnimplementedError();
   @override
@@ -177,19 +162,15 @@ class _TestRemoteAdapter extends RemoteAdapter<TestEntity> {
   }) =>
       throw UnimplementedError();
   @override
-  Future<List<TestEntity>> query(DatumQuery query, {String? userId}) =>
-      throw UnimplementedError();
+  Future<List<TestEntity>> query(DatumQuery query, {String? userId}) => throw UnimplementedError();
   @override
-  Future<TestEntity?> read(String id, {String? userId}) =>
-      throw UnimplementedError();
+  Future<TestEntity?> read(String id, {String? userId}) => throw UnimplementedError();
   @override
-  Future<List<TestEntity>> readAll({String? userId, DatumSyncScope? scope}) =>
-      throw UnimplementedError();
+  Future<List<TestEntity>> readAll({String? userId, DatumSyncScope? scope}) => throw UnimplementedError();
   @override
   Future<void> update(TestEntity entity) => throw UnimplementedError();
   @override
-  Future<void> updateSyncMetadata(DatumSyncMetadata metadata, String userId) =>
-      throw UnimplementedError();
+  Future<void> updateSyncMetadata(DatumSyncMetadata metadata, String userId) => throw UnimplementedError();
 }
 
 void main() {
@@ -233,21 +214,15 @@ void main() {
     });
 
     test('default watchRelated throws UnimplementedError', () {
-      final parent = User(
-          id: 'u1',
-          name: 'name',
-          modifiedAt: DateTime(0),
-          createdAt: DateTime(0));
+      final parent = User(id: 'u1', name: 'name', modifiedAt: DateTime(0), createdAt: DateTime(0));
       final relatedAdapter = _TestLocalAdapter();
-      expect(() => adapter.watchRelated(parent, 'posts', relatedAdapter),
-          throwsA(isA<UnimplementedError>()));
+      expect(() => adapter.watchRelated(parent, 'posts', relatedAdapter), throwsA(isA<UnimplementedError>()));
     });
 
     test('default watchStorageSize throws UnimplementedError', () {
       // This is expected because the default implementation of watchStorageSize
       // depends on changeStream(), which throws in _TestLocalAdapter.
-      expect(() => adapter.watchStorageSize(userId: 'user1'),
-          throwsA(isA<UnimplementedError>()));
+      expect(() => adapter.watchStorageSize(userId: 'user1'), throwsA(isA<UnimplementedError>()));
     });
   });
 

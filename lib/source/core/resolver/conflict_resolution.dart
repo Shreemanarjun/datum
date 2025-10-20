@@ -59,9 +59,7 @@ class DatumConflictResolution<T extends DatumEntity> extends Equatable {
         );
 
   /// Creates a resolution with merged data.
-  const DatumConflictResolution.merge(T mergedData)
-      : this._(
-            strategy: DatumResolutionStrategy.merge, resolvedData: mergedData);
+  const DatumConflictResolution.merge(T mergedData) : this._(strategy: DatumResolutionStrategy.merge, resolvedData: mergedData);
 
   /// Creates a resolution requiring user input.
   const DatumConflictResolution.requireUserInput(String message)
@@ -72,8 +70,7 @@ class DatumConflictResolution<T extends DatumEntity> extends Equatable {
         );
 
   /// Creates an aborted resolution.
-  const DatumConflictResolution.abort(String reason)
-      : this._(strategy: DatumResolutionStrategy.abort, message: reason);
+  const DatumConflictResolution.abort(String reason) : this._(strategy: DatumResolutionStrategy.abort, message: reason);
 
   /// Creates a copy of the resolution with a different generic type.
   /// This is useful for upcasting to `DatumConflictResolution<DatumEntity>`.
@@ -100,8 +97,7 @@ class DatumConflictResolution<T extends DatumEntity> extends Equatable {
       strategy: strategy ?? this.strategy,
       // If setResolvedDataToNull is true, set it to null, otherwise use the
       // provided value or the existing one.
-      resolvedData:
-          setResolvedDataToNull ? null : (resolvedData ?? this.resolvedData),
+      resolvedData: setResolvedDataToNull ? null : (resolvedData ?? this.resolvedData),
       requiresUserInput: requiresUserInput ?? this.requiresUserInput,
       message: message ?? this.message,
     );

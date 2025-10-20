@@ -26,8 +26,7 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// immediately emit the current list of all items. Defaults to `true`.
   /// If `false`, the stream will only emit when a change occurs.
   /// Return `null` if the adapter doesn't support reactive queries.
-  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) =>
-      null;
+  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) => null;
 
   /// Watch a single item by its ID, emitting the item on change or null if deleted.
   /// Return null if the adapter doesn't support reactive queries.
@@ -223,8 +222,7 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// Provides a sample, empty, or dummy instance of the entity.
   /// This is used for reflection-like purposes, such as logging.
   T get sampleInstance {
-    throw UnimplementedError(
-        'sampleInstance getter is not implemented for this adapter.');
+    throw UnimplementedError('sampleInstance getter is not implemented for this adapter.');
   }
 
   /// Checks the health of the local adapter.
@@ -244,9 +242,7 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// implementation if their storage engine supports it. The default implementation
   /// is also available as a static method for testing purposes.
   @visibleForTesting
-  static Stream<int> defaultWatchStorageSize<T extends DatumEntity>(
-      LocalAdapter<T> adapter,
-      {String? userId}) {
+  static Stream<int> defaultWatchStorageSize<T extends DatumEntity>(LocalAdapter<T> adapter, {String? userId}) {
     final changes = adapter
         .changeStream()
         // Filter changes to only include the relevant user.

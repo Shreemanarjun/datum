@@ -57,8 +57,7 @@ void main() {
       await Datum.initialize(
         config: const DatumConfig(
           enableLogging: false,
-          autoStartSync:
-              false, // Disable auto-sync to prevent timers in fakeAsync.
+          autoStartSync: false, // Disable auto-sync to prevent timers in fakeAsync.
         ),
         connectivityChecker: MockConnectivityChecker(),
         registrations: [
@@ -110,8 +109,7 @@ void main() {
 
       // Since the Post adapter has a ManyToMany, its mock needs the pivot adapter.
       // We also need to wire up the pivot manager's events to its adapter.
-      final mockPostTagAdapter =
-          postAdapter.relatedAdapters![PostTag]! as MockLocalAdapter<PostTag>;
+      final mockPostTagAdapter = postAdapter.relatedAdapters![PostTag]! as MockLocalAdapter<PostTag>;
       mockPostTagAdapter.externalChangeStream = postTagManager.onDataChange;
     });
 
@@ -140,8 +138,7 @@ void main() {
       await postManager.push(item: testPost, userId: testUser.id);
     });
 
-    test('watchRelated for "hasMany" reacts to related entity deletion',
-        () async {
+    test('watchRelated for "hasMany" reacts to related entity deletion', () async {
       // Arrange: Add a user and two posts.
       await userManager.push(item: testUser, userId: testUser.id);
       final post2 = testPost.copyWith(id: 'post-2', title: 'Second Post');
@@ -156,10 +153,7 @@ void main() {
       expect(
         postStream,
         emitsInOrder([
-          (List<Post> posts) =>
-              posts.length == 2 &&
-              posts.any((p) => p.id == 'post-1') &&
-              posts.any((p) => p.id == 'post-2'),
+          (List<Post> posts) => posts.length == 2 && posts.any((p) => p.id == 'post-1') && posts.any((p) => p.id == 'post-2'),
           (List<Post> posts) => posts.length == 1 && posts.first.id == 'post-2',
         ]),
       );
@@ -181,8 +175,7 @@ void main() {
         expect(
           authorStream,
           emitsInOrder([
-            (List<User> users) =>
-                users.length == 1 && users.first.id == 'user-1',
+            (List<User> users) => users.length == 1 && users.first.id == 'user-1',
             isEmpty, // After user is deleted
           ]),
         );
@@ -270,8 +263,7 @@ void main() {
       },
     );
 
-    test('watchRelated for "hasOne" reacts to changes in the related entity',
-        () {
+    test('watchRelated for "hasOne" reacts to changes in the related entity', () {
       fakeAsync((async) async {
         // Arrange
         await userManager.push(item: testUser, userId: testUser.id);
@@ -295,16 +287,14 @@ void main() {
               print(
                 'watchRelated emitted [create]: ${profiles.map((e) => e.toDatumMap()).toList()}',
               );
-              return profiles.length == 1 &&
-                  profiles.first.id == testProfile.id;
+              return profiles.length == 1 && profiles.first.id == testProfile.id;
             },
             (List<Profile> profiles) {
               // ignore: avoid_print
               print(
                 'watchRelated emitted [update]: ${profiles.map((e) => e.toDatumMap()).toList()}',
               );
-              return profiles.length == 1 &&
-                  profiles.first.bio == 'Expert in reactive programming.';
+              return profiles.length == 1 && profiles.first.bio == 'Expert in reactive programming.';
             },
             isEmpty, // After profile is deleted
           ]),

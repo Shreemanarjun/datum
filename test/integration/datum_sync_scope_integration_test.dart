@@ -6,11 +6,9 @@ import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
 // Re-using mocks from other tests for consistency
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('DatumSyncScope Integration Test', () {
@@ -63,11 +61,11 @@ void main() {
 
     test('synchronize with scope passes filters to remote adapter', () async {
       // Arrange
-      final query = DatumQuery(filters: [
-        const Filter('status', FilterOperator.equals, 'active'),
-        const Filter('minDate', FilterOperator.equals, '2023-01-01'),
+      const query = DatumQuery(filters: [
+        Filter('status', FilterOperator.equals, 'active'),
+        Filter('minDate', FilterOperator.equals, '2023-01-01'),
       ]);
-      final scope = DatumSyncScope(query: query);
+      const scope = DatumSyncScope(query: query);
 
       // Act
       await manager.synchronize(userId, scope: scope);
@@ -107,8 +105,7 @@ void main() {
       },
     );
 
-    test('synchronize with empty filter scope passes empty map to remote',
-        () async {
+    test('synchronize with empty filter scope passes empty map to remote', () async {
       // Arrange
       const scope = DatumSyncScope(query: DatumQuery(filters: []));
 

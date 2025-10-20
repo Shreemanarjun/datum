@@ -4,8 +4,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../mocks/test_entity.dart';
 
-class MockConflictResolver<T extends DatumEntity> extends Mock
-    implements DatumConflictResolver<T> {}
+class MockConflictResolver<T extends DatumEntity> extends Mock implements DatumConflictResolver<T> {}
 
 void main() {
   group('DatumConfig', () {
@@ -47,7 +46,7 @@ void main() {
 
     test('copyWith creates a new instance with updated values', () {
       const originalConfig = DatumConfig<TestEntity>();
-      final newInterval = const Duration(minutes: 5);
+      const newInterval = Duration(minutes: 5);
       const newStrategy = ParallelStrategy();
       final newResolver = MockConflictResolver<TestEntity>();
       const newErrorStrategy = DatumErrorRecoveryStrategy(
@@ -142,8 +141,7 @@ void main() {
       });
 
       test('instances with different strategies are not equal', () {
-        const config1 =
-            DatumConfig(syncExecutionStrategy: SequentialStrategy());
+        const config1 = DatumConfig(syncExecutionStrategy: SequentialStrategy());
         const config2 = DatumConfig(syncExecutionStrategy: ParallelStrategy());
         expect(config1, isNot(equals(config2)));
       });

@@ -51,12 +51,8 @@ class ExcludableEntity extends DatumEntity {
       createdAt: DateTime.parse(json['createdAt'] as String),
       version: json['version'] as int,
       isDeleted: json['isDeleted'] as bool? ?? false,
-      localOnlyFields: json['localOnlyFields'] != null
-          ? Map<String, dynamic>.from(json['localOnlyFields'] as Map)
-          : null,
-      remoteOnlyFields: json['remoteOnlyFields'] != null
-          ? Map<String, dynamic>.from(json['remoteOnlyFields'] as Map)
-          : null,
+      localOnlyFields: json['localOnlyFields'] != null ? Map<String, dynamic>.from(json['localOnlyFields'] as Map) : null,
+      remoteOnlyFields: json['remoteOnlyFields'] != null ? Map<String, dynamic>.from(json['remoteOnlyFields'] as Map) : null,
     );
   }
 

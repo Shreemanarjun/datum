@@ -6,19 +6,16 @@ import 'package:datum/datum.dart';
 
 import '../mocks/test_entity.dart';
 
-class MockLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
 typedef StreamControllers = ({
   StreamController<DatumChangeDetail<TestEntity>> local,
   StreamController<DatumChangeDetail<TestEntity>> remote,
 });
 
-class MockConnectivityChecker extends Mock
-    implements DatumConnectivityChecker {}
+class MockConnectivityChecker extends Mock implements DatumConnectivityChecker {}
 
 void main() {
   group('DatumManager External Change Handling', () {
@@ -146,8 +143,7 @@ void main() {
         connectivity: connectivityChecker,
         datumConfig: const DatumConfig<TestEntity>(
           schemaVersion: 0, // Match the mock adapter's initial version
-          remoteEventDebounceTime:
-              Duration.zero, // Disable debouncing for most tests
+          remoteEventDebounceTime: Duration.zero, // Disable debouncing for most tests
         ),
       );
 
@@ -164,10 +160,8 @@ void main() {
 
     // Helper to set up stream controllers for tests.
     StreamControllers setupStreams() {
-      final localSC =
-          StreamController<DatumChangeDetail<TestEntity>>.broadcast();
-      final remoteSC =
-          StreamController<DatumChangeDetail<TestEntity>>.broadcast();
+      final localSC = StreamController<DatumChangeDetail<TestEntity>>.broadcast();
+      final remoteSC = StreamController<DatumChangeDetail<TestEntity>>.broadcast();
       when(localAdapter.changeStream).thenAnswer((_) => localSC.stream);
       when(() => remoteAdapter.changeStream).thenAnswer((_) => remoteSC.stream);
       return (local: localSC, remote: remoteSC);
@@ -478,9 +472,7 @@ void main() {
       },
     );
 
-    test(
-        'handles external change arriving during a pull operation for the same entity',
-        () async {
+    test('handles external change arriving during a pull operation for the same entity', () async {
       // This test simulates a race condition: a sync starts, pulling v2 of an
       // entity. While the sync is running, a real-time event for v3 arrives.
       // The expected outcome is that v3, the latest version, should be the
@@ -512,8 +504,7 @@ void main() {
       // to determine if it's a create or update. We must stub this read to
       // return the version that the sync process just saved (v2), so that
       // the handler correctly performs a patch to get to v3.
-      when(() => localAdapter.read(remoteV2.id, userId: userId))
-          .thenAnswer((_) async => remoteV2);
+      when(() => localAdapter.read(remoteV2.id, userId: userId)).thenAnswer((_) async => remoteV2);
 
       when(
         () => localAdapter.saveLastSyncResult(any(), any()),

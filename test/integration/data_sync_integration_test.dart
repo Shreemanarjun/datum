@@ -5,14 +5,11 @@ import 'package:mocktail/mocktail.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockDatumObserver<T extends DatumEntity> extends Mock
-    implements DatumObserver<T> {}
+class MockDatumObserver<T extends DatumEntity> extends Mock implements DatumObserver<T> {}
 
 /// A custom logger for tests that omits stack traces for cleaner output.
 class TestLogger extends DatumLogger {
@@ -35,7 +32,7 @@ void main() {
     setUpAll(() {
       registerFallbackValue(TestEntity.create('fb', 'fb', 'fb'));
       registerFallbackValue(<String, dynamic>{});
-      registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
+      registerFallbackValue(const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
       registerFallbackValue(
         DatumSyncOperation<TestEntity>(
           id: 'fb-op',
@@ -177,8 +174,7 @@ void main() {
           userId: any(named: 'userId'),
         ),
       ).thenAnswer(
-        (inv) async =>
-            TestEntity.create('patched', 'user1', 'Patched from remote'),
+        (inv) async => TestEntity.create('patched', 'user1', 'Patched from remote'),
       );
       when(
         () => remoteAdapter.readAll(
@@ -318,8 +314,7 @@ void main() {
       );
     });
 
-    test('converts a patch to a push if remote entity does not exist',
-        () async {
+    test('converts a patch to a push if remote entity does not exist', () async {
       final pendingOps = <DatumSyncOperation<TestEntity>>[];
       // 1. ARRANGE: Create and sync an initial entity.
       final initialEntity = TestEntity.create('delta-e3', 'user1', 'Initial');
@@ -402,8 +397,7 @@ void main() {
     test('retries a patch operation on network failure', () async {
       // Re-initialize manager with retries enabled
       // We can't use setUp for this one-off config, so we handle it manually.
-      await manager
-          .dispose(); // Dispose the one from setUp      await setupManager(
+      await manager.dispose(); // Dispose the one from setUp      await setupManager(
       // Create a local manager for this test to avoid interfering with the
       // group's setUp/tearDown cycle.
       await setupManager(
@@ -485,8 +479,8 @@ void main() {
       // Create a local manager for this test to avoid interfering with the
       // group's setUp/tearDown cycle.
       final testManager = await setupManager(
-        config: DatumConfig(
-          errorRecoveryStrategy: const DatumErrorRecoveryStrategy(
+        config: const DatumConfig(
+          errorRecoveryStrategy: DatumErrorRecoveryStrategy(
             maxRetries: 3,
             shouldRetry: _alwaysRetry,
           ),
@@ -569,9 +563,7 @@ void main() {
       final errorEventFuture = expectLater(
         manager.onSyncError,
         emits(
-          isA<DatumSyncErrorEvent>()
-              .having((e) => e.userId, 'userId', 'user1')
-              .having((e) => e.error, 'error', exception),
+          isA<DatumSyncErrorEvent>().having((e) => e.userId, 'userId', 'user1').having((e) => e.error, 'error', exception),
         ),
       );
 

@@ -12,11 +12,9 @@ import 'datum_config_test.dart';
 
 class MockIsolateHelper extends Mock implements IsolateHelper {}
 
-class MockLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
 class MockLogger extends Mock implements DatumLogger {}
 
@@ -81,8 +79,7 @@ void main() {
         logger: DatumLogger(enabled: false),
       );
       connectivity = MockConnectivityChecker();
-      eventController =
-          StreamController<DatumSyncEvent<TestEntity>>.broadcast();
+      eventController = StreamController<DatumSyncEvent<TestEntity>>.broadcast();
       statusSubject = BehaviorSubject<DatumSyncStatusSnapshot>.seeded(
         DatumSyncStatusSnapshot.initial(''),
       );
@@ -244,7 +241,7 @@ void main() {
         type: DatumOperationType.update,
         timestamp: DateTime.now(),
         data: updatedEntity,
-        delta: {'name': 'Updated Item'},
+        delta: const {'name': 'Updated Item'},
       );
       await queueManager.enqueue(operation);
 
@@ -513,7 +510,7 @@ void main() {
             remote: any(named: 'remote'),
             context: any(named: 'context'),
           ),
-        ).thenAnswer((_) async => DatumConflictResolution.abort('Test'));
+        ).thenAnswer((_) async => const DatumConflictResolution.abort('Test'));
 
         final engineWithCustomResolver = DatumSyncEngine<TestEntity>(
           localAdapter: localAdapter,
@@ -549,8 +546,7 @@ void main() {
               context: any(named: 'context'),
             ),
           ).thenAnswer(
-            (_) async =>
-                DatumConflictResolution.requireUserInput('Needs user choice'),
+            (_) async => const DatumConflictResolution.requireUserInput('Needs user choice'),
           );
 
           final engineWithCustomResolver = DatumSyncEngine<TestEntity>(
@@ -655,8 +651,7 @@ void main() {
       expect(
         testEntityDetails!.count,
         1,
-        reason:
-            'Metadata should reflect the item count from localAdapter.readAll',
+        reason: 'Metadata should reflect the item count from localAdapter.readAll',
       );
       expect(
         testEntityDetails.hash,

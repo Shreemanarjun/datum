@@ -5,5 +5,4 @@ import 'package:mocktail/mocktail.dart';
 ///
 /// This allows for stubbing methods like `isConnected` and `onStatusChange`
 /// in tests.
-class MockConnectivityChecker extends Mock
-    implements DatumConnectivityChecker {}
+class MockConnectivityChecker extends Mock implements DatumConnectivityChecker {}

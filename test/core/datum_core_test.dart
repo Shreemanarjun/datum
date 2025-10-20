@@ -3,8 +3,7 @@ import 'dart:async';
 import 'package:datum/datum.dart';
 import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
-import '../integration/observer_integration_test.dart'
-    show MockedLocalAdapter, MockedRemoteAdapter;
+import '../integration/observer_integration_test.dart' show MockedLocalAdapter, MockedRemoteAdapter;
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
@@ -799,8 +798,7 @@ void main() {
     });
 
     group('allHealths stream', () {
-      test('emits a map of health statuses for all registered managers',
-          () async {
+      test('emits a map of health statuses for all registered managers', () async {
         // Arrange
         datum = await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
@@ -823,10 +821,8 @@ void main() {
           emits(
             isA<Map<Type, DatumHealth>>()
                 .having((m) => m.keys, 'keys', {TestEntity, AnotherTestEntity})
-                .having((m) => m[TestEntity]!.status, 'TestEntity status',
-                    DatumSyncHealth.healthy)
-                .having((m) => m[AnotherTestEntity]!.status,
-                    'AnotherTestEntity status', DatumSyncHealth.healthy),
+                .having((m) => m[TestEntity]!.status, 'TestEntity status', DatumSyncHealth.healthy)
+                .having((m) => m[AnotherTestEntity]!.status, 'AnotherTestEntity status', DatumSyncHealth.healthy),
           ),
         );
 
@@ -879,9 +875,7 @@ void main() {
         );
 
         // Assert
-        final captured = verify(() => mockLogger.info(captureAny()))
-            .captured
-            .single as String;
+        final captured = verify(() => mockLogger.info(captureAny())).captured.single as String;
 
         expect(captured, contains('🚀 Initializing Datum...'));
         expect(captured, contains('Logging: true'));
@@ -907,15 +901,12 @@ void main() {
         );
 
         // Assert
-        final captured = verify(() => mockLogger.info(captureAny()))
-            .captured
-            .single as String;
+        final captured = verify(() => mockLogger.info(captureAny())).captured.single as String;
         expect(captured, contains('Auto-sync: true'));
         expect(captured, contains('Targeting initial user: user-123'));
       });
 
-      test('logs auto-sync with discovery message when no initialUserId',
-          () async {
+      test('logs auto-sync with discovery message when no initialUserId', () async {
         // Arrange
         const config = DatumConfig(
           enableLogging: true,
@@ -930,9 +921,7 @@ void main() {
         );
 
         // Assert
-        final captured = verify(() => mockLogger.info(captureAny()))
-            .captured
-            .single as String;
+        final captured = verify(() => mockLogger.info(captureAny())).captured.single as String;
         expect(captured, contains('Discovering all local users to sync'));
       });
     });

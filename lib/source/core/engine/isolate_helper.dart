@@ -7,8 +7,7 @@ class IsolateHelper {
   const IsolateHelper();
 
   /// Spawns a long-lived isolate for complex, two-way communication.
-  Future<Isolate> spawn<T>(void Function(T message) entryPoint, T message) =>
-      Isolate.spawn<T>(entryPoint, message);
+  Future<Isolate> spawn<T>(void Function(T message) entryPoint, T message) => Isolate.spawn<T>(entryPoint, message);
 
   /// Runs a one-off JSON encoding task in a background isolate.
   ///

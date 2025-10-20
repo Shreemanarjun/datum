@@ -82,7 +82,7 @@ void main() {
 
     group('Equality and HashCode', () {
       final now = DateTime.now();
-      final health = const DatumHealth(status: DatumSyncHealth.syncing);
+      const health = DatumHealth(status: DatumSyncHealth.syncing);
       final errors = [Exception('Test')];
       final snapshot1 = DatumSyncStatusSnapshot(
         userId: 'user1',
@@ -118,8 +118,7 @@ void main() {
       });
 
       test('instances with different values are not equal', () {
-        final differentStatus =
-            snapshot1.copyWith(status: DatumSyncStatus.completed);
+        final differentStatus = snapshot1.copyWith(status: DatumSyncStatus.completed);
         final differentPending = snapshot1.copyWith(pendingOperations: 10);
         final differentProgress = snapshot1.copyWith(progress: 0.8);
         final differentHealth = snapshot1.copyWith(
@@ -163,8 +162,7 @@ void main() {
       expect(stringRepresentation, contains('failedOperations: 1'));
       expect(stringRepresentation, contains('progress: 0.5'));
       expect(stringRepresentation, contains('lastStartedAt: $now'));
-      expect(
-          stringRepresentation, contains('errors: [Exception: Network Error]'));
+      expect(stringRepresentation, contains('errors: [Exception: Network Error]'));
       expect(stringRepresentation, contains('syncedCount: 4'));
       expect(stringRepresentation, contains('conflictsResolved: 1'));
       expect(

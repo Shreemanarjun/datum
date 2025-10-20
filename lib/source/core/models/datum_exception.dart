@@ -49,8 +49,7 @@ class UserSwitchException<T extends DatumEntity> extends DatumException {
   final String message;
 
   @override
-  String toString() =>
-      'UserSwitchException: $message (from: $oldUserId, to: $newUserId)';
+  String toString() => 'UserSwitchException: $message (from: $oldUserId, to: $newUserId)';
 }
 
 /// Exception thrown by adapters during their operations.
@@ -68,8 +67,7 @@ class AdapterException extends DatumException {
   final StackTrace? stackTrace;
 
   @override
-  String toString() =>
-      'AdapterException in $adapterName: $message${stackTrace == null ? '' : '\n$stackTrace'}';
+  String toString() => 'AdapterException in $adapterName: $message${stackTrace == null ? '' : '\n$stackTrace'}';
 }
 
 /// Exception thrown when an entity is not found, typically during an

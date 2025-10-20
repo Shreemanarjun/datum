@@ -7,14 +7,11 @@ import 'package:datum/datum.dart';
 import '../mocks/test_entity.dart';
 
 // Use proper mocktail mocks for adapters
-class MockLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
-class MockConnectivityChecker extends Mock
-    implements DatumConnectivityChecker {}
+class MockConnectivityChecker extends Mock implements DatumConnectivityChecker {}
 
 void main() {
   group('Advanced Sync Integration Tests', () {
@@ -45,7 +42,7 @@ void main() {
         ),
       );
       registerFallbackValue(
-        DatumSyncMetadata(userId: 'fb', dataHash: 'fallback'),
+        const DatumSyncMetadata(userId: 'fb', dataHash: 'fallback'),
       );
       registerFallbackValue(
         const DatumSyncResult<TestEntity>(
@@ -188,8 +185,7 @@ void main() {
       ).thenAnswer((_) async => [localOnlyEntity, remoteEntity1]);
       await manager.push(item: localOnlyEntity, userId: 'user1');
 
-      final thirtyDaysAgo =
-          DateTime.now().subtract(const Duration(days: 30)).toIso8601String();
+      final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30)).toIso8601String();
       // Create a query and pass it to the scope.
       final query = DatumQuery(
         filters: [
@@ -207,8 +203,7 @@ void main() {
       expect(localItems.any((item) => item.id == 'local-only'), isTrue);
     });
 
-    test('per-operation retry logic increments retry count on failure',
-        () async {
+    test('per-operation retry logic increments retry count on failure', () async {
       // Re-initialize manager with retries enabled for this specific test.
       await manager.dispose();
       localAdapter = MockLocalAdapter<TestEntity>();
@@ -292,8 +287,7 @@ void main() {
           ),
         ), // This is the 'update' call for the retry.
       ).thenAnswer((invocation) async {
-        final updatedOp =
-            invocation.positionalArguments[1] as DatumSyncOperation<TestEntity>;
+        final updatedOp = invocation.positionalArguments[1] as DatumSyncOperation<TestEntity>;
         final index = pendingOps.indexWhere((op) => op.id == updatedOp.id);
         if (index != -1) {
           pendingOps[index] = updatedOp;
@@ -322,8 +316,7 @@ void main() {
       expect(
         pendingOps.map((op) => op.id).toSet().length,
         pendingOps.length,
-        reason:
-            'No duplicate operations should exist in pendingOps after first sync',
+        reason: 'No duplicate operations should exist in pendingOps after first sync',
       );
 
       // Act 2: Second sync attempt. This time, the remote call will succeed.
@@ -350,8 +343,7 @@ void main() {
       expect(
         pendingOps.map((op) => op.id).toSet().length,
         pendingOps.length,
-        reason:
-            'No duplicate operations should exist in pendingOps after second sync',
+        reason: 'No duplicate operations should exist in pendingOps after second sync',
       );
 
       // Verify both items are now on the remote.

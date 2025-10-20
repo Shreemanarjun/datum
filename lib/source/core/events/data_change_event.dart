@@ -22,8 +22,7 @@ class DataChangeEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   final DataSource source;
 
   @override
-  String toString() =>
-      '${super.toString()}: DataChangeEvent(data: $data, changeType: $changeType, source: $source)';
+  String toString() => '${super.toString()}: DataChangeEvent(data: $data, changeType: $changeType, source: $source)';
 }
 
 /// Type of data change.

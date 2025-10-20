@@ -29,8 +29,7 @@ void main() {
 
     group('MergeResolver', () {
       test('should have correct name property', () {
-        final resolver =
-            MergeResolver<TestEntity>(onMerge: (_, __, ___) async => null);
+        final resolver = MergeResolver<TestEntity>(onMerge: (_, __, ___) async => null);
         expect(resolver.name, 'Merge');
       });
 
@@ -95,8 +94,7 @@ void main() {
 
         // Assert
         expect(resolution.strategy, DatumResolutionStrategy.abort);
-        expect(resolution.message,
-            'Merge requires both local and remote data to be available.');
+        expect(resolution.message, 'Merge requires both local and remote data to be available.');
       });
 
       test('should abort when only remote is null', () async {
@@ -114,8 +112,7 @@ void main() {
 
         // Assert
         expect(resolution.strategy, DatumResolutionStrategy.abort);
-        expect(resolution.message,
-            'Merge requires both local and remote data to be available.');
+        expect(resolution.message, 'Merge requires both local and remote data to be available.');
       });
 
       test('should abort when onMerge returns null', () async {
@@ -354,8 +351,7 @@ void main() {
 
     group('UserPromptResolver', () {
       test('should have correct name property', () {
-        final resolver = UserPromptResolver<TestEntity>(
-            onPrompt: (_, __, ___) async => DatumResolutionStrategy.abort);
+        final resolver = UserPromptResolver<TestEntity>(onPrompt: (_, __, ___) async => DatumResolutionStrategy.abort);
         expect(resolver.name, 'UserPrompt');
       });
 
@@ -393,8 +389,7 @@ void main() {
       test('should use local when user chooses useLocal', () async {
         // Arrange
         final resolver = UserPromptResolver<TestEntity>(
-          onPrompt: (ctx, local, remote) async =>
-              DatumResolutionStrategy.takeLocal,
+          onPrompt: (ctx, local, remote) async => DatumResolutionStrategy.takeLocal,
         );
 
         // Act
@@ -414,8 +409,7 @@ void main() {
         () async {
           // Arrange
           final resolver = UserPromptResolver<TestEntity>(
-            onPrompt: (ctx, local, remote) async =>
-                DatumResolutionStrategy.takeLocal,
+            onPrompt: (ctx, local, remote) async => DatumResolutionStrategy.takeLocal,
           );
 
           // Act
@@ -437,8 +431,7 @@ void main() {
       test('should use remote when user chooses useRemote', () async {
         // Arrange
         final resolver = UserPromptResolver<TestEntity>(
-          onPrompt: (ctx, local, remote) async =>
-              DatumResolutionStrategy.takeRemote,
+          onPrompt: (ctx, local, remote) async => DatumResolutionStrategy.takeRemote,
         );
 
         // Act
@@ -458,8 +451,7 @@ void main() {
         () async {
           // Arrange
           final resolver = UserPromptResolver<TestEntity>(
-            onPrompt: (ctx, local, remote) async =>
-                DatumResolutionStrategy.takeRemote,
+            onPrompt: (ctx, local, remote) async => DatumResolutionStrategy.takeRemote,
           );
 
           // Act
@@ -483,10 +475,8 @@ void main() {
         () async {
           // Arrange
           final resolver = UserPromptResolver<TestEntity>(
-            onPrompt: (ctx, local, remote) async =>
-                DatumResolutionStrategy.merge,
-            onMerge: (local, remote, context) async =>
-                local.copyWith(name: remote.name),
+            onPrompt: (ctx, local, remote) async => DatumResolutionStrategy.merge,
+            onMerge: (local, remote, context) async => local.copyWith(name: remote.name),
           );
 
           // Act
@@ -530,8 +520,7 @@ void main() {
         () async {
           // Arrange
           final resolver = UserPromptResolver<TestEntity>(
-            onPrompt: (ctx, local, remote) async =>
-                DatumResolutionStrategy.merge,
+            onPrompt: (ctx, local, remote) async => DatumResolutionStrategy.merge,
             // onMerge is intentionally omitted (null)
           );
 
@@ -551,8 +540,7 @@ void main() {
         },
       );
 
-      test('should abort when user chooses merge but data is missing',
-          () async {
+      test('should abort when user chooses merge but data is missing', () async {
         // Arrange
         final resolver = UserPromptResolver<TestEntity>(
           onPrompt: (ctx, local, remote) async => DatumResolutionStrategy.merge,
@@ -568,8 +556,7 @@ void main() {
 
         // Assert
         expect(resolution.strategy, DatumResolutionStrategy.abort);
-        expect(resolution.message,
-            'Merge requires both local and remote data to be available.');
+        expect(resolution.message, 'Merge requires both local and remote data to be available.');
       });
 
       test('should abort when user chooses abort', () async {
@@ -593,8 +580,7 @@ void main() {
       test('should require user input when user chooses askUser', () async {
         // Arrange
         final resolver = UserPromptResolver<TestEntity>(
-          onPrompt: (ctx, local, remote) async =>
-              DatumResolutionStrategy.askUser,
+          onPrompt: (ctx, local, remote) async => DatumResolutionStrategy.askUser,
         );
 
         // Act

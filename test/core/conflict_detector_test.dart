@@ -127,8 +127,7 @@ void main() {
       expect(context!.type, DatumConflictType.deletionConflict);
     });
 
-    test('detects deletion conflict when local is deleted and remote is not',
-        () {
+    test('detects deletion conflict when local is deleted and remote is not', () {
       final local = TestEntity(
         id: 'entity1',
         userId: 'user1',

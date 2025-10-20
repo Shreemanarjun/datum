@@ -115,8 +115,7 @@ class DatumSyncResult<T extends DatumEntity> {
         skipReason = null;
 
   /// Whether the sync completed successfully without any failures.
-  bool get isSuccess =>
-      !wasSkipped && !wasCancelled && failedCount == 0 && error == null;
+  bool get isSuccess => !wasSkipped && !wasCancelled && failedCount == 0 && error == null;
 
   /// The total number of operations processed in this sync cycle.
   int get totalOperations => syncedCount + failedCount;

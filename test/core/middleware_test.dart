@@ -7,17 +7,13 @@ import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
 // Define mocktail mocks directly in the test file for clarity and correctness.
-class MockLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
-class MockMiddleware<T extends DatumEntity> extends Mock
-    implements DatumMiddleware<T> {}
+class MockMiddleware<T extends DatumEntity> extends Mock implements DatumMiddleware<T> {}
 
-class MockObserver<T extends DatumEntity> extends Mock
-    implements DatumObserver<T> {}
+class MockObserver<T extends DatumEntity> extends Mock implements DatumObserver<T> {}
 
 void main() {
   group('DatumMiddleware', () {
@@ -343,20 +339,16 @@ void main() {
       verifyInOrder([
         () => middleware1.transformBeforeSave(original),
         () => middleware2.transformBeforeSave(
-              any(
-                  that: predicate(
-                      (e) => (e as TestEntity).name == 'M1: Original')),
+              any(that: predicate((e) => (e as TestEntity).name == 'M1: Original')),
             ),
       ]);
     });
 
-    test('Middleware transformations are included in diff calculation',
-        () async {
+    test('Middleware transformations are included in diff calculation', () async {
       // Arrange:
       // 1. The original entity that exists in the database.
       final original = TestEntity.create('e1', userId, 'Original');
-      when(() => localAdapter.read('e1', userId: userId))
-          .thenAnswer((_) async => original);
+      when(() => localAdapter.read('e1', userId: userId)).thenAnswer((_) async => original);
 
       // 2. The entity being pushed, which is identical to the original.
       final toPush = original.copyWith();
@@ -373,10 +365,7 @@ void main() {
       // Assert:
       // Verify that a patch was called because the middleware created a diff.
       // The delta should contain the change made by the middleware.
-      final captured = verify(() => localAdapter.patch(
-          id: 'e1',
-          delta: captureAny(named: 'delta'),
-          userId: userId)).captured;
+      final captured = verify(() => localAdapter.patch(id: 'e1', delta: captureAny(named: 'delta'), userId: userId)).captured;
       final delta = captured.first as Map<String, dynamic>;
       expect(delta['name'], 'Transformed by Middleware');
     });

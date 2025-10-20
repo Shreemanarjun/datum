@@ -3,8 +3,7 @@ import 'package:test/test.dart';
 
 void main() {
   group('DatumSyncScope', () {
-    test('default constructor creates a scope with a default (empty) query',
-        () {
+    test('default constructor creates a scope with a default (empty) query', () {
       // Arrange & Act
       const scope = DatumSyncScope();
 
@@ -16,11 +15,11 @@ void main() {
 
     test('constructor correctly assigns the provided query', () {
       // Arrange & Act
-      final query = DatumQuery(
-        filters: const [Filter('status', FilterOperator.equals, 'active')],
-        sorting: const [SortDescriptor('createdAt', descending: true)],
+      const query = DatumQuery(
+        filters: [Filter('status', FilterOperator.equals, 'active')],
+        sorting: [SortDescriptor('createdAt', descending: true)],
       );
-      final scope = DatumSyncScope(query: query);
+      const scope = DatumSyncScope(query: query);
 
       // Assert
       expect(scope.query, same(query));

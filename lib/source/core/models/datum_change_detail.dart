@@ -59,12 +59,7 @@ class DatumChangeDetail<T extends DatumEntity> {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
 
-    return other is DatumChangeDetail<T> &&
-        other.type == type &&
-        other.entityId == entityId &&
-        other.userId == userId &&
-        other.timestamp == timestamp &&
-        other.sourceId == sourceId;
+    return other is DatumChangeDetail<T> && other.type == type && other.entityId == entityId && other.userId == userId && other.timestamp == timestamp && other.sourceId == sourceId;
   }
 
   @override

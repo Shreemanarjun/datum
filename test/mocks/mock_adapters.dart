@@ -101,8 +101,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     print(
       '[MockLocalAdapter] push: id=${item.id}, userId=${item.userId}, exists: $exists',
     );
-    _storage.putIfAbsent(item.userId, () => {})[item.id] =
-        item; // This now correctly overwrites
+    _storage.putIfAbsent(item.userId, () => {})[item.id] = item; // This now correctly overwrites
     // Add a microtask delay BEFORE emitting the change to ensure the storage
     // update is settled. This helps prevent race conditions in reactive tests
     // where a stream might query the data before it's fully updated.
@@ -262,9 +261,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     final stream = externalChangeStream;
     if (stream == null) return null;
 
-    final updateStream = stream
-        .where((event) => userId == null || event.userId == userId)
-        .asyncMap((_) => readAll(userId: userId));
+    final updateStream = stream.where((event) => userId == null || event.userId == userId).asyncMap((_) => readAll(userId: userId));
 
     if (includeInitialData ?? true) {
       final initialDataStream = Stream.fromFuture(readAll(userId: userId));
@@ -281,9 +278,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     final initialDataStream = Stream.fromFuture(read(id, userId: userId));
     final updateStream = stream
         .where(
-          (event) =>
-              event.data?.id == id &&
-              (userId == null || event.userId == userId),
+          (event) => event.data?.id == id && (userId == null || event.userId == userId),
         )
         .asyncMap((_) => read(id, userId: userId));
 
@@ -303,7 +298,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     final startIndex = (currentPage - 1) * config.pageSize;
     if (startIndex >= totalCount) {
       return PaginatedResult(
-        items: [],
+        items: const [],
         totalCount: totalCount,
         currentPage: currentPage,
         totalPages: totalPages,
@@ -311,9 +306,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
       );
     }
 
-    final endIndex = (startIndex + config.pageSize > totalCount)
-        ? totalCount
-        : startIndex + config.pageSize;
+    final endIndex = (startIndex + config.pageSize > totalCount) ? totalCount : startIndex + config.pageSize;
     final pageItems = allItems.sublist(startIndex, endIndex);
 
     return PaginatedResult(
@@ -336,9 +329,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     final initialDataStream = Stream.fromFuture(
       readAllPaginated(config, userId: userId),
     );
-    final updateStream = stream
-        .where((event) => userId == null || event.userId == userId)
-        .asyncMap((_) => readAllPaginated(config, userId: userId));
+    final updateStream = stream.where((event) => userId == null || event.userId == userId).asyncMap((_) => readAllPaginated(config, userId: userId));
 
     return Rx.concat([initialDataStream, updateStream]);
   }
@@ -354,9 +345,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
     }
 
     final initialDataStream = Stream.fromFuture(getFiltered());
-    final updateStream = stream
-        .where((event) => userId == null || event.userId == userId)
-        .asyncMap((_) => getFiltered());
+    final updateStream = stream.where((event) => userId == null || event.userId == userId).asyncMap((_) => getFiltered());
 
     return Rx.concat([initialDataStream, updateStream]).asBroadcastStream();
   }
@@ -370,18 +359,14 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
   @override
   Stream<int>? watchCount({DatumQuery? query, String? userId}) {
-    final sourceStream = query != null
-        ? watchQuery(query, userId: userId)
-        : watchAll(userId: userId);
+    final sourceStream = query != null ? watchQuery(query, userId: userId) : watchAll(userId: userId);
 
     return sourceStream?.map((list) => list.length);
   }
 
   @override
   Stream<T?>? watchFirst({DatumQuery? query, String? userId}) {
-    final sourceStream = query != null
-        ? watchQuery(query, userId: userId)
-        : watchAll(userId: userId);
+    final sourceStream = query != null ? watchQuery(query, userId: userId) : watchAll(userId: userId);
 
     return sourceStream?.map((list) => list.isNotEmpty ? list.first : null);
   }
@@ -533,10 +518,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         }
 
         // 3. Extract the IDs of the "other" side of the relationship.
-        final otherIds = pivotEntries
-            .map((e) => e.toDatumMap()[relation.otherForeignKey] as String)
-            .where((id) => id.isNotEmpty)
-            .toList();
+        final otherIds = pivotEntries.map((e) => e.toDatumMap()[relation.otherForeignKey] as String).where((id) => id.isNotEmpty).toList();
 
         if (otherIds.isEmpty) return [];
 
@@ -583,9 +565,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         if (foreignKeyValue == null) {
           return Stream.value([]);
         }
-        return relatedAdapter
-            .watchById(foreignKeyValue)
-            ?.map((item) => item != null ? [item] : []);
+        return relatedAdapter.watchById(foreignKeyValue)?.map((item) => item != null ? [item] : []);
       case HasMany():
         final foreignKeyField = relation.foreignKey;
         final parentId = parent.id;
@@ -613,11 +593,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
         return pivotAdapter.watchQuery(pivotQuery)?.switchMap((pivotEntries) {
           if (pivotEntries.isEmpty) return Stream.value([]);
-          final otherIds = pivotEntries
-              .map((e) => e.toDatumMap()[relation.otherForeignKey] as String?)
-              .where((id) => id != null && id.isNotEmpty)
-              .cast<String>()
-              .toList();
+          final otherIds = pivotEntries.map((e) => e.toDatumMap()[relation.otherForeignKey] as String?).where((id) => id != null && id.isNotEmpty).cast<String>().toList();
           if (otherIds.isEmpty) return Stream.value([]);
           final relatedQuery = DatumQuery(
             filters: [
@@ -636,9 +612,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
         );
         // Use watchFirst for a more direct 1-to-1 watch, which is less
         // prone to emitting intermediate empty lists during updates.
-        return relatedAdapter
-            .watchFirst(query: query)
-            ?.map((item) => item != null ? [item] : []);
+        return relatedAdapter.watchFirst(query: query)?.map((item) => item != null ? [item] : []);
     }
   }
 
@@ -656,9 +630,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
   @override
   Stream<int> watchStorageSize({String? userId}) {
-    final changes = changeStream()
-        ?.where((event) => userId == null || event.userId == userId)
-        .asyncMap((_) => getStorageSize(userId: userId));
+    final changes = changeStream()?.where((event) => userId == null || event.userId == userId).asyncMap((_) => getStorageSize(userId: userId));
 
     if (changes == null) return Stream.value(0);
 
@@ -720,10 +692,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
   @override
   Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) async {
     if (!isConnectedValue) throw Exception('No connection');
-    var items = (userId != null
-            ? _remoteStorage[userId]?.values.toList()
-            : _remoteStorage.values.expand((map) => map.values).toList()) ??
-        [];
+    var items = (userId != null ? _remoteStorage[userId]?.values.toList() : _remoteStorage.values.expand((map) => map.values).toList()) ?? [];
     if (scope != null) {
       // Find if a 'minModifiedDate' filter exists in the query.
       final minDateFilter = scope.query.filters.firstWhereOrNull(
@@ -732,8 +701,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
 
       if (minDateFilter != null) {
         final minDate = DateTime.parse(minDateFilter.value as String);
-        items =
-            items.where((item) => item.modifiedAt.isAfter(minDate)).toList();
+        items = items.where((item) => item.modifiedAt.isAfter(minDate)).toList();
       }
     }
     return items;
@@ -769,8 +737,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
     if (_failedIds.contains(item.id)) {
       throw NetworkException('Simulated push failure for ${item.id}');
     }
-    final bool exists =
-        _remoteStorage[item.userId]?.containsKey(item.id) ?? false;
+    final bool exists = _remoteStorage[item.userId]?.containsKey(item.id) ?? false;
     _remoteStorage.putIfAbsent(item.userId, () => {})[item.id] = item;
     if (!silent) {
       _changeController.add(
@@ -888,9 +855,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
     final initialDataStream = Stream.fromFuture(
       readAll(userId: userId, scope: scope),
     );
-    final updateStream = changeStream!
-        .where((event) => userId == null || event.userId == userId)
-        .asyncMap((_) => readAll(userId: userId, scope: scope));
+    final updateStream = changeStream!.where((event) => userId == null || event.userId == userId).asyncMap((_) => readAll(userId: userId, scope: scope));
 
     return Rx.concat([initialDataStream, updateStream]);
   }
@@ -921,9 +886,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
     }
 
     final initialDataStream = Stream.fromFuture(getFiltered());
-    final updateStream = changeStream!
-        .where((event) => userId == null || event.userId == userId)
-        .asyncMap((_) => getFiltered());
+    final updateStream = changeStream!.where((event) => userId == null || event.userId == userId).asyncMap((_) => getFiltered());
 
     return Rx.concat([initialDataStream, updateStream]);
   }
@@ -982,11 +945,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
         }
 
         // 3. Extract the IDs of the "other" side of the relationship.
-        final otherIds = pivotEntries
-            .map((e) => e.toDatumMap()[relation.otherForeignKey] as String?)
-            .where((id) => id != null && id.isNotEmpty)
-            .cast<String>()
-            .toList();
+        final otherIds = pivotEntries.map((e) => e.toDatumMap()[relation.otherForeignKey] as String?).where((id) => id != null && id.isNotEmpty).cast<String>().toList();
 
         if (otherIds.isEmpty) return [];
 
@@ -1065,9 +1024,7 @@ List<T> applyQuery<T extends DatumEntity>(List<T> items, DatumQuery query) {
 bool _matches(Map<String, dynamic> json, FilterCondition condition) {
   if (condition is Filter) {
     final value = json[condition.field];
-    if (value == null &&
-        condition.operator != FilterOperator.isNull &&
-        condition.operator != FilterOperator.isNotNull) {
+    if (value == null && condition.operator != FilterOperator.isNull && condition.operator != FilterOperator.isNotNull) {
       return false;
     }
 
@@ -1087,11 +1044,9 @@ bool _matches(Map<String, dynamic> json, FilterCondition condition) {
       case FilterOperator.contains:
         return value is String && value.contains(condition.value as String);
       case FilterOperator.isIn:
-        return condition.value is List &&
-            (condition.value as List).contains(value);
+        return condition.value is List && (condition.value as List).contains(value);
       case FilterOperator.isNotIn:
-        return condition.value is List &&
-            !(condition.value as List).contains(value);
+        return condition.value is List && !(condition.value as List).contains(value);
       case FilterOperator.isNull:
         return value == null;
       case FilterOperator.isNotNull:
@@ -1103,13 +1058,9 @@ bool _matches(Map<String, dynamic> json, FilterCondition condition) {
                   (condition.value as String).toLowerCase(),
                 );
       case FilterOperator.startsWith:
-        return value is String &&
-            condition.value is String &&
-            value.startsWith(condition.value as String);
+        return value is String && condition.value is String && value.startsWith(condition.value as String);
       case FilterOperator.endsWith:
-        return value is String &&
-            condition.value is String &&
-            value.endsWith(condition.value as String);
+        return value is String && condition.value is String && value.endsWith(condition.value as String);
       case FilterOperator.arrayContains:
         return value is List && value.contains(condition.value);
       case FilterOperator.arrayContainsAny:
@@ -1117,19 +1068,14 @@ bool _matches(Map<String, dynamic> json, FilterCondition condition) {
         final valueSet = value.toSet();
         return (condition.value as List).any(valueSet.contains);
       case FilterOperator.matches:
-        return value is String &&
-            condition.value is String &&
-            RegExp(condition.value as String).hasMatch(value);
+        return value is String && condition.value is String && RegExp(condition.value as String).hasMatch(value);
       case FilterOperator.withinDistance:
         if (value is! Map || condition.value is! Map) return false;
         final point = value as Map<String, dynamic>;
         final params = condition.value as Map<String, dynamic>;
         final center = params['center'] as Map<String, double>?;
         final radius = params['radius'] as double?;
-        if (point['latitude'] == null ||
-            point['longitude'] == null ||
-            center == null ||
-            radius == null) {
+        if (point['latitude'] == null || point['longitude'] == null || center == null || radius == null) {
           return false;
         }
         final distance = _haversineDistance(
@@ -1143,8 +1089,7 @@ bool _matches(Map<String, dynamic> json, FilterCondition condition) {
         if (value is! Comparable || condition.value is! List) return false;
         final bounds = condition.value as List;
         if (bounds.length != 2) return false;
-        return value.compareTo(bounds[0]) >= 0 &&
-            value.compareTo(bounds[1]) <= 0;
+        return value.compareTo(bounds[0]) >= 0 && value.compareTo(bounds[1]) <= 0;
     }
   } else if (condition is CompositeFilter) {
     if (condition.operator == LogicalOperator.and) {
@@ -1163,8 +1108,7 @@ double _haversineDistance(double lat1, double lon1, double lat2, double lon2) {
   final deltaPhi = (lat2 - lat1) * pi / 180;
   final deltaLambda = (lon2 - lon1) * pi / 180;
 
-  final a = sin(deltaPhi / 2) * sin(deltaPhi / 2) +
-      cos(phi1) * cos(phi2) * sin(deltaLambda / 2) * sin(deltaLambda / 2);
+  final a = sin(deltaPhi / 2) * sin(deltaPhi / 2) + cos(phi1) * cos(phi2) * sin(deltaLambda / 2) * sin(deltaLambda / 2);
   final c = 2 * atan2(sqrt(a), sqrt(1 - a));
   return r * c;
 }

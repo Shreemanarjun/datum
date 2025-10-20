@@ -24,6 +24,5 @@ class ConflictDetectedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
   final T? remoteData;
 
   @override
-  String toString() =>
-      '${super.toString()}: ConflictDetectedEvent(context: $context, localData: $localData, remoteData: $remoteData)';
+  String toString() => '${super.toString()}: ConflictDetectedEvent(context: $context, localData: $localData, remoteData: $remoteData)';
 }

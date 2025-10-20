@@ -4,14 +4,11 @@ import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
-class MockDatumObserver<T extends DatumEntity> extends Mock
-    implements DatumObserver<T> {}
+class MockDatumObserver<T extends DatumEntity> extends Mock implements DatumObserver<T> {}
 
 class MockGlobalDatumObserver extends Mock implements GlobalDatumObserver {}
 
@@ -40,7 +37,7 @@ void main() {
         detectedAt: DateTime(0),
       ),
     );
-    registerFallbackValue(DatumConflictResolution<TestEntity>.abort('fb'));
+    registerFallbackValue(const DatumConflictResolution<TestEntity>.abort('fb'));
     registerFallbackValue(
       const DatumSyncResult(
         userId: 'fb',
@@ -445,8 +442,7 @@ void _stubDefaultBehaviors(
       userId: any(named: 'userId'),
     ),
   ).thenAnswer(
-    (inv) async =>
-        TestEntity.fromJson(inv.namedArguments[#delta] as Map<String, dynamic>),
+    (inv) async => TestEntity.fromJson(inv.namedArguments[#delta] as Map<String, dynamic>),
   );
   when(
     () => remoteAdapter.patch(

@@ -10,8 +10,7 @@ import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart';
 
 /// A handler for migration errors.
-typedef MigrationErrorHandler = Future<void> Function(
-    Object error, StackTrace stackTrace);
+typedef MigrationErrorHandler = Future<void> Function(Object error, StackTrace stackTrace);
 
 /// Defines the direction of a synchronization operation.
 /// Defines the order of operations during a synchronization cycle.
@@ -140,24 +139,17 @@ class DatumConfig<T extends DatumEntity> extends Equatable {
       syncTimeout: syncTimeout ?? this.syncTimeout,
       // Only copy the resolver if the new type E is assignable from the old type T.
       // This is safe when copyWith is called without a new generic type.
-      defaultConflictResolver: defaultConflictResolver ??
-          (this.defaultConflictResolver is DatumConflictResolver<E>
-              ? this.defaultConflictResolver as DatumConflictResolver<E>
-              : null),
-      defaultUserSwitchStrategy:
-          defaultUserSwitchStrategy ?? this.defaultUserSwitchStrategy,
+      defaultConflictResolver: defaultConflictResolver ?? (this.defaultConflictResolver is DatumConflictResolver<E> ? this.defaultConflictResolver as DatumConflictResolver<E> : null),
+      defaultUserSwitchStrategy: defaultUserSwitchStrategy ?? this.defaultUserSwitchStrategy,
       initialUserId: initialUserId ?? this.initialUserId,
       enableLogging: enableLogging ?? this.enableLogging,
       defaultSyncDirection: defaultSyncDirection ?? this.defaultSyncDirection,
       schemaVersion: schemaVersion ?? this.schemaVersion,
       migrations: migrations ?? this.migrations,
-      syncExecutionStrategy:
-          syncExecutionStrategy ?? this.syncExecutionStrategy,
+      syncExecutionStrategy: syncExecutionStrategy ?? this.syncExecutionStrategy,
       onMigrationError: onMigrationError ?? this.onMigrationError,
-      errorRecoveryStrategy:
-          errorRecoveryStrategy ?? this.errorRecoveryStrategy,
-      remoteEventDebounceTime:
-          remoteEventDebounceTime ?? this.remoteEventDebounceTime,
+      errorRecoveryStrategy: errorRecoveryStrategy ?? this.errorRecoveryStrategy,
+      remoteEventDebounceTime: remoteEventDebounceTime ?? this.remoteEventDebounceTime,
       changeCacheDuration: changeCacheDuration ?? this.changeCacheDuration,
     );
   }

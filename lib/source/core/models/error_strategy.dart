@@ -29,8 +29,7 @@ class ExponentialBackoff implements DatumBackoffStrategy {
 
   @override
   Duration getDelay(int attemptNumber) {
-    final delayMs =
-        baseDelay.inMilliseconds * pow(multiplier, attemptNumber - 1);
+    final delayMs = baseDelay.inMilliseconds * pow(multiplier, attemptNumber - 1);
     final delay = Duration(milliseconds: delayMs.round());
     return delay < maxDelay ? delay : maxDelay;
   }

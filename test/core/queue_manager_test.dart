@@ -184,8 +184,7 @@ void main() {
       expect(count, 2);
     });
 
-    test('getPending returns an empty list for a user with no operations',
-        () async {
+    test('getPending returns an empty list for a user with no operations', () async {
       final pending = await queueManager.getPending('non_existent_user');
       expect(pending, isEmpty);
     });
@@ -195,8 +194,7 @@ void main() {
       expect(count, 0);
     });
 
-    test('dequeueing a non-existent operation does not throw an error',
-        () async {
+    test('dequeueing a non-existent operation does not throw an error', () async {
       await expectLater(queueManager.dequeue('non_existent_op'), completes);
     });
   });

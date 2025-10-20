@@ -17,8 +17,7 @@ class DatumSyncConflictSummary<T extends DatumEntity> extends Equatable {
   });
 
   @override
-  String toString() =>
-      'DatumSyncConflictSummary(resolution: $resolution, entityId: $entityId)';
+  String toString() => 'DatumSyncConflictSummary(resolution: $resolution, entityId: $entityId)';
 
   @override
   List<Object?> get props => [resolution, entityId];

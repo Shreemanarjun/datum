@@ -109,9 +109,7 @@ class UnregisteredEntity extends DatumEntity {
   });
 
   @override
-  UnregisteredEntity copyWith(
-          {DateTime? modifiedAt, int? version, bool? isDeleted}) =>
-      this;
+  UnregisteredEntity copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) => this;
 
   @override
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null;
@@ -120,11 +118,9 @@ class UnregisteredEntity extends DatumEntity {
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {};
 }
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('Datum Facade Integration Tests', () {
@@ -151,7 +147,7 @@ void main() {
         ),
       );
       registerFallbackValue(<String, dynamic>{});
-      registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
+      registerFallbackValue(const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
       registerFallbackValue(
         DatumSyncOperation<TestEntity>(
           id: 'fb-op',
@@ -250,8 +246,7 @@ void main() {
       );
     }
 
-    test('Datum.initialize creates a singleton and initializes all managers',
-        () async {
+    test('Datum.initialize creates a singleton and initializes all managers', () async {
       // Act
       await initializeDatum();
 
@@ -323,16 +318,14 @@ void main() {
         // Arrange
         await initializeDatum();
         final entity1 = TestEntity.create('e1', 'u1', 'Item 1');
-        when(() => localAdapter1.read('e1', userId: 'u1'))
-            .thenAnswer((_) async => entity1);
+        when(() => localAdapter1.read('e1', userId: 'u1')).thenAnswer((_) async => entity1);
 
         // Act
         await Datum.instance.delete<TestEntity>(id: 'e1', userId: 'u1');
 
         // Assert
         verify(() => localAdapter1.delete('e1', userId: 'u1')).called(1);
-        verifyNever(
-            () => localAdapter2.delete(any(), userId: any(named: 'userId')));
+        verifyNever(() => localAdapter2.delete(any(), userId: any(named: 'userId')));
       });
     });
 
@@ -357,8 +350,7 @@ void main() {
           ],
         );
         // Act
-        final (savedItem, syncResult) = await Datum.instance
-            .pushAndSync<TestEntity>(item: entity1, userId: 'u1');
+        final (savedItem, syncResult) = await Datum.instance.pushAndSync<TestEntity>(item: entity1, userId: 'u1');
 
         // Assert
         // 1. Push was called
@@ -374,16 +366,14 @@ void main() {
         expect(syncResult.syncedCount, 1);
       });
 
-      test('Datum.updateAndSync() delegates and performs both actions',
-          () async {
+      test('Datum.updateAndSync() delegates and performs both actions', () async {
         // Arrange
         await initializeDatum();
         final initialEntity = TestEntity.create('e1', 'u1', 'Item 1');
         final updatedEntity = initialEntity.copyWith(name: 'Item 1 Updated');
 
         // Stub the initial state in the local adapter
-        when(() => localAdapter1.read('e1', userId: 'u1'))
-            .thenAnswer((_) async => initialEntity);
+        when(() => localAdapter1.read('e1', userId: 'u1')).thenAnswer((_) async => initialEntity);
 
         // Stub the patch call that will happen during the 'push' phase
         when(
@@ -410,8 +400,7 @@ void main() {
         );
 
         // Act
-        final (savedItem, syncResult) = await Datum.instance
-            .updateAndSync<TestEntity>(item: updatedEntity, userId: 'u1');
+        final (savedItem, syncResult) = await Datum.instance.updateAndSync<TestEntity>(item: updatedEntity, userId: 'u1');
 
         // Assert
         // 1. Update was called (via patch)
@@ -426,8 +415,7 @@ void main() {
 
         // 2. Sync was called (via patch on remote)
         verify(
-          () => remoteAdapter1.patch(
-              id: 'e1', delta: any(named: 'delta'), userId: 'u1'),
+          () => remoteAdapter1.patch(id: 'e1', delta: any(named: 'delta'), userId: 'u1'),
         ).called(1);
 
         // 3. Check results
@@ -436,14 +424,12 @@ void main() {
         expect(syncResult.syncedCount, 1);
       });
 
-      test('Datum.deleteAndSync() delegates and performs both actions',
-          () async {
+      test('Datum.deleteAndSync() delegates and performs both actions', () async {
         // Arrange
         await initializeDatum();
         final entity1 = TestEntity.create('e1', 'u1', 'Item 1');
         entity1.copyWith(name: 'Item 1 Updated');
-        when(() => localAdapter1.read('e1', userId: 'u1'))
-            .thenAnswer((_) async => entity1);
+        when(() => localAdapter1.read('e1', userId: 'u1')).thenAnswer((_) async => entity1);
         // Arrange: Stub the pending delete operation for the sync phase.
         when(() => localAdapter1.getPendingOperations('u1')).thenAnswer(
           (_) async => [
@@ -459,8 +445,7 @@ void main() {
         );
 
         // Act
-        final (wasDeleted, syncResult) = await Datum.instance
-            .deleteAndSync<TestEntity>(id: 'e1', userId: 'u1');
+        final (wasDeleted, syncResult) = await Datum.instance.deleteAndSync<TestEntity>(id: 'e1', userId: 'u1');
 
         // Assert
         // 1. Delete was called
@@ -553,10 +538,8 @@ void main() {
       await Datum.instance.synchronize('u1');
 
       // Assert
-      verify(() => remoteAdapter1.create(any(that: isA<TestEntity>())))
-          .called(1);
-      verify(() => remoteAdapter2.create(any(that: isA<TestEntity2>())))
-          .called(1);
+      verify(() => remoteAdapter1.create(any(that: isA<TestEntity>()))).called(1);
+      verify(() => remoteAdapter2.create(any(that: isA<TestEntity2>()))).called(1);
     });
   });
 }
@@ -576,22 +559,16 @@ void _stubAdapterBehaviors<T extends DatumEntity>(
   when(() => localAdapter.getStoredSchemaVersion()).thenAnswer((_) async => 0);
 
   // Streams
-  when(() => localAdapter.changeStream())
-      .thenAnswer((_) => Stream<DatumChangeDetail<T>>.empty());
-  when(() => remoteAdapter.changeStream)
-      .thenAnswer((_) => Stream<DatumChangeDetail<T>>.empty());
+  when(() => localAdapter.changeStream()).thenAnswer((_) => Stream<DatumChangeDetail<T>>.empty());
+  when(() => remoteAdapter.changeStream).thenAnswer((_) => Stream<DatumChangeDetail<T>>.empty());
 
   // Core Local Operations
   when(() => localAdapter.create(any())).thenAnswer((_) async {});
   when(() => localAdapter.update(any())).thenAnswer((_) async {});
-  when(() => localAdapter.read(any(), userId: any(named: 'userId')))
-      .thenAnswer((_) async => null);
-  when(() => localAdapter.readByIds(any(), userId: any(named: 'userId')))
-      .thenAnswer((_) async => {});
-  when(() => localAdapter.readAll(userId: any(named: 'userId')))
-      .thenAnswer((_) async => []);
-  when(() => localAdapter.delete(any(), userId: any(named: 'userId')))
-      .thenAnswer((_) async => true);
+  when(() => localAdapter.read(any(), userId: any(named: 'userId'))).thenAnswer((_) async => null);
+  when(() => localAdapter.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {});
+  when(() => localAdapter.readAll(userId: any(named: 'userId'))).thenAnswer((_) async => []);
+  when(() => localAdapter.delete(any(), userId: any(named: 'userId'))).thenAnswer((_) async => true);
   when(() => localAdapter.patch(
         id: any(named: 'id'),
         delta: any(named: 'delta'),
@@ -599,11 +576,8 @@ void _stubAdapterBehaviors<T extends DatumEntity>(
       )).thenAnswer((_) async => localAdapter.sampleInstance);
 
   // Core Remote Operations
-  when(() => remoteAdapter.create(any(that: isA<T>())))
-      .thenAnswer((_) async {});
-  when(() => remoteAdapter.delete(any(that: isA<String>()),
-          userId: any(named: 'userId', that: isA<String>())))
-      .thenAnswer((_) async {});
+  when(() => remoteAdapter.create(any(that: isA<T>()))).thenAnswer((_) async {});
+  when(() => remoteAdapter.delete(any(that: isA<String>()), userId: any(named: 'userId', that: isA<String>()))).thenAnswer((_) async {});
   when(() => remoteAdapter.readAll(
         userId: any(named: 'userId'),
         scope: any(named: 'scope'),
@@ -615,24 +589,17 @@ void _stubAdapterBehaviors<T extends DatumEntity>(
       )).thenAnswer((_) async => localAdapter.sampleInstance);
 
   // Sync-related Operations
-  when(() => localAdapter.getPendingOperations(any()))
-      .thenAnswer((_) async => []);
+  when(() => localAdapter.getPendingOperations(any())).thenAnswer((_) async => []);
   when(
     () => localAdapter.addPendingOperation(any(), any()),
   ).thenAnswer((_) async {});
-  when(() => localAdapter.removePendingOperation(any()))
-      .thenAnswer((_) async {});
+  when(() => localAdapter.removePendingOperation(any())).thenAnswer((_) async {});
 
   // Metadata
-  when(() => localAdapter.updateSyncMetadata(any(), any()))
-      .thenAnswer((_) async {});
-  when(() => remoteAdapter.updateSyncMetadata(any(), any()))
-      .thenAnswer((_) async {});
+  when(() => localAdapter.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
+  when(() => remoteAdapter.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
   when(() => localAdapter.getSyncMetadata(any())).thenAnswer((_) async => null);
-  when(() => remoteAdapter.getSyncMetadata(any()))
-      .thenAnswer((_) async => null);
-  when(() => localAdapter.saveLastSyncResult(any(), any()))
-      .thenAnswer((_) async {});
-  when(() => localAdapter.getLastSyncResult(any()))
-      .thenAnswer((_) async => null);
+  when(() => remoteAdapter.getSyncMetadata(any())).thenAnswer((_) async => null);
+  when(() => localAdapter.saveLastSyncResult(any(), any())).thenAnswer((_) async {});
+  when(() => localAdapter.getLastSyncResult(any())).thenAnswer((_) async => null);
 }

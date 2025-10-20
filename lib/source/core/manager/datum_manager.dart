@@ -82,20 +82,13 @@ class DatumManager<T extends DatumEntity> with Disposable {
 
   /// Public event streams
   Stream<DatumSyncEvent<T>> get eventStream => _eventController.stream;
-  Stream<DataChangeEvent<T>> get onDataChange =>
-      eventStream.whereType<DataChangeEvent<T>>();
-  Stream<DatumSyncStartedEvent<T>> get onSyncStarted =>
-      eventStream.whereType<DatumSyncStartedEvent<T>>();
-  Stream<DatumSyncProgressEvent<T>> get onSyncProgress =>
-      eventStream.whereType<DatumSyncProgressEvent<T>>();
-  Stream<DatumSyncCompletedEvent<T>> get onSyncCompleted =>
-      eventStream.whereType<DatumSyncCompletedEvent<T>>();
-  Stream<ConflictDetectedEvent<T>> get onConflict =>
-      eventStream.whereType<ConflictDetectedEvent<T>>();
-  Stream<UserSwitchedEvent<T>> get onUserSwitched =>
-      eventStream.whereType<UserSwitchedEvent<T>>();
-  Stream<DatumSyncErrorEvent<T>> get onSyncError =>
-      eventStream.whereType<DatumSyncErrorEvent<T>>();
+  Stream<DataChangeEvent<T>> get onDataChange => eventStream.whereType<DataChangeEvent<T>>();
+  Stream<DatumSyncStartedEvent<T>> get onSyncStarted => eventStream.whereType<DatumSyncStartedEvent<T>>();
+  Stream<DatumSyncProgressEvent<T>> get onSyncProgress => eventStream.whereType<DatumSyncProgressEvent<T>>();
+  Stream<DatumSyncCompletedEvent<T>> get onSyncCompleted => eventStream.whereType<DatumSyncCompletedEvent<T>>();
+  Stream<ConflictDetectedEvent<T>> get onConflict => eventStream.whereType<ConflictDetectedEvent<T>>();
+  Stream<UserSwitchedEvent<T>> get onUserSwitched => eventStream.whereType<UserSwitchedEvent<T>>();
+  Stream<DatumSyncErrorEvent<T>> get onSyncError => eventStream.whereType<DatumSyncErrorEvent<T>>();
 
   /// A stream of the manager's current health status.
   Stream<DatumHealth> get health => _statusSubject.stream.map((s) => s.health);
@@ -140,8 +133,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   })  : config = datumConfig ?? const DatumConfig(),
         _connectivity = connectivity,
         // The logger's enabled status should always respect the config.
-        _logger = (logger ?? DatumLogger())
-            .copyWith(enabled: datumConfig?.enableLogging ?? true),
+        _logger = (logger ?? DatumLogger()).copyWith(enabled: datumConfig?.enableLogging ?? true),
         _conflictResolver = conflictResolver ?? LastWriteWinsResolver<T>() {
     _localObservers.addAll(localObservers ?? []);
     _globalObservers.addAll(globalObservers ?? []);
@@ -153,8 +145,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   void _initializeInternalComponents() {
     // Initialize controllers and manage them for automatic disposal.
     _eventController = StreamController.broadcast();
-    _statusSubject =
-        BehaviorSubject.seeded(DatumSyncStatusSnapshot.initial(''));
+    _statusSubject = BehaviorSubject.seeded(DatumSyncStatusSnapshot.initial(''));
     _metadataSubject = BehaviorSubject();
     _nextSyncTimeSubject = BehaviorSubject.seeded(null);
     manageController(_eventController);
@@ -163,7 +154,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
     manageController(_nextSyncTimeSubject);
 
     _conflictDetector = DatumConflictDetector<T>();
-    _isolateHelper = IsolateHelper();
+    _isolateHelper = const IsolateHelper();
     _queueManager = QueueManager<T>(
       localAdapter: localAdapter,
       logger: _logger,
@@ -292,14 +283,9 @@ class DatumManager<T extends DatumEntity> with Disposable {
 
     // If a debounce time is configured, buffer events for performance.
     if (config.remoteEventDebounceTime > Duration.zero) {
-      remoteSub = remoteStream
-          .bufferTime(config.remoteEventDebounceTime)
-          .where((batch) => batch.isNotEmpty)
-          .listen(
-            (changeList) =>
-                _handleExternalChange(changeList, DataSource.remote),
-            onError: (e, s) =>
-                _logger.error('Error in remote change stream', s),
+      remoteSub = remoteStream.bufferTime(config.remoteEventDebounceTime).where((batch) => batch.isNotEmpty).listen(
+            (changeList) => _handleExternalChange(changeList, DataSource.remote),
+            onError: (e, s) => _logger.error('Error in remote change stream', s),
           );
     } else {
       // Otherwise, process events individually. This is better for tests.
@@ -367,11 +353,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
               // We can't easily get the size of a deleted item from a remote
               // event, so we'll consider it 0 for bytesPulled calculation.
               // The size of the delete *operation* is calculated on push.
-              DatumSyncProgressEvent<T>(
-                  userId: change.userId,
-                  bytesPulled: 0,
-                  completed: 1,
-                  total: 1),
+              DatumSyncProgressEvent<T>(userId: change.userId, bytesPulled: 0, completed: 1, total: 1),
             );
             _eventController.add(
               DataChangeEvent<T>(
@@ -509,11 +491,8 @@ class DatumManager<T extends DatumEntity> with Disposable {
         delta: delta,
       );
       // Calculate size
-      final payload = operation.delta ??
-          operation.data?.toDatumMap(target: MapTarget.remote);
-      final encoded = payload != null
-          ? await _isolateHelper.computeJsonEncode(payload)
-          : '';
+      final payload = operation.delta ?? operation.data?.toDatumMap(target: MapTarget.remote);
+      final encoded = payload != null ? await _isolateHelper.computeJsonEncode(payload) : '';
       final size = encoded.length;
 
       await _queueManager.enqueue(operation.copyWith(sizeInBytes: size));
@@ -607,9 +586,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   /// Returns null if the adapter does not support reactive queries.
   Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) {
     _ensureInitialized();
-    return localAdapter
-        .watchAll(userId: userId, includeInitialData: includeInitialData)
-        ?.asyncMap((list) => Future.wait(list.map(_applyPostFetchTransforms)));
+    return localAdapter.watchAll(userId: userId, includeInitialData: includeInitialData)?.asyncMap((list) => Future.wait(list.map(_applyPostFetchTransforms)));
   }
 
   /// Watches a single entity by its ID, emitting the item on change or null if deleted.
@@ -638,9 +615,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   /// Returns null if the adapter does not support reactive queries.
   Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) {
     _ensureInitialized();
-    return localAdapter
-        .watchQuery(query, userId: userId)
-        ?.asyncMap((list) => Future.wait(list.map(_applyPostFetchTransforms)));
+    return localAdapter.watchQuery(query, userId: userId)?.asyncMap((list) => Future.wait(list.map(_applyPostFetchTransforms)));
   }
 
   /// Executes a one-time query against the specified data source.
@@ -653,8 +628,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
     String? userId,
   }) async {
     _ensureInitialized();
-    final adapter =
-        (source == DataSource.local ? localAdapter : remoteAdapter) as dynamic;
+    final adapter = (source == DataSource.local ? localAdapter : remoteAdapter) as dynamic;
     final entities = await adapter.query(query, userId: userId) as List<T>;
     return Future.wait(entities.map(_applyPostFetchTransforms));
   }
@@ -838,8 +812,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
 
   void _ensureInitialized() {
     if (!_initialized) {
-      throw StateError(
-          'DatumManager must be initialized before use. Call initialize() first.');
+      throw StateError('DatumManager must be initialized before use. Call initialize() first.');
     }
     ensureNotDisposed();
   }
@@ -861,10 +834,8 @@ class DatumManager<T extends DatumEntity> with Disposable {
     }
 
     // Handle user switching logic before proceeding with synchronization.
-    if (_syncEngine.lastActiveUserId != null &&
-        _syncEngine.lastActiveUserId != userId) {
-      if (config.defaultUserSwitchStrategy ==
-          UserSwitchStrategy.promptIfUnsyncedData) {
+    if (_syncEngine.lastActiveUserId != null && _syncEngine.lastActiveUserId != userId) {
+      if (config.defaultUserSwitchStrategy == UserSwitchStrategy.promptIfUnsyncedData) {
         final oldUserOps = await _queueManager.getPending(
           _syncEngine.lastActiveUserId ?? '',
         );
@@ -890,19 +861,14 @@ class DatumManager<T extends DatumEntity> with Disposable {
               overrideBatchSize: options.overrideBatchSize,
               timeout: options.timeout,
               direction: options.direction,
-              conflictResolver:
-                  options.conflictResolver is DatumConflictResolver<T>
-                      ? options.conflictResolver as DatumConflictResolver<T>
-                      : null,
+              conflictResolver: options.conflictResolver is DatumConflictResolver<T> ? options.conflictResolver as DatumConflictResolver<T> : null,
             )
           : null;
 
       // If the direction is pushOnly and there are no pending operations,
       // we can skip the sync entirely for this manager.
-      if (typedOptions?.direction == SyncDirection.pushOnly &&
-          await getPendingCount(userId) == 0) {
-        _logger.info(
-            'Push-only sync for user $userId skipped: no pending operations.');
+      if (typedOptions?.direction == SyncDirection.pushOnly && await getPendingCount(userId) == 0) {
+        _logger.info('Push-only sync for user $userId skipped: no pending operations.');
         return DatumSyncResult.skipped(userId, 0);
       }
 
@@ -925,10 +891,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
       // If the error is already our special type, it came from the main
       // isolate. If not, it likely came from a worker isolate and lost its
       // type, so we need to re-wrap it.
-      final SyncExceptionWithEvents<T> wrappedException =
-          e is SyncExceptionWithEvents<T>
-              ? e
-              : SyncExceptionWithEvents(e, stack, []);
+      final SyncExceptionWithEvents<T> wrappedException = e is SyncExceptionWithEvents<T> ? e : SyncExceptionWithEvents(e, stack, []);
 
       _processSyncEvents(wrappedException.events);
 
@@ -1194,8 +1157,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   }
 
   /// Returns a list of pending synchronization operations for the user.
-  Future<List<DatumSyncOperation<T>>> getPendingOperations(
-      String userId) async {
+  Future<List<DatumSyncOperation<T>>> getPendingOperations(String userId) async {
     _ensureInitialized();
     return _queueManager.getPending(userId);
   }
@@ -1238,8 +1200,7 @@ extension DatumManagerSyncControl<T extends DatumEntity> on DatumManager<T> {
     _pausedAutoSyncUserIds.addAll(_autoSyncTimers.keys);
     stopAutoSync();
     if (!_statusSubject.isClosed) {
-      _statusSubject
-          .add(currentStatus.copyWith(status: DatumSyncStatus.paused));
+      _statusSubject.add(currentStatus.copyWith(status: DatumSyncStatus.paused));
     }
     _logger.info('Sync paused for manager $T.');
   }

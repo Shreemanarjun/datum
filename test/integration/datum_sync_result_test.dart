@@ -7,13 +7,13 @@ void main() {
     const userId = 'test-user';
 
     test('default constructor creates a successful result', () {
-      final result = DatumSyncResult(
+      const result = DatumSyncResult(
         userId: userId,
         syncedCount: 5,
         failedCount: 0,
         conflictsResolved: 1,
-        pendingOperations: const <DatumSyncOperation<TestEntity>>[],
-        duration: const Duration(seconds: 10),
+        pendingOperations: <DatumSyncOperation<TestEntity>>[],
+        duration: Duration(seconds: 10),
       );
 
       expect(result.userId, userId);
@@ -41,7 +41,7 @@ void main() {
     });
 
     test('cancelled constructor creates a cancelled result', () {
-      final result = DatumSyncResult.cancelled(userId, 3);
+      const result = DatumSyncResult.cancelled(userId, 3);
 
       expect(result.userId, userId);
       expect(result.wasCancelled, isTrue);

@@ -95,11 +95,8 @@ class DatumUserSwitchResult {
     }
 
     final overallSuccess = results.every((r) => r.success);
-    final totalUnsyncedHandled = results
-        .map((r) => r.unsyncedOperationsHandled)
-        .fold(0, (a, b) => a + b);
-    final combinedErrors =
-        results.where((r) => !r.success).map((r) => r.errorMessage).join('; ');
+    final totalUnsyncedHandled = results.map((r) => r.unsyncedOperationsHandled).fold(0, (a, b) => a + b);
+    final combinedErrors = results.where((r) => !r.success).map((r) => r.errorMessage).join('; ');
 
     return DatumUserSwitchResult(
       success: overallSuccess,

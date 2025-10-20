@@ -186,8 +186,7 @@ class SortDescriptor {
   });
 
   @override
-  String toString() =>
-      'SortDescriptor($field, ${descending ? "DESC" : "ASC"}, nulls: ${nullSortOrder.name})';
+  String toString() => 'SortDescriptor($field, ${descending ? "DESC" : "ASC"}, nulls: ${nullSortOrder.name})';
 }
 
 /// Defines how null values are sorted.

@@ -4,11 +4,9 @@ import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock
-    implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock
-    implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   setUpAll(() {
@@ -33,7 +31,7 @@ void main() {
         timestamp: DateTime(0),
       ),
     );
-    registerFallbackValue(DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
+    registerFallbackValue(const DatumSyncMetadata(userId: 'fb', dataHash: 'fb'));
     registerFallbackValue(DatumQueryBuilder<TestEntity>().build());
     registerFallbackValue(
       const DatumSyncResult<TestEntity>(
@@ -83,10 +81,7 @@ void main() {
       expect(
         manager.onDataChange,
         emits(
-          isA<DataChangeEvent<TestEntity>>()
-              .having((e) => e.changeType, 'changeType', ChangeType.created)
-              .having((e) => e.source, 'source', DataSource.local)
-              .having((e) => e.data!.id, 'data.id', 'entity1'),
+          isA<DataChangeEvent<TestEntity>>().having((e) => e.changeType, 'changeType', ChangeType.created).having((e) => e.source, 'source', DataSource.local).having((e) => e.data!.id, 'data.id', 'entity1'),
         ),
       );
 
@@ -113,9 +108,7 @@ void main() {
         () => localAdapter.addPendingOperation(
           'user1',
           any(
-            that: isA<DatumSyncOperation<TestEntity>>()
-                .having((op) => op.entityId, 'entityId', 'entity1')
-                .having((op) => op.type, 'type', DatumOperationType.create),
+            that: isA<DatumSyncOperation<TestEntity>>().having((op) => op.entityId, 'entityId', 'entity1').having((op) => op.type, 'type', DatumOperationType.create),
           ),
         ),
       ).called(1);
@@ -352,9 +345,7 @@ void main() {
           return user1Entities.where((e) => e.name.startsWith('A')).toList();
         });
 
-        final query = DatumQueryBuilder<TestEntity>()
-            .where('name', startsWith: 'A')
-            .build();
+        final query = DatumQueryBuilder<TestEntity>().where('name', startsWith: 'A').build();
 
         // Act
         final results = await manager.query(
@@ -375,15 +366,11 @@ void main() {
           inv,
         ) async {
           // Simulate the adapter's query logic
-          final sorted = List<TestEntity>.from(user1Entities)
-            ..sort((a, b) => b.value.compareTo(a.value)); // Descending
+          final sorted = List<TestEntity>.from(user1Entities)..sort((a, b) => b.value.compareTo(a.value)); // Descending
           return sorted.take(2).toList();
         });
 
-        final query = DatumQueryBuilder<TestEntity>()
-            .orderBy('value', descending: true)
-            .limit(2)
-            .build();
+        final query = DatumQueryBuilder<TestEntity>().orderBy('value', descending: true).limit(2).build();
 
         // Act
         final results = await manager.query(
@@ -447,10 +434,8 @@ void main() {
 
     test('health stream reflects adapter health', () async {
       // Arrange: Stub the adapter's health check
-      when(() => localAdapter.checkHealth())
-          .thenAnswer((_) async => AdapterHealthStatus.unhealthy);
-      when(() => remoteAdapter.checkHealth())
-          .thenAnswer((_) async => AdapterHealthStatus.ok);
+      when(() => localAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.unhealthy);
+      when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
 
       // Act & Assert
       // The health stream should emit a DatumHealth object reflecting the adapters' statuses.
@@ -459,15 +444,12 @@ void main() {
         manager.health,
         emitsInOrder([
           // The stream first emits its initial 'healthy' state.
-          isA<DatumHealth>()
-              .having((h) => h.status, 'status', DatumSyncHealth.healthy),
+          isA<DatumHealth>().having((h) => h.status, 'status', DatumSyncHealth.healthy),
           // Then, after the health check runs, it emits the 'degraded' state.
           isA<DatumHealth>()
               .having((h) => h.status, 'status', DatumSyncHealth.degraded)
-              .having((h) => h.localAdapterStatus, 'localAdapterStatus',
-                  AdapterHealthStatus.unhealthy)
-              .having((h) => h.remoteAdapterStatus, 'remoteAdapterStatus',
-                  AdapterHealthStatus.ok),
+              .having((h) => h.localAdapterStatus, 'localAdapterStatus', AdapterHealthStatus.unhealthy)
+              .having((h) => h.remoteAdapterStatus, 'remoteAdapterStatus', AdapterHealthStatus.ok),
         ]),
       );
 
@@ -534,8 +516,7 @@ void main() {
       expect(result.skipReason, 'Sync is paused');
 
       // Verify that no remote operations were attempted.
-      verifyNever(() => remoteAdapter.readAll(
-          userId: any(named: 'userId'), scope: any(named: 'scope')));
+      verifyNever(() => remoteAdapter.readAll(userId: any(named: 'userId'), scope: any(named: 'scope')));
       verifyNever(() => remoteAdapter.create(any()));
     });
 
@@ -546,8 +527,7 @@ void main() {
 
       // Act & Assert: Synchronization should now proceed normally.
       await expectLater(manager.synchronize('user1'), completes);
-      verify(() => remoteAdapter.readAll(
-          userId: 'user1', scope: any(named: 'scope'))).called(1);
+      verify(() => remoteAdapter.readAll(userId: 'user1', scope: any(named: 'scope'))).called(1);
     });
   });
 
@@ -580,10 +560,8 @@ void main() {
 
     test('checkHealth calls checkHealth on both adapters', () async {
       // Arrange
-      when(() => localAdapter.checkHealth())
-          .thenAnswer((_) async => AdapterHealthStatus.ok);
-      when(() => remoteAdapter.checkHealth())
-          .thenAnswer((_) async => AdapterHealthStatus.ok);
+      when(() => localAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
+      when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
 
       // Act
       await manager.checkHealth();
@@ -595,8 +573,7 @@ void main() {
 
     test('getStorageSize calls getStorageSize on the local adapter', () async {
       // Arrange
-      when(() => localAdapter.getStorageSize(userId: 'user1'))
-          .thenAnswer((_) async => 4096);
+      when(() => localAdapter.getStorageSize(userId: 'user1')).thenAnswer((_) async => 4096);
 
       // Act
       final size = await manager.getStorageSize(userId: 'user1');
@@ -606,19 +583,17 @@ void main() {
       verify(() => localAdapter.getStorageSize(userId: 'user1')).called(1);
     });
 
-    test('getLastSyncResult calls getLastSyncResult on the local adapter',
-        () async {
+    test('getLastSyncResult calls getLastSyncResult on the local adapter', () async {
       // Arrange
-      final mockResult = DatumSyncResult<TestEntity>(
+      const mockResult = DatumSyncResult<TestEntity>(
         userId: 'user1',
-        duration: const Duration(seconds: 5),
+        duration: Duration(seconds: 5),
         syncedCount: 10,
         failedCount: 0,
         conflictsResolved: 1,
         pendingOperations: [],
       );
-      when(() => localAdapter.getLastSyncResult('user1'))
-          .thenAnswer((_) async => mockResult);
+      when(() => localAdapter.getLastSyncResult('user1')).thenAnswer((_) async => mockResult);
 
       // Act
       final result = await manager.getLastSyncResult('user1');
@@ -628,8 +603,7 @@ void main() {
       verify(() => localAdapter.getLastSyncResult('user1')).called(1);
     });
 
-    test('getPendingOperations calls getPending on the queue manager',
-        () async {
+    test('getPendingOperations calls getPending on the queue manager', () async {
       // Arrange
       final mockOps = [
         DatumSyncOperation<TestEntity>(
@@ -640,8 +614,7 @@ void main() {
           timestamp: DateTime.now(),
         )
       ];
-      when(() => localAdapter.getPendingOperations('user1'))
-          .thenAnswer((_) async => mockOps);
+      when(() => localAdapter.getPendingOperations('user1')).thenAnswer((_) async => mockOps);
 
       // Act
       final ops = await manager.getPendingOperations('user1');
@@ -657,14 +630,10 @@ void main() {
       final updatedEntity = initialEntity.copyWith(name: 'Updated State');
 
       // Stub the internal read that push() performs to check for existence
-      when(() => localAdapter.read(initialEntity.id, userId: 'user1'))
-          .thenAnswer((_) async => initialEntity);
+      when(() => localAdapter.read(initialEntity.id, userId: 'user1')).thenAnswer((_) async => initialEntity);
 
       // Stub the patch call that push() will make for an update
-      when(() => localAdapter.patch(
-          id: 'e1',
-          delta: any(named: 'delta'),
-          userId: 'user1')).thenAnswer((_) async => updatedEntity);
+      when(() => localAdapter.patch(id: 'e1', delta: any(named: 'delta'), userId: 'user1')).thenAnswer((_) async => updatedEntity);
 
       // Act
       final (savedItem, syncResult) = await manager.updateAndSync(
@@ -676,8 +645,7 @@ void main() {
       expect(savedItem, updatedEntity);
       expect(syncResult.isSuccess, isTrue);
       verify(() => localAdapter.addPendingOperation('user1', any())).called(1);
-      verify(() => remoteAdapter.readAll(
-          userId: 'user1', scope: any(named: 'scope'))).called(1);
+      verify(() => remoteAdapter.readAll(userId: 'user1', scope: any(named: 'scope'))).called(1);
     });
   });
 }
@@ -769,10 +737,7 @@ void _stubDefaultBehaviors(
   ).thenAnswer((_) async => null);
 
   // Health & Storage
-  when(() => localAdapter.checkHealth())
-      .thenAnswer((_) async => AdapterHealthStatus.ok);
-  when(() => remoteAdapter.checkHealth())
-      .thenAnswer((_) async => AdapterHealthStatus.ok);
-  when(() => localAdapter.getStorageSize(userId: any(named: 'userId')))
-      .thenAnswer((_) async => 0);
+  when(() => localAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
+  when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
+  when(() => localAdapter.getStorageSize(userId: any(named: 'userId'))).thenAnswer((_) async => 0);
 }
