@@ -161,7 +161,6 @@ void _stubDefaultBehaviors(
   when(() => local.changeStream()).thenAnswer((_) => const Stream.empty());
   when(() => remote.changeStream).thenAnswer((_) => const Stream.empty());
 
-
   when(
     () => local.saveLastSyncResult(any(), any()),
   ).thenAnswer((_) async {});

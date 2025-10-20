@@ -217,48 +217,46 @@ Future<void> _spawnIsolate<T extends DatumEntity>(
   );
 
   unawaited(
-    Isolate.spawn(_isolateEntryPoint, isolateInitMessage)
-        .then((isolate) async {
-          try {
-            final mainPortSubscription = mainReceivePort.listen((message) {
-              if (isCancelled() && !completer.isCompleted) {
-                isolate.kill(priority: Isolate.immediate);
-                completer.complete();
-                return;
-              }
-
-              if (message is _ProcessOperationRequest) {
-                final operation = operations.firstWhere(
-                  (op) => op.id == message.id,
-                );
-                processOperation(operation)
-                    .then((_) => message.responsePort.send(null))
-                    .catchError((Object e, StackTrace s) {
-                      message.responsePort.send(_IsolateError(e, s));
-                    });
-              } else if (message is _ProgressUpdate) {
-                onProgress(message.completed, message.total);
-              } else if (message is _SyncComplete) {
-                if (!completer.isCompleted) completer.complete();
-              } else if (message is _SyncError) {
-                if (!completer.isCompleted) {
-                  completer.completeError(message.error, message.stackTrace);
-                }
-              }
-            });
-
-            await completer.future.whenComplete(() {
-              isolate.kill(priority: Isolate.immediate);
-              mainPortSubscription.cancel();
-            });
-          } finally {
-            mainReceivePort.close();
+    Isolate.spawn(_isolateEntryPoint, isolateInitMessage).then((isolate) async {
+      try {
+        final mainPortSubscription = mainReceivePort.listen((message) {
+          if (isCancelled() && !completer.isCompleted) {
+            isolate.kill(priority: Isolate.immediate);
+            completer.complete();
+            return;
           }
-        })
-        .catchError((Object e, StackTrace s) {
-          if (!completer.isCompleted) completer.completeError(e, s);
-          mainReceivePort.close();
-        }),
+
+          if (message is _ProcessOperationRequest) {
+            final operation = operations.firstWhere(
+              (op) => op.id == message.id,
+            );
+            processOperation(operation)
+                .then((_) => message.responsePort.send(null))
+                .catchError((Object e, StackTrace s) {
+              message.responsePort.send(_IsolateError(e, s));
+            });
+          } else if (message is _ProgressUpdate) {
+            onProgress(message.completed, message.total);
+          } else if (message is _SyncComplete) {
+            if (!completer.isCompleted) completer.complete();
+          } else if (message is _SyncError) {
+            if (!completer.isCompleted) {
+              completer.completeError(message.error, message.stackTrace);
+            }
+          }
+        });
+
+        await completer.future.whenComplete(() {
+          isolate.kill(priority: Isolate.immediate);
+          mainPortSubscription.cancel();
+        });
+      } finally {
+        mainReceivePort.close();
+      }
+    }).catchError((Object e, StackTrace s) {
+      if (!completer.isCompleted) completer.completeError(e, s);
+      mainReceivePort.close();
+    }),
   );
 
   return completer.future;

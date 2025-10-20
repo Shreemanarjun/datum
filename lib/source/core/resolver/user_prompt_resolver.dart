@@ -13,8 +13,7 @@ class UserPromptResolver<T extends DatumEntity>
     DatumConflictContext context,
     T? local,
     T? remote,
-  )
-  onPrompt;
+  ) onPrompt;
 
   /// An optional function that defines how to merge a local and remote entity
   /// if the user chooses the `merge` strategy.

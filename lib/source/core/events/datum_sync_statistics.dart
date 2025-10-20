@@ -65,13 +65,13 @@ class DatumSyncStatistics extends Equatable {
 
   @override
   List<Object?> get props => [
-    totalSyncs,
-    successfulSyncs,
-    failedSyncs,
-    conflictsDetected,
-    conflictsAutoResolved,
-    conflictsUserResolved,
-    averageDuration,
-    totalSyncDuration,
-  ];
+        totalSyncs,
+        successfulSyncs,
+        failedSyncs,
+        conflictsDetected,
+        conflictsAutoResolved,
+        conflictsUserResolved,
+        averageDuration,
+        totalSyncDuration,
+      ];
 }

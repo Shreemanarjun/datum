@@ -4,12 +4,19 @@ version: 0.0.1
 homepage: https://www.shreeman.dev
 repository: https://github.com/Shreemanarjun/datum
 issue_tracker: https://github.com/Shreemanarjun/datum/issues
-license: MIT
+documentation: https://www.shreeman.dev/datum
+funding:
+ - https://buymeacoffee.com/shreemanarjun
+screenshots:
+  - description: 'LOGO Datum'
+    path: logo/datum.png
+
 topics:
   - offline-first
   - synchronization
   - database
   - flutter
+  - supabase
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

@@ -1,7 +1,6 @@
 import 'package:datum/source/core/health/datum_health.dart';
 import 'package:test/test.dart';
 
-
 void main() {
   group('DatumHealth', () {
     test('constructor provides correct default values', () {

@@ -20,12 +20,11 @@ typedef DatumSqlQueryResult = ({String sql, List<Object?> params});
 /// It receives the [Filter] and a function to get the next placeholder.
 /// It must add its own values to the [params] list.
 /// It should return the full SQL condition string (e.g., `ST_Distance(location, ?) < ?`).
-typedef DatumCustomSqlBuilder =
-    String? Function(
-      Filter filter,
-      String Function() getPlaceholder,
-      List<Object?> params,
-    );
+typedef DatumCustomSqlBuilder = String? Function(
+  Filter filter,
+  String Function() getPlaceholder,
+  List<Object?> params,
+);
 
 /// A builder function for custom SQL placeholder logic.
 ///
@@ -96,9 +95,8 @@ extension DatumQuerySqlConverter on DatumQuery {
             // always false for `IN` and always true for `NOT IN`.
             return condition.operator == FilterOperator.isIn ? '0=1' : '1=1';
           }
-          final placeholders = (condition.value as List)
-              .map((_) => getPlaceholder())
-              .join(', ');
+          final placeholders =
+              (condition.value as List).map((_) => getPlaceholder()).join(', ');
           params.addAll(condition.value as List);
           return '$field $operator ($placeholders)';
         }
@@ -158,7 +156,8 @@ extension DatumQuerySqlConverter on DatumQuery {
     final sortingSql = sorting.isNotEmpty
         ? 'ORDER BY ${sorting.map((s) {
             final direction = s.descending ? 'DESC' : 'ASC';
-            final nulls = 'NULLS ${s.nullSortOrder == NullSortOrder.first ? "FIRST" : "LAST"}';
+            final nulls =
+                'NULLS ${s.nullSortOrder == NullSortOrder.first ? "FIRST" : "LAST"}';
             return '"${s.field}" $direction $nulls';
           }).join(', ')}'
         : '';
@@ -226,6 +225,7 @@ extension DatumQuerySqlConverter on DatumQuery {
     }
     // This line should be unreachable if all cases are handled, but it
     // satisfies the non-nullable return type requirement.
-    throw UnsupportedError('Unsupported operator $operator for dialect $dialect');
+    throw UnsupportedError(
+        'Unsupported operator $operator for dialect $dialect');
   }
 }

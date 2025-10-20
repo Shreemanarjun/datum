@@ -9,8 +9,8 @@ class InitialSyncEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
     required super.userId,
     required List<T> data,
     DateTime? timestamp,
-  }) : data = List<T>.unmodifiable(data),
-       super(timestamp: timestamp ?? DateTime.now());
+  })  : data = List<T>.unmodifiable(data),
+        super(timestamp: timestamp ?? DateTime.now());
 
   /// Complete snapshot of the user's dataset at the time of subscription.
   final List<T> data;

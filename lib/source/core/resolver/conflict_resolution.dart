@@ -46,33 +46,34 @@ class DatumConflictResolution<T extends DatumEntity> extends Equatable {
 
   /// Creates a resolution that uses the local version.
   const DatumConflictResolution.useLocal(T localData)
-    : this._(
-        strategy: DatumResolutionStrategy.takeLocal,
-        resolvedData: localData,
-      );
+      : this._(
+          strategy: DatumResolutionStrategy.takeLocal,
+          resolvedData: localData,
+        );
 
   /// Creates a resolution that uses the remote version.
   const DatumConflictResolution.useRemote(T remoteData)
-    : this._(
-        strategy: DatumResolutionStrategy.takeRemote,
-        resolvedData: remoteData,
-      );
+      : this._(
+          strategy: DatumResolutionStrategy.takeRemote,
+          resolvedData: remoteData,
+        );
 
   /// Creates a resolution with merged data.
   const DatumConflictResolution.merge(T mergedData)
-    : this._(strategy: DatumResolutionStrategy.merge, resolvedData: mergedData);
+      : this._(
+            strategy: DatumResolutionStrategy.merge, resolvedData: mergedData);
 
   /// Creates a resolution requiring user input.
   const DatumConflictResolution.requireUserInput(String message)
-    : this._(
-        strategy: DatumResolutionStrategy.askUser,
-        requiresUserInput: true,
-        message: message,
-      );
+      : this._(
+          strategy: DatumResolutionStrategy.askUser,
+          requiresUserInput: true,
+          message: message,
+        );
 
   /// Creates an aborted resolution.
   const DatumConflictResolution.abort(String reason)
-    : this._(strategy: DatumResolutionStrategy.abort, message: reason);
+      : this._(strategy: DatumResolutionStrategy.abort, message: reason);
 
   /// Creates a copy of the resolution with a different generic type.
   /// This is useful for upcasting to `DatumConflictResolution<DatumEntity>`.
@@ -99,9 +100,8 @@ class DatumConflictResolution<T extends DatumEntity> extends Equatable {
       strategy: strategy ?? this.strategy,
       // If setResolvedDataToNull is true, set it to null, otherwise use the
       // provided value or the existing one.
-      resolvedData: setResolvedDataToNull
-          ? null
-          : (resolvedData ?? this.resolvedData),
+      resolvedData:
+          setResolvedDataToNull ? null : (resolvedData ?? this.resolvedData),
       requiresUserInput: requiresUserInput ?? this.requiresUserInput,
       message: message ?? this.message,
     );
@@ -109,11 +109,11 @@ class DatumConflictResolution<T extends DatumEntity> extends Equatable {
 
   @override
   List<Object?> get props => [
-    strategy,
-    resolvedData,
-    requiresUserInput,
-    message,
-  ];
+        strategy,
+        resolvedData,
+        requiresUserInput,
+        message,
+      ];
 }
 
 /// Base interface for components that resolve synchronization conflicts.

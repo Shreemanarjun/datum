@@ -54,22 +54,22 @@ class PaginatedResult<T extends DatumEntity> extends Equatable {
 
   /// Creates an empty paginated result.
   const PaginatedResult.empty()
-    : items = const [],
-      totalCount = 0,
-      currentPage = 1,
-      totalPages = 0,
-      hasMore = false,
-      nextCursor = null;
+      : items = const [],
+        totalCount = 0,
+        currentPage = 1,
+        totalPages = 0,
+        hasMore = false,
+        nextCursor = null;
 
   @override
   List<Object?> get props => [
-    items,
-    totalCount,
-    currentPage,
-    totalPages,
-    hasMore,
-    nextCursor,
-  ];
+        items,
+        totalCount,
+        currentPage,
+        totalPages,
+        hasMore,
+        nextCursor,
+      ];
 
   @override
   bool get stringify => true;

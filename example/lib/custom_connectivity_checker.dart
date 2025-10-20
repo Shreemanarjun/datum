@@ -9,6 +9,6 @@ class CustomConnectivityChecker extends DatumConnectivityChecker {
 
   @override
   Stream<bool> get onStatusChange => InternetConnection().onStatusChange.map(
-    (status) => status == InternetStatus.connected,
-  );
+        (status) => status == InternetStatus.connected,
+      );
 }
