@@ -1,4 +1,3 @@
-
 <p align="center">
   <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/datum.png" alt="Datum Logo" width="200">
 </p>
@@ -899,20 +898,29 @@ Datum is designed with a clear and modular architecture to make it easy to under
 
 This diagram shows the main components of Datum and how they interact with each other.
 
-[![alt text](logo/high-level-arch.png)](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/high-level-arch.png)
+<p align="center">
+  <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/high-level-arch.png" alt="High-Level Architecture">
+</p>
 
 ### Data Flow for a `create` Operation
 
-[![alt text](logo/data-flow-create.png)](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/data-flow-create.png)
+<p align="center">
+  <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/data-flow-create.png" alt="Data Flow for a create Operation">
+</p>
 
 ### Synchronization Process
-[![alt text](logo/sync-process.excalidraw.png)](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/sync-process.excalidraw.png)
+
+<p align="center">
+  <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/sync-process.excalidraw.png" alt="Synchronization Process">
+</p>
 
 ### Conflict Resolution Flow
 
 When a conflict is detected, Datum uses a resolver to determine the correct version of the data.
 
-[![alt text](logo/conflict-resolution-flow.excalidraw.png)](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/conflict-resolution-flow.excalidraw.png)
+<p align="center">
+  <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/conflict-resolution-flow.excalidraw.png" alt="Conflict Resolution Flow">
+</p>
 
 
 ---
