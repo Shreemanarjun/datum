@@ -4,7 +4,7 @@
 
 # 🧠 **Datum** — Offline-First Data Synchronization Framework for Dart & Flutter
 
-<a href="https://pub.dev/packages/datum"><img src="https://img.shields.io/pub/v/datum.svg" alt="Pub"></a> <a href="https://github.com/your-username/datum/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a> <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Code Coverage"> <img src="https://img.shields.io/badge/tests-400%2B-brightgreen" alt="Tests">
+<a href="https://pub.dev/packages/datum"><img src="https://img.shields.io/pub/v/datum.svg" alt="Pub"></a> <a href="https://github.com/shreemanarjun/datum/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a> <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Code Coverage"> <img src="https://img.shields.io/badge/tests-400%2B-brightgreen" alt="Tests">
 
 > **Smart ⚡ Reactive 🔄 Universal 🌍**
 >
@@ -1273,11 +1273,26 @@ You would then register this adapter during Datum's initialization.
 
 ---
 
+## ❤️ Support & Contributions
+
+### Support This Project
+
+If you find this package helpful and would like to support its development, please consider buying me a coffee. Your support is greatly appreciated and helps me dedicate more time to improving and maintaining this project.
+
+<a href="https://buymeacoffee.com/shreemanarjun" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+### Contributing
+
+Contributions are welcome! If you have a feature request, bug report, or want to contribute to the code, please see our [Contributing Guidelines](CONTRIBUTING.md). Let's make Datum even better together!
+
+---
+
 ## 🙏 Acknowledgements
 
 This project is heavily inspired by the great work of the [`synq_manager`](https://pub.dev/packages/synq_manager) package and its author [Ahmet Aydin](https://github.com/ahmtydn). A big thank you for the inspiration and the solid foundation provided to the Flutter community.
 
 ---
+
 ## 🪪 License
 
 MIT License
