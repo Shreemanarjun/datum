@@ -41,7 +41,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  datum: ^0.0.4
+  datum: ^0.0.5
 ```
 
 Then run `flutter pub get`.

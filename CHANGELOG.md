@@ -1,3 +1,6 @@
+## 0.0.5
+- Add docs link
+- 
 ## 0.0.4
 
 ### Features
