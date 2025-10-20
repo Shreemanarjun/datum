@@ -1,3 +1,10 @@
+## 0.0.3
+- 📝 docs(readme): enhance architecture diagrams in README
+
+- update architecture diagrams for better clarity
+- improve image display using <p> tag for alignment
+
+
 ## 0.0.2
 - Update readme to add images correctly
 
