@@ -1,3 +1,15 @@
+## 0.0.4
+
+### Features
+
+- Added support for funding and contributions.
+
+### Documentation
+
+- Added `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`.
+- Updated `README.md` with funding and contribution sections.
+- Updated `README.md` to mention future support for multiple adapters for a single entity.
+
 ## 0.0.3
 - 📝 docs(readme): enhance architecture diagrams in README
 

@@ -34,7 +34,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  datum: ^0.0.1
+  datum: ^0.0.4
 ```
 
 Then run `flutter pub get`.
@@ -1270,6 +1270,14 @@ class MyRestApiAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
 ```
 
 You would then register this adapter during Datum's initialization.
+
+---
+
+## 🔮 Future Plans
+
+Datum is constantly evolving. Here's a glimpse of what's on the horizon:
+
+- **Multi-Adapter Support**: Soon, you'll be able to register multiple `RemoteAdapter`s or `LocalAdapter`s for a single `DatumEntity`. This will allow you to, for example, sync your data with both a REST API and a Firebase backend simultaneously, or store your data in both Hive and a secure storage. This will provide even greater flexibility and resilience for your data layer.
 
 ---
 
