@@ -1,6 +1,6 @@
 
 <p align="center">
-  <img src="logo/datum.png" alt="Datum Logo" width="200">
+  <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/datum.png" alt="Datum Logo" width="200">
 </p>
 
 # 🧠 **Datum** — Offline-First Data Synchronization Framework for Dart & Flutter
@@ -899,102 +899,21 @@ Datum is designed with a clear and modular architecture to make it easy to under
 
 This diagram shows the main components of Datum and how they interact with each other.
 
-```mermaid
-graph TD
-    subgraph User Application
-        A[UI / Business Logic]
-    end
-
-    subgraph Datum Core
-        B(DatumManager)
-        C{DatumEntity}
-        D[LocalAdapter]
-        E[RemoteAdapter]
-        F(Sync Engine)
-        G(Conflict Resolver)
-    end
-
-    subgraph Data Stores
-        H[(Local Database)]
-        I[(Remote Backend)]
-    end
-
-    A -->|CRUD, Queries| B
-    B -->|Manages| C
-    B -->|Uses| D
-    B -->|Uses| E
-    B -->|Triggers| F
-    F -->|Syncs data between| D
-    F -->|Syncs data between| E
-    D -->|Reads/Writes| H
-    E -->|Reads/Writes| I
-    F -->|Uses| G
-```
+[![alt text](logo/high-level-arch.png)](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/high-level-arch.png)
 
 ### Data Flow for a `create` Operation
 
-This sequence diagram illustrates what happens when you create a new entity.
-
-```mermaid
-sequenceDiagram
-    participant App as User Application
-    participant DM as DatumManager
-    participant LA as LocalAdapter
-    participant SE as Sync Engine
-    participant RA as RemoteAdapter
-
-    App->>+DM: create(newEntity)
-    DM->>+LA: create(newEntity)
-    LA-->>-DM: success
-    DM-->>-App: success
-    DM->>SE: queueOperation(create, newEntity)
-    Note right of SE: Sync Engine will process the queue later
-    SE->>+RA: create(newEntity)
-    RA-->>-SE: success
-```
+[![alt text](logo/data-flow-create.png)](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/data-flow-create.png)
 
 ### Synchronization Process
-
-The synchronization process is the core of Datum. This diagram shows how it works.
-
-```mermaid
-graph TD
-    subgraph Sync Cycle
-        A(Sync Triggered) --> B{Connectivity?}
-        B -->|Online| C(Start Sync)
-        B -->|Offline| D(Wait for Connection)
-        C --> E{Sync Direction}
-        E -->|pushThenPull| F(Push local changes) --> G(Pull remote changes)
-        E -->|pullThenPush| G --> F
-        G --> H{Conflicts?}
-        H -->|Yes| I(Resolve Conflicts)
-        H -->|No| J(Update Local DB)
-        I --> J
-        J --> K(Sync Complete)
-    end
-```
+[![alt text](logo/sync-process.excalidraw.png)](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/sync-process.excalidraw.png)
 
 ### Conflict Resolution Flow
 
 When a conflict is detected, Datum uses a resolver to determine the correct version of the data.
 
-```mermaid
-graph TD
-    A(Syncing...) --> B{Version Mismatch?}
-    B -->|Yes| C(Conflict Detected)
-    B -->|No| D(No Conflict)
-    C --> E{Custom Resolver?}
-    E -->|Yes| F(Use Custom Resolver)
-    E -->|No| G{Default Strategy}
-    G -->|Last Write Wins| H(Compare timestamps)
-    G -->|Local Priority| I(Take Local)
-    G -->|Remote Priority| J(Take Remote)
-    F --> K(Resolved)
-    H --> K
-    I --> K
-    J --> K
-    K --> L(Apply Resolution)
-```
+[![alt text](logo/conflict-resolution-flow.excalidraw.png)](https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/conflict-resolution-flow.excalidraw.png)
+
 
 ---
 
