@@ -12,6 +12,13 @@
 
 ---
 
+
+# Documentation
+
+[Docs](https://datum.shreeman.dev/)
+
+ Currently documentation is in progress.
+
 ## Core Concepts
 
 Datum is built around a few core concepts:
