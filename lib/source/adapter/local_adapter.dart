@@ -25,8 +25,9 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// The [includeInitialData] parameter controls whether the stream should
   /// immediately emit the current list of all items. Defaults to `true`.
   /// If `false`, the stream will only emit when a change occurs.
-  /// Return null if the adapter doesn't support reactive queries.
-  Stream<List<T>>? watchAll({String? userId, bool? includeInitialData}) => null;
+  /// Return `null` if the adapter doesn't support reactive queries.
+  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) =>
+      null;
 
   /// Watch a single item by its ID, emitting the item on change or null if deleted.
   /// Return null if the adapter doesn't support reactive queries.

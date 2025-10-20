@@ -947,6 +947,7 @@ void _stubAdapterBehaviors<T extends DatumEntity>(
   when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
   when(() => localAdapter.dispose()).thenAnswer((_) async {});
   when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
+  when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
   when(() => localAdapter.getStoredSchemaVersion()).thenAnswer((_) async => 0);
   when(
     () => localAdapter.getPendingOperations(any()),

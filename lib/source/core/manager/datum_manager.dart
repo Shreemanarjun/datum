@@ -47,8 +47,9 @@ class DatumManager<T extends DatumEntity> with Disposable {
   final RemoteAdapter<T> remoteAdapter;
 
   bool _initialized = false;
-
-  /// Returns true if the manager has been initialized.
+  bool _isSyncPaused = false;
+  DatumSyncStatus? _prePauseStatus;
+  final Set<String> _pausedAutoSyncUserIds = {};
   bool get isInitialized => _initialized;
 
   // Core dependencies
@@ -62,8 +63,6 @@ class DatumManager<T extends DatumEntity> with Disposable {
 
   // Internal state management
   final Map<String, Timer> _autoSyncTimers = {};
-
-  Stream<DateTime?> get onNextSyncTimeChanged => _nextSyncTimeSubject.stream;
 
   /// A cache to track recently processed external change IDs to prevent echoes
   /// and de-duplicate events. The key is the entity ID.
@@ -103,6 +102,30 @@ class DatumManager<T extends DatumEntity> with Disposable {
 
   /// The most recent snapshot of the manager's sync status.
   DatumSyncStatusSnapshot get currentStatus => _statusSubject.value;
+
+  /// A stream that emits the [DateTime] of the next scheduled auto-sync.
+  ///
+  /// Emits `null` if no auto-sync is scheduled.
+  Stream<DateTime?> get watchNextSyncTime => _nextSyncTimeSubject.stream;
+
+  /// A stream that emits the [Duration] until the next scheduled auto-sync.
+  ///
+  /// Emits `null` if no auto-sync is scheduled. The duration will decrease
+  /// over time and the stream will emit new values periodically.
+  Stream<Duration?> get watchNextSyncDuration {
+    return watchNextSyncTime.switchMap((nextSync) {
+      if (nextSync == null) {
+        return Stream.value(null);
+      }
+      // Emit the duration every second until the sync time is reached.
+      return Stream.periodic(const Duration(seconds: 1), (_) {
+        final remaining = nextSync.difference(DateTime.now());
+        return remaining.isNegative ? Duration.zero : remaining;
+      }).startWith(nextSync.difference(DateTime.now()));
+    });
+  }
+
+  Stream<DateTime?> get onNextSyncTimeChanged => _nextSyncTimeSubject.stream;
 
   DatumManager({
     required this.localAdapter,
@@ -828,6 +851,15 @@ class DatumManager<T extends DatumEntity> with Disposable {
   }) async {
     _ensureInitialized();
 
+    if (_isSyncPaused) {
+      _logger.info('Sync for user $userId skipped: manager is paused.');
+      return DatumSyncResult.skipped(
+        userId,
+        await getPendingCount(userId),
+        reason: 'Sync is paused',
+      );
+    }
+
     // Handle user switching logic before proceeding with synchronization.
     if (_syncEngine.lastActiveUserId != null &&
         _syncEngine.lastActiveUserId != userId) {
@@ -1054,7 +1086,15 @@ class DatumManager<T extends DatumEntity> with Disposable {
     if (userId != null) {
       final timer = _autoSyncTimers.remove(userId);
       timer?.cancel();
-      if (timer != null) {
+      // If we are stopping a specific user's timer, also ensure it's not
+      // marked for resumption if the manager is paused.
+      if (_isSyncPaused) {
+        _pausedAutoSyncUserIds.remove(userId);
+      }
+
+      // Only add an event if the subject is not already closed, which can
+      // happen during a rapid dispose cycle.
+      if (timer != null && !_nextSyncTimeSubject.isClosed) {
         _nextSyncTimeSubject.add(null);
         _logger.info('Auto-sync stopped for user: $userId');
       }
@@ -1065,7 +1105,14 @@ class DatumManager<T extends DatumEntity> with Disposable {
       timer.cancel();
     }
     _autoSyncTimers.clear();
-    _nextSyncTimeSubject.add(null);
+    // If we are stopping all timers, clear the list of users to resume.
+    if (_isSyncPaused) {
+      _pausedAutoSyncUserIds.clear();
+    }
+
+    if (!_nextSyncTimeSubject.isClosed) {
+      _nextSyncTimeSubject.add(null);
+    }
   }
 
   /// Releases all resources held by the manager and its adapters.
@@ -1176,5 +1223,61 @@ class DatumManager<T extends DatumEntity> with Disposable {
   Future<DatumHealth> checkHealth() async {
     _ensureInitialized();
     return _syncEngine.checkHealth();
+  }
+}
+
+extension DatumManagerSyncControl<T extends DatumEntity> on DatumManager<T> {
+  /// Pauses all synchronization activity for this manager.
+  ///
+  /// While paused, any calls to `synchronize()` will be skipped immediately.
+  /// This also stops any running auto-sync timers for this manager.
+  void pauseSync() {
+    _isSyncPaused = true;
+    _prePauseStatus = currentStatus.status;
+    // Remember which users had active auto-sync timers.
+    _pausedAutoSyncUserIds.addAll(_autoSyncTimers.keys);
+    stopAutoSync();
+    if (!_statusSubject.isClosed) {
+      _statusSubject
+          .add(currentStatus.copyWith(status: DatumSyncStatus.paused));
+    }
+    _logger.info('Sync paused for manager $T.');
+  }
+
+  /// Resumes synchronization activity for this manager.
+  void resumeSync() {
+    _isSyncPaused = false;
+    // Restore the status to what it was before being paused, or default to idle.
+    final statusToRestore = _prePauseStatus ?? DatumSyncStatus.idle;
+    _statusSubject.add(currentStatus.copyWith(status: statusToRestore));
+    _prePauseStatus = null;
+
+    // Restart any auto-sync timers that were active before the pause.
+    _logger.info(
+      'Resuming auto-sync for ${_pausedAutoSyncUserIds.length} user(s)...',
+    );
+    for (final userId in _pausedAutoSyncUserIds) {
+      startAutoSync(userId);
+    }
+    _pausedAutoSyncUserIds.clear();
+    _logger.info('Sync resumed for manager $T.');
+  }
+}
+
+extension DatumManagerAutoSyncInfo<T extends DatumEntity> on DatumManager<T> {
+  /// Gets the [DateTime] of the next scheduled auto-sync as a `Future`.
+  ///
+  /// Returns `null` if no auto-sync is currently scheduled.
+  Future<DateTime?> getNextSyncTime() async {
+    return _nextSyncTimeSubject.value;
+  }
+
+  /// Gets the [Duration] until the next scheduled auto-sync as a `Future`.
+  ///
+  /// Returns `null` if no auto-sync is currently scheduled.
+  Future<Duration?> getNextSyncDuration() async {
+    final nextTime = await getNextSyncTime();
+    if (nextTime == null) return null;
+    return nextTime.difference(DateTime.now());
   }
 }

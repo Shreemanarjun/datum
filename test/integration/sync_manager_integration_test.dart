@@ -493,6 +493,64 @@ void main() {
     });
   });
 
+  group('DatumManager Pause and Resume', () {
+    late DatumManager<TestEntity> manager;
+    late MockedLocalAdapter<TestEntity> localAdapter;
+    late MockedRemoteAdapter<TestEntity> remoteAdapter;
+    late MockConnectivityChecker connectivityChecker;
+
+    setUp(() async {
+      localAdapter = MockedLocalAdapter<TestEntity>();
+      remoteAdapter = MockedRemoteAdapter<TestEntity>();
+      connectivityChecker = MockConnectivityChecker();
+
+      _stubDefaultBehaviors(localAdapter, remoteAdapter, connectivityChecker);
+
+      manager = DatumManager<TestEntity>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+        connectivity: connectivityChecker,
+      );
+
+      await manager.initialize();
+    });
+
+    tearDown(() async {
+      await manager.dispose();
+    });
+
+    test('pauseSync prevents synchronization and updates status', () async {
+      // Arrange
+      manager.pauseSync();
+
+      // Assert: Check that the status is updated to paused.
+      expect(manager.currentStatus.status, DatumSyncStatus.paused);
+
+      // Act: Attempt to synchronize while paused.
+      final result = await manager.synchronize('user1');
+
+      // Assert: The sync should be skipped.
+      expect(result.wasSkipped, isTrue);
+      expect(result.skipReason, 'Sync is paused');
+
+      // Verify that no remote operations were attempted.
+      verifyNever(() => remoteAdapter.readAll(
+          userId: any(named: 'userId'), scope: any(named: 'scope')));
+      verifyNever(() => remoteAdapter.create(any()));
+    });
+
+    test('resumeSync allows synchronization to proceed', () async {
+      // Arrange
+      manager.pauseSync();
+      manager.resumeSync();
+
+      // Act & Assert: Synchronization should now proceed normally.
+      await expectLater(manager.synchronize('user1'), completes);
+      verify(() => remoteAdapter.readAll(
+          userId: 'user1', scope: any(named: 'scope'))).called(1);
+    });
+  });
+
   group('DatumManager Health and Storage', () {
     late DatumManager<TestEntity> manager;
     late MockedLocalAdapter<TestEntity> localAdapter;

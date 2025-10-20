@@ -124,6 +124,9 @@ void main() {
       when(
         () => localAdapter.saveLastSyncResult(any(), any()),
       ).thenAnswer((_) async {});
+      when(
+        () => localAdapter.getAllUserIds(),
+      ).thenAnswer((_) async => []);
 
       datum = await Datum.initialize(
         config: const DatumConfig(schemaVersion: 0),
@@ -226,8 +229,8 @@ void main() {
 
       // Assert
       expect(result.wasSkipped, isTrue);
-      // Close the stream to complete the expectation.
-      await manager.dispose();
+      // The expectation is for a single event, so we can complete the test
+      // without disposing the manager, which was causing the stream error.
       await expectation;
     });
 

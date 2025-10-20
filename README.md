@@ -1054,6 +1054,30 @@ taskManager.watchAll().listen((tasks) {
 });
 ```
 
+### Query Builder
+
+Datum provides a fluent query builder to create more specific queries.
+
+```dart
+final taskManager = Datum.manager<Task>();
+
+// Find all completed tasks with high priority
+final highPriorityTasks = await taskManager.query()
+  .where('isCompleted', isEqualTo: true)
+  .where('priority', isGreaterThan: 2)
+  .orderBy('createdAt', descending: true)
+  .limit(10)
+  .find();
+
+// Watch for changes to a query
+taskManager.query()
+  .where('isCompleted', isEqualTo: false)
+  .watch()
+  .listen((tasks) {
+    print('Incomplete tasks updated: ${tasks.length}');
+  });
+```
+
 ---
 
 ## 🤝 Relational Data
@@ -1080,15 +1104,42 @@ class Post extends RelationalDatumEntity {
 ### Fetching Related Data
 
 Use `fetchRelated` on a `DatumManager` to get related entities.
+For this example, let's assume a `Post` has a `belongsTo` relationship with a `Task` (e.g., a post is about a specific task).
 
 ```dart
-// Fetch the author of a post
-final author = await Datum.manager<Post>().fetchRelated<User>(post, 'author');
+// Fetch the task associated with a post
+final relatedTask = await Datum.manager<Post>().fetchRelated<Task>(post, 'task');
 ```
 
 ---
 
 ## 🔬 Advanced Usage
+
+### Default Conflict Resolvers
+
+Datum comes with a set of pre-built conflict resolvers that you can choose from. You can set a default resolver in `DatumConfig` or specify one per `DatumRegistration`.
+
+- **`LastWriteWinsResolver` (Default)**: This resolver compares the `modifiedAt` timestamps of the local and remote entities and picks the one that was modified more recently. This is the default strategy.
+
+- **`LocalPriorityResolver`**: This resolver always prioritizes the local version of the data, discarding the remote changes in case of a conflict.
+
+- **`RemotePriorityResolver`**: This resolver always prioritizes the remote version of the data, discarding the local changes in case of a conflict.
+
+- **`MergeResolver`**: This resolver attempts to merge the local and remote data. It takes the remote version and applies the local changes on top of it. This is useful when you want to preserve changes from both sides, but it might not be suitable for all data types.
+
+You can set a resolver like this:
+
+```dart
+await Datum.initialize(
+  // ...
+  registrations: [
+    DatumRegistration<Task>(
+      // ...
+      conflictResolver: RemotePriorityResolver<Task>(),
+    ),
+  ],
+);
+```
 
 ### Custom Conflict Resolution
 
@@ -1114,6 +1165,100 @@ await Datum.initialize(
   ],
 );
 ```
+
+### Data Migration Example
+
+As your application evolves, you may need to change your data models. Datum provides a robust migration system to handle these changes safely. Migrations operate on raw data (`Map<String, dynamic>`) to avoid deserialization errors with outdated models.
+
+Let's walk through a two-step migration for a `Task` entity:
+1.  **v1 -> v2**: Rename the `name` field to `title` and add a new `priority` field.
+2.  **v2 -> v3**: Change the `priority` field from a `String` to an `int`.
+
+**1. Create Migration Classes**
+
+Each migration is a `Migration` class that defines a `fromVersion`, a `toVersion`, and a `migrate` method.
+
+```dart
+// Migrates from schema version 1 to 2
+class V1toV2 extends Migration {
+  @override
+  int get fromVersion => 1;
+
+  @override
+  int get toVersion => 2;
+
+  @override
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
+    final newData = Map<String, dynamic>.from(oldData);
+    // Rename 'name' to 'title'
+    newData['title'] = newData.remove('name');
+    // Add a new 'priority' field with a default value
+    newData['priority'] = 'medium';
+    return newData;
+  }
+}
+
+// Migrates from schema version 2 to 3
+class V2toV3 extends Migration {
+  @override
+  int get fromVersion => 2;
+
+  @override
+  int get toVersion => 3;
+
+  @override
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
+    final newData = Map<String, dynamic>.from(oldData);
+    // Convert string priority to an integer
+    switch (newData['priority']) {
+      case 'high':
+        newData['priority'] = 1;
+        break;
+      case 'medium':
+        newData['priority'] = 2;
+        break;
+      default:
+        newData['priority'] = 3;
+        break;
+    }
+    return newData;
+  }
+}
+```
+
+**2. Update your `DatumEntity`**
+
+Your final `Task` entity should reflect the schema at the highest version (`v3` in this case).
+
+```dart
+class Task extends DatumEntity {
+  // ... other fields
+  final String title;
+  final int priority;
+
+  // ... constructor, copyWith, fromMap, etc.
+}
+```
+
+**3. Register the Migrations**
+
+During Datum's initialization, set the `schemaVersion` to your latest version and provide the list of migrations. Datum will automatically find the correct migration path and execute the migrations in order.
+
+```dart
+await Datum.initialize(
+  config: DatumConfig(
+    // ...
+    schemaVersion: 3, // Set the target schema version
+  ),
+  // ...
+  migrations: [
+    V1toV2(),
+    V2toV3(),
+  ],
+);
+```
+
+If the stored schema version is `1`, Datum will first run `V1toV2` on all entities, and then run `V2toV3`, bringing the data to version `3`. If a migration fails, the entire process is rolled back to ensure data integrity.
 
 ### Observers and Middlewares
 

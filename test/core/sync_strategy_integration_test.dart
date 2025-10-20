@@ -397,6 +397,7 @@ void main() {
         when(() => isolatedRemoteAdapter.initialize()).thenAnswer((_) async {});
         when(() => isolatedLocalAdapter.dispose()).thenAnswer((_) async {});
         when(() => isolatedRemoteAdapter.dispose()).thenAnswer((_) async {});
+        when(() => isolatedRemoteAdapter.dispose()).thenAnswer((_) async {});
         when(
           () => isolatedLocalAdapter.getStoredSchemaVersion(),
         ).thenAnswer((_) async => 1);

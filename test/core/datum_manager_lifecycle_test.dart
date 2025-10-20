@@ -166,7 +166,7 @@ void main() {
       });
     });
 
-    group('onNextSyncTimeChanged stream', () {
+    group('Auto-Sync Time Streams and Futures', () {
       test('emits DateTime when startAutoSync is called', () {
         fakeAsync((async) async {
           // Arrange
@@ -198,12 +198,12 @@ void main() {
           // Arrange
           await manager.initialize();
           manager.startAutoSync('user-A');
-          // Let the first (non-null) event pass.
-          await manager.onNextSyncTimeChanged.first;
+          // Let the first (non-null) event pass through the stream.
+          await manager.watchNextSyncTime.first;
 
           // Assert: Expect the next event to be null.
           final expectation =
-              expectLater(manager.onNextSyncTimeChanged, emits(isNull));
+              expectLater(manager.watchNextSyncTime, emits(isNull));
 
           // Act
           manager.stopAutoSync(userId: 'user-A');
@@ -216,10 +216,48 @@ void main() {
         fakeAsync((async) async {
           await manager.initialize();
           manager.startAutoSync('user-A');
-          await manager.onNextSyncTimeChanged.first;
-          expectLater(manager.onNextSyncTimeChanged, emits(isNull));
+          await manager.watchNextSyncTime.first;
+          expectLater(manager.watchNextSyncTime, emits(isNull));
           manager.stopAutoSync();
         });
+      });
+
+      test('getNextSyncTime returns future DateTime or null', () async {
+        await manager.initialize();
+
+        // Initially, should be null
+        expect(await manager.getNextSyncTime(), isNull);
+
+        // After starting, should return a future time
+        manager.startAutoSync('user-A');
+        final nextTime = await manager.getNextSyncTime();
+        expect(nextTime, isNotNull);
+        expect(nextTime!.isAfter(DateTime.now()), isTrue);
+
+        // After stopping, should be null again
+        manager.stopAutoSync();
+        expect(await manager.getNextSyncTime(), isNull);
+      });
+
+      test('getNextSyncDuration returns future Duration or null', () async {
+        await manager.initialize();
+
+        // Initially, should be null
+        expect(await manager.getNextSyncDuration(), isNull);
+
+        // After starting, should return a positive duration
+        manager.startAutoSync('user-A');
+        final nextDuration = await manager.getNextSyncDuration();
+        expect(nextDuration, isNotNull);
+        expect(nextDuration!.isNegative, isFalse);
+        expect(
+          nextDuration.inSeconds,
+          lessThanOrEqualTo(manager.config.autoSyncInterval.inSeconds),
+        );
+
+        // After stopping, should be null again
+        manager.stopAutoSync();
+        expect(await manager.getNextSyncDuration(), isNull);
       });
     });
   });

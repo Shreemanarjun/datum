@@ -45,6 +45,9 @@ class DatumSyncResult<T extends DatumEntity> {
   /// The error that caused the sync to fail, if any.
   final Object? error;
 
+  /// A reason why the sync was skipped, if applicable.
+  final String? skipReason;
+
   /// Creates a new [DatumSyncResult].
   const DatumSyncResult({
     required this.userId,
@@ -60,10 +63,15 @@ class DatumSyncResult<T extends DatumEntity> {
     this.wasSkipped = false,
     this.wasCancelled = false,
     this.error,
+    this.skipReason,
   });
 
   /// Creates a result for a sync cycle that was skipped.
-  factory DatumSyncResult.skipped(String userId, int pendingCount) {
+  factory DatumSyncResult.skipped(
+    String userId,
+    int pendingCount, {
+    String? reason,
+  }) {
     return DatumSyncResult<T>(
       userId: userId,
       duration: Duration.zero,
@@ -72,6 +80,7 @@ class DatumSyncResult<T extends DatumEntity> {
       conflictsResolved: 0,
       pendingOperations: const [],
       wasSkipped: true,
+      skipReason: reason,
     );
   }
 
@@ -87,7 +96,8 @@ class DatumSyncResult<T extends DatumEntity> {
         bytesPulledInCycle = 0,
         wasSkipped = false,
         wasCancelled = true,
-        error = null;
+        error = null,
+        skipReason = null;
 
   /// Creates a result for a sync cycle that failed with an error.
   const DatumSyncResult.fromError(this.userId, this.error)
@@ -101,7 +111,8 @@ class DatumSyncResult<T extends DatumEntity> {
         bytesPushedInCycle = 0,
         bytesPulledInCycle = 0,
         wasSkipped = false,
-        wasCancelled = false;
+        wasCancelled = false,
+        skipReason = null;
 
   /// Whether the sync completed successfully without any failures.
   bool get isSuccess =>
@@ -118,7 +129,9 @@ class DatumSyncResult<T extends DatumEntity> {
 
   @override
   String toString() {
-    if (wasSkipped) return 'DatumSyncResult(userId: $userId, status: skipped)';
+    if (wasSkipped) {
+      return 'DatumSyncResult(userId: $userId, status: skipped, reason: $skipReason)';
+    }
     if (wasCancelled) {
       return 'DatumSyncResult(userId: $userId, status: cancelled)';
     }
@@ -142,6 +155,7 @@ class DatumSyncResult<T extends DatumEntity> {
       'bytesPulledInCycle': bytesPulledInCycle,
       'wasSkipped': wasSkipped,
       'wasCancelled': wasCancelled,
+      'skipReason': skipReason,
     };
   }
 
@@ -164,6 +178,7 @@ class DatumSyncResult<T extends DatumEntity> {
       wasSkipped: map['wasSkipped'] as bool,
       wasCancelled: map['wasCancelled'] as bool,
       error: null, // Not persisted
+      skipReason: map['skipReason'] as String?,
     );
   }
 }

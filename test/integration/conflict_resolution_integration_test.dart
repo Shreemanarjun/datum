@@ -74,8 +74,11 @@ void main() {
       // Stub basic adapter methods
       when(() => localAdapter.initialize()).thenAnswer((_) async {});
       when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
+      when(() => localAdapter.dispose()).thenAnswer((_) async {});
+      when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
       when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
-      when(localAdapter.changeStream).thenAnswer((_) => const Stream.empty());
+      when(() => localAdapter.changeStream())
+          .thenAnswer((_) => const Stream.empty());
       when(
         () => remoteAdapter.changeStream,
       ).thenAnswer((_) => const Stream.empty());

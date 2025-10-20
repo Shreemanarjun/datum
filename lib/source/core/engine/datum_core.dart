@@ -767,6 +767,9 @@ class Datum {
           .deleteAndSync(id: id, userId: userId, syncOptions: syncOptions);
 
   Future<void> dispose() async {
+    // Pause all syncs before disposing to prevent new operations during shutdown.
+    pauseAllSyncs();
+
     // Await all disposals and cancellations concurrently for efficiency.
     await Future.wait([
       ..._managers.values.map((m) => m.dispose()),
@@ -776,6 +779,24 @@ class Datum {
     // ignore: invalid_use_of_protected_member
     await _metricsSubject.close();
     await _statusSubject.close();
+  }
+
+  /// Pauses synchronization for all registered managers.
+  ///
+  /// While paused, any calls to `synchronize()` on any manager will be skipped.
+  void pauseAllSyncs() {
+    logger.info('Pausing sync for all managers...');
+    for (final manager in _managers.values) {
+      manager.pauseSync();
+    }
+  }
+
+  /// Resumes synchronization for all registered managers.
+  void resumeAllSyncs() {
+    logger.info('Resuming sync for all managers...');
+    for (final manager in _managers.values) {
+      manager.resumeSync();
+    }
   }
 
   static void resetForTesting() {

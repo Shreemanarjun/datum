@@ -66,6 +66,7 @@ void main() {
 
       when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
       when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
+      when(() => localAdapter.dispose()).thenAnswer((_) async {});
       when(() => remoteAdapter.changeStream).thenAnswer(
         (_) => const Stream<DatumChangeDetail<ExcludableEntity>>.empty(),
       );

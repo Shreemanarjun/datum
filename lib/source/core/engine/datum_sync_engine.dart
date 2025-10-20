@@ -377,7 +377,7 @@ class DatumSyncEngine<T extends DatumEntity> {
       // If the operation was not an update that could be retried as a create,
       // we must rethrow the exception to let the sync process know that this
       // operation has failed.
-      rethrow;
+      throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
     } on SyncExceptionWithEvents<T> {
       // If it's already the correct type, just rethrow it.
       rethrow;
