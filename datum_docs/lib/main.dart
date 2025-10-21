@@ -64,7 +64,8 @@ void main() {
         DocsLayout(
           header: CustomHeader(
             title: 'Datum',
-            logo: '/images/datum.png',
+            subtitle: "Data,Seamlessly Synced",
+            logo: '/images/logo.png',
             items: [
               // Link back to the main marketing site.
               a(
@@ -147,6 +148,7 @@ void main() {
         background: ThemeColor(ThemeColors.slate.$50, dark: ThemeColors.zinc.$950),
         colors: [
           ContentColors.quoteBorders.apply(ThemeColors.blue.$400),
+          ContentColors.preBg.apply(ThemeColor(ThemeColors.slate.$800, dark: ThemeColors.slate.$800)),
         ],
       ),
     ),

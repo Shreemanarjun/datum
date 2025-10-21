@@ -6,6 +6,7 @@ class CustomHeader extends StatelessComponent {
   const CustomHeader({
     required this.logo,
     required this.title,
+    this.subtitle,
     this.leading = const [SidebarToggleButton()],
     this.items = const [],
     super.key,
@@ -16,6 +17,9 @@ class CustomHeader extends StatelessComponent {
 
   /// The name of the site to render alongside the [logo].
   final String title;
+
+  /// An optional subtitle to render below the [title].
+  final String? subtitle;
 
   /// Components to render before the site logo and title.
   ///
@@ -32,8 +36,14 @@ class CustomHeader extends StatelessComponent {
       header(classes: 'header', [
         ...leading,
         a(classes: 'header-title', href: '/', [
-          img(src: logo, alt: 'Logo'),
-          span([text(title)]),
+          img(src: logo, alt: '$title Logo'),
+          div(classes: 'header-title-text', [
+            span(classes: 'header-main-title', [text(title)]),
+            if (subtitle != null)
+              span(classes: 'header-subtitle', [
+                text(subtitle!),
+              ]),
+          ]),
         ]),
         div(classes: 'header-items', items),
       ]),
@@ -61,10 +71,22 @@ class CustomHeader extends StatelessComponent {
           alignItems: AlignItems.center,
           gap: Gap(column: .75.rem),
           flex: Flex(grow: 1),
+          textDecoration: TextDecoration.none, // Remove underline from the link
         ),
         css('img').styles(
           width: Unit.auto,
-          height: 5.rem,
+          height: 3.rem,
+        ),
+        css('.header-title-text').styles(
+          display: Display.flex,
+          flexDirection: FlexDirection.column,
+          justifyContent: JustifyContent.center,
+          fontWeight: FontWeight.bold,
+        ),
+        css('.header-main-title').styles(fontWeight: FontWeight.w700),
+        css('.header-subtitle').styles(
+          fontSize: 0.75.rem,
+          fontWeight: FontWeight.w400,
         ),
         css('span').styles(fontWeight: FontWeight.w700),
       ]),
