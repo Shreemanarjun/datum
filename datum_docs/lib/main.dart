@@ -34,6 +34,7 @@ void main() {
       // Enables mustache templating inside the markdown files.
       templateEngine: MustacheTemplateEngine(),
       dataDirectory: "content",
+      debugPrint: true,
       parsers: [
         MarkdownParser(),
         HtmlParser(),
@@ -57,7 +58,7 @@ void main() {
         // Adds zooming and caption support to images.
         CustomImage(zoom: false),
       ],
-      enableFrontmatter: true,
+
       layouts: [
         // Out-of-the-box layout for documentation sites.
         DocsLayout(
@@ -82,21 +83,38 @@ void main() {
               SidebarGroup(
                 title: 'Getting Started',
                 links: [
-                  SidebarLink(text: "Why", href: '/why'),
                   SidebarLink(text: "Quick Start / Installation", href: '/getting_started/quick_start'),
                   SidebarLink(text: "About", href: '/about'),
+                ],
+              ),
+              SidebarGroup(
+                title: 'Modules',
+                links: [
+                  SidebarLink(text: "Core", href: '/modules/core'),
+                  SidebarLink(text: "Adapter", href: '/modules/adapter'),
+                  SidebarLink(text: "Configuration", href: '/modules/config'),
+                  SidebarLink(text: "Utils", href: '/modules/utils'),
                 ],
               ),
             ],
           ),
           footer: Builder(
             builder: (context) {
-              return JasprBadge.lightTwoTone();
+              return div(
+                styles: Styles(
+                  position: Position.fixed(bottom: 0.px, left: 0.px, right: 0.px),
+                  padding: Spacing.only(
+                    bottom: 24.px,
+                  ),
+                ),
+                [
+                  JasprBadge.lightTwoTone(),
+                ],
+              );
             },
           ),
         ),
       ],
-      eagerlyLoadAllPages: true,
 
       theme: ContentTheme(
         // Customizes the default theme colors.

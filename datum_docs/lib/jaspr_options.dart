@@ -13,9 +13,8 @@ import 'package:jaspr_content/components/_internal/zoomable_image.dart'
 import 'package:jaspr_content/components/callout.dart' as prefix3;
 import 'package:jaspr_content/components/code_block.dart' as prefix4;
 import 'package:jaspr_content/components/github_button.dart' as prefix5;
-import 'package:jaspr_content/components/image.dart' as prefix6;
-import 'package:jaspr_content/components/sidebar_toggle_button.dart' as prefix7;
-import 'package:jaspr_content/components/theme_toggle.dart' as prefix8;
+import 'package:jaspr_content/components/sidebar_toggle_button.dart' as prefix6;
+import 'package:jaspr_content/components/theme_toggle.dart' as prefix7;
 
 /// Default [JasprOptions] for use with your jaspr project.
 ///
@@ -49,11 +48,11 @@ JasprOptions get defaultJasprOptions => JasprOptions(
       params: _prefix5GitHubButton,
     ),
 
-    prefix7.SidebarToggleButton: ClientTarget<prefix7.SidebarToggleButton>(
+    prefix6.SidebarToggleButton: ClientTarget<prefix6.SidebarToggleButton>(
       'jaspr_content:components/sidebar_toggle_button',
     ),
 
-    prefix8.ThemeToggle: ClientTarget<prefix8.ThemeToggle>(
+    prefix7.ThemeToggle: ClientTarget<prefix7.ThemeToggle>(
       'jaspr_content:components/theme_toggle',
     ),
   },
@@ -65,9 +64,8 @@ JasprOptions get defaultJasprOptions => JasprOptions(
     ...prefix4.CodeBlock.styles,
 
     ...prefix5.GitHubButton.styles,
-    ...prefix6.Image.styles,
 
-    ...prefix8.ThemeToggleState.styles,
+    ...prefix7.ThemeToggleState.styles,
   ],
 );
 
