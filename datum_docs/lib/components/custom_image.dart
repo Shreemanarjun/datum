@@ -3,6 +3,7 @@ import 'package:jaspr_content/components/_internal/zoomable_image.dart';
 import 'package:jaspr_content/jaspr_content.dart';
 
 /// An image component with optional zooming and caption support.
+
 class CustomImage implements CustomComponent {
   const CustomImage({this.zoom = false, this.replaceImg = true});
 

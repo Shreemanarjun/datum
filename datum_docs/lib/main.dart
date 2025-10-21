@@ -66,6 +66,30 @@ void main() {
             title: 'Datum',
             logo: '/images/datum.png',
             items: [
+              // Link back to the main marketing site.
+              a(
+                href: 'https://datum.shreeman.dev',
+                target: Target.blank,
+                styles: Styles.combine([
+                  Styles(
+                    display: Display.flex,
+                    alignItems: AlignItems.center,
+                    flex: Flex(),
+                  ),
+                  Styles(
+                    fontSize: 0.875.rem,
+                    fontWeight: FontWeight.w500,
+                    textDecoration: TextDecoration.none,
+                  ),
+                  Styles(
+                    padding: Spacing.symmetric(vertical: 0.5.rem, horizontal: 0.75.rem),
+                    radius: BorderRadius.all(Radius.circular(6.px)),
+                  ),
+                ]),
+                [
+                  text('Home'),
+                ],
+              ),
               // Enables switching between light and dark mode.
               ThemeToggle(),
               // Shows github stats.
@@ -104,6 +128,7 @@ void main() {
                 styles: Styles(
                   position: Position.fixed(bottom: 0.px, left: 0.px, right: 0.px),
                   padding: Spacing.only(
+                    left: 24.px,
                     bottom: 24.px,
                   ),
                 ),

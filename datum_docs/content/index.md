@@ -35,7 +35,7 @@ Datum is built around a few key ideas:
 - **`Adapter`**: The bridge between Datum and your data sources.
     - **`LocalAdapter`**: Manages data persistence on the device (e.g., Hive, Isar, SQLite).
     - **`RemoteAdapter`**: Communicates with your backend (e.g., a REST API, Supabase, Firestore).
-- **`DatumManager`**: The main entry point for interacting with your data. It provides a unified API for CRUD operations, queries, and synchronization.
+- **`Datum`**: The main entry point for interacting with your data. It provides a unified API for CRUD operations, queries, and synchronization with finding Managers.
 - **Offline-First:** All data operations are performed on the local database first, ensuring a snappy UI. Datum then automatically syncs changes to the remote backend when a connection is available.
 
 ---
@@ -76,17 +76,27 @@ This makes your application incredibly flexible and future-proof.
 
 **The Problem:** Without a framework like Datum, you write code against two different APIs: one for your local database (e.g., `box.put()`) and another for your remote API (e.g., `dio.post()`).
 
-**Datum's Solution:** You only interact with the `DatumManager`.
+**Datum's Solution:** You only interact with the `Datum`.
 
 ```dart
-// This one line...
-await Datum.manager<Task>().create(newTask);
+// In your controller or business logic layer:
 
-// ...handles all of this for you:
-// 1. Writes the new task to the local database (e.g., Hive) instantly.
-// 2. Adds a "create" operation to the background sync queue.
-// 3. When online, sends the new task to the remote backend (e.g., Supabase).
-// 4. Handles any potential network errors or conflicts.
+final _taskManager = Datum.manager<Task>();
+
+  // CREATE: Writes locally and queues a sync to your backend.
+  Future<void> createTask(String title) async {
+    await _taskManager.create(Task(title: title));
+  }
+
+  // UPDATE: Updates locally and queues a sync.
+  Future<void> updateTask(Task task) async {
+    await _taskManager.update(task);
+  }
+
+  // DELETE: Deletes locally and queues a sync.
+  Future<void> deleteTask(String taskId) async {
+    await _taskManager.delete(taskId);
+  }
 ```
 
 This dramatically simplifies your application code, making it cleaner, more readable, and less prone to bugs. The same unified API applies to reads, updates, deletes, and queries.
