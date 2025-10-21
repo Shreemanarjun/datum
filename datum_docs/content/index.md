@@ -1,7 +1,5 @@
 ---
 title: Datum
-description: Offline-First Data Synchronization Framework for Dart & Flutter
-
 ---
 
 
@@ -20,11 +18,29 @@ Datum is a powerful and easy-to-use framework for building offline-first applica
 *   **Conflict Resolution:** Built-in conflict resolution strategies to handle data conflicts.
 *   **Support for Dart & Flutter:** Use Datum in your Dart backend and Flutter applications.
 
+## Who is Datum For?
 
+You should consider Datum if you are building an application that:
 
+- **Needs to work offline:** From field service apps to content-heavy media apps, Datum ensures a seamless user experience, regardless of network connectivity.
+- **Requires real-time collaboration:** If you're building a tool where multiple users edit the same data, Datum's conflict resolution and real-time sync are essential.
+- **Has a complex data model:** For apps with relational data that needs to be available on the device.
+- **You want to avoid backend lock-in:** Datum's adapter-based architecture gives you the freedom to choose—and change—your database and backend services without rewriting your app's business logic.
 
+## Core Concepts
 
+Datum is built around a few key ideas:
 
+- **`DatumEntity`**: The base class for your data models. It requires a unique `id`, `userId`, and other metadata for synchronization.
+- **`Adapter`**: The bridge between Datum and your data sources.
+    - **`LocalAdapter`**: Manages data persistence on the device (e.g., Hive, Isar, SQLite).
+    - **`RemoteAdapter`**: Communicates with your backend (e.g., a REST API, Supabase, Firestore).
+- **`DatumManager`**: The main entry point for interacting with your data. It provides a unified API for CRUD operations, queries, and synchronization.
+- **Offline-First:** All data operations are performed on the local database first, ensuring a snappy UI. Datum then automatically syncs changes to the remote backend when a connection is available.
+
+---
+
+## Why Datum?
 
 Datum isn't just another local database; it's a complete data synchronization framework. While databases like ObjectBox or Hive are excellent at storing data locally and are very fast, Datum's primary goal is to solve the much harder problem of keeping that local data effortlessly in sync with a remote backend, all while providing a seamless offline-first experience.
 
