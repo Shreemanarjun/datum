@@ -1,0 +1,10 @@
+# Site Configuration
+titleBase: DOCS
+favicon: favicon.ico
+
+# Social media links
+social:
+  - name: Github
+    url: https://github.com/shreemanarjun
+  - name: X/Twitter
+    url: https://twitter.com/shreemanarjun

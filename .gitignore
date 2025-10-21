@@ -8,25 +8,6 @@
 .buildlog/
 .history
 .svn/
-migrate_working_dir/
-
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
 .swiftpm/
 migrate_working_dir/
 
@@ -48,8 +29,8 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
-/coverage/
+**/build/
+**/coverage/
 
 # Symbolication related
 app.*.symbols
@@ -63,13 +44,7 @@ app.*.map.json
 /android/app/release
 
 /example/pubspec.lock
-/example/build/
-/example/coverage/
-
-
 /example_jaspr/*.lock
-/example_jaspr/build/
-/example_jaspr/coverage/
 
 .gemini/
 gha-creds-*.json
