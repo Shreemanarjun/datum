@@ -114,6 +114,18 @@ void main() {
                 ],
               ),
               SidebarGroup(
+                title: 'Initialization Guides',
+                links: [
+                  SidebarLink(text: "Define Your Entity", href: '/guides/entity_define'),
+                  SidebarLink(text: "Define Your Local Adapter", href: '/guides/local_adapter_implement'),
+                  SidebarLink(text: "Define Your Remote Adapter", href: '/guides/remote_adapter_implement'),
+                  // SidebarLink(text: "Adapter", href: '/modules/adapter'),
+                  // SidebarLink(text: "Configuration", href: '/modules/config'),
+                  // SidebarLink(text: "Utils", href: '/modules/utils'),
+                ],
+              ),
+
+              SidebarGroup(
                 title: 'Modules',
                 links: [
                   SidebarLink(text: "Core", href: '/modules/core'),
@@ -128,7 +140,7 @@ void main() {
             builder: (context) {
               return div(
                 styles: Styles(
-                  position: Position.relative(bottom: 0.px, left: 0.px, right: 0.px),
+                  position: Position.fixed(bottom: 0.px, left: 0.px, right: 0.px),
                   padding: Spacing.only(
                     left: 24.px,
                     bottom: 24.px,

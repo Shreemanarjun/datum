@@ -3,7 +3,7 @@ title: Datum
 ---
 
 
-<Image src="/images/logo.png" alt="Datum Logo" width="300" height="300" />
+<Image src="/images/logo.webp" alt="Datum Logo" width="300" height="300" />
 
 <p style="text-align: center; font-size: clamp(2.5rem, 10vw, 4.5rem); font-weight: 700; margin-top: 1rem; margin-bottom: 0;">Datum</p>
 
@@ -60,7 +60,7 @@ Here are the core strengths of Datum broken down.
 
 **Datum's Solution:** Datum uses a brilliant **Adapter pattern**. You have a `LocalAdapter` (for Hive, Isar, etc.) and a `RemoteAdapter` (for Supabase, a custom REST API, etc.). Your application code only ever talks to the `DatumManager`. This means you can swap your entire backend or local database without changing your app's business logic.
 
-<Image src="/images/datum_architecture.svg" alt="Datum Adapter Architecture" caption="Datum's adapter model decouples your app from the backend and local database." width="600" />
+<Image src="/images/high-level-arch.webp" alt="Datum Adapter Architecture" caption="Datum's adapter model decouples your app from the backend and local database." width="600" />
 
 *   **Migrate your backend?** Just write a new `RemoteAdapter`.
 *   **Switch local databases?** Just write a new `LocalAdapter`.
@@ -84,123 +84,6 @@ This makes your application incredibly flexible and future-proof.
 
 Let's explore the core functionalities available directly through `Datum.instance`.
 
-#### 3.1. Initialization
-
-Before using Datum, you must initialize it with your configuration, connectivity checker, and entity registrations. This typically happens once at your application's startup.
-
-```dart
-import 'package:datum/datum.dart';
-import 'package:uuid/uuid.dart'; // For generating unique IDs
-
-// 1. Define your DatumEntity
-// This is a simple example; your entities will have more fields.
-class Task extends DatumEntity {
-  @override
-  final String id;
-  @override
-  final String userId;
-  @override
-  final DateTime createdAt;
-  @override
-  final DateTime modifiedAt;
-  @override
-  final int version;
-  final String title;
-  @override
-  final bool isDeleted;
-
-  const Task({
-    required this.id,
-    required this.userId,
-    required this.createdAt,
-    required this.modifiedAt,
-    required this.version,
-    required this.title,
-    this.isDeleted = false,
-  });
-
-  @override
-  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
-        'id': id,
-        'userId': userId,
-        'createdAt': createdAt.toIso8601String(),
-        'modifiedAt': modifiedAt.toIso8601String(),
-        'version': version,
-        'title': title,
-        'isDeleted': isDeleted,
-      };
-
-  @override
-  Task copyWith({
-    DateTime? modifiedAt,
-    int? version,
-    bool? isDeleted,
-    String? title,
-  }) {
-    return Task(
-      id: id,
-      userId: userId,
-      createdAt: createdAt,
-      modifiedAt: modifiedAt ?? this.modifiedAt,
-      version: version ?? this.version,
-      title: title ?? this.title,
-      isDeleted: isDeleted ?? this.isDeleted,
-    );
-  }
-}
-
-// 2. Implement your Local and Remote Adapters
-// These bridge Datum to your specific local database and backend API.
-// (These are simplified for example purposes)
-class MyLocalAdapter<T extends DatumEntity> extends LocalAdapter<T> {
-  @override
-  Future<void> initialize() async { /* Setup local database */ }
-  @override
-  Future<void> dispose() async { /* Close local database */ }
-  // ... other LocalAdapter methods
-}
-
-class MyRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
-  @override
-  Future<void> initialize() async { /* Setup remote API client */ }
-  @override
-  Future<void> dispose() async { /* Close remote API client */ }
-  // ... other RemoteAdapter methods
-}
-
-// 3. Implement a Connectivity Checker
-class MyConnectivityChecker implements DatumConnectivityChecker {
-  @override
-  Future<bool> get isConnected async => true; // Replace with actual connectivity check
-}
-
-// In your main.dart or application bootstrap:
-Future<void> bootstrapApp() async {
-  // WidgetsFlutterBinding.ensureInitialized(); // If in a Flutter app
-
-  await Datum.initialize(
-    config: const DatumConfig(
-      enableLogging: true,
-      schemaVersion: 1, // Increment this when your entity schema changes
-      // ... other global configurations
-    ),
-    connectivityChecker: MyConnectivityChecker(),
-    registrations: [
-      // Register each DatumEntity type with its adapters
-      DatumRegistration<Task>(
-        localAdapter: MyLocalAdapter<Task>(),
-        remoteAdapter: MyRemoteAdapter<Task>(),
-        // Optional: conflictResolver, middlewares, observers
-      ),
-      // Add registrations for other entities (e.g., User, Project)
-    ],
-    // Optional: globalObservers
-  );
-
-  // Your application can now safely use Datum.instance
-  // runApp(const MyApp()); // If in a Flutter app
-}
-```
 
 #### 3.2. Basic CRUD Operations
 
