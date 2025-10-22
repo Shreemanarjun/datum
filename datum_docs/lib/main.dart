@@ -64,13 +64,13 @@ void main() {
         DocsLayout(
           header: CustomHeader(
             title: 'Datum',
-            subtitle: "Data,Seamlessly Synced",
+            subtitle: "Data, Seamlessly Synced",
             logo: '/images/logo.png',
             items: [
               // Link back to the main marketing site.
               a(
-                href: 'https://datum.shreeman.dev',
-                target: Target.blank,
+                href: '/',
+                target: Target.self,
                 styles: Styles.combine([
                   Styles(
                     display: Display.flex,
@@ -110,6 +110,7 @@ void main() {
                 links: [
                   SidebarLink(text: "Quick Start / Installation", href: '/getting_started/quick_start'),
                   SidebarLink(text: "About", href: '/about'),
+                  SidebarLink(text: "Costs and Licensing", href: '/costs_licensing'),
                 ],
               ),
               SidebarGroup(
@@ -127,7 +128,7 @@ void main() {
             builder: (context) {
               return div(
                 styles: Styles(
-                  position: Position.fixed(bottom: 0.px, left: 0.px, right: 0.px),
+                  position: Position.relative(bottom: 0.px, left: 0.px, right: 0.px),
                   padding: Spacing.only(
                     left: 24.px,
                     bottom: 24.px,

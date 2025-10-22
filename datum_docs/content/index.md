@@ -3,7 +3,11 @@ title: Datum
 ---
 
 
-<Image src="/images/datum.png" alt="Datum Logo" width="300" height="300" />
+<Image src="/images/logo.png" alt="Datum Logo" width="300" height="300" />
+
+<p style="text-align: center; font-size: clamp(2.5rem, 10vw, 4.5rem); font-weight: 700; margin-top: 1rem; margin-bottom: 0;">Datum</p>
+
+<p style="text-align: center; font-size: clamp(1.1rem, 4vw, 1.5rem); font-weight: 500; margin-top: 1rem; margin-bottom: 2.5rem; color: var(--fg-color-2);">Data, Seamlessly Synced</p>
 
 
 
@@ -447,7 +451,7 @@ Future<void> shutdownDatum() async {
 
 Datum is built with streams at its core. The `watchAll()`, `watchById()`, and `watchQuery()` methods provide streams that automatically emit new data whenever it changes—whether from a local user action or a real-time push from the server. This makes building reactive UIs effortless.
 
-## Comaprision Table
+## Comparison Table
 
 | **Feature**               | **Simple Local DB (e.g., Hive)** | **DB with Sync (e.g., ObjectBox)** | **Datum**                                       |
 | :------------------------ | :------------------------------: | :--------------------------------: | :------------------------------------------: |
@@ -459,7 +463,7 @@ Datum is built with streams at its core. The `watchAll()`, `watchById()`, and `w
 | **Cost Model**            | ✅ (Free & Open Source)          | 💰 (Commercial Subscription)       | ✅ (Free & OpenSource)                       |
 
 
-
+For a detailed discussion on the cost model and architectural considerations, please refer to [Costs and Licensing](/costs_licensing).
 
 ## The Elevator Pitch
 
