@@ -33,7 +33,7 @@ void main() {
     ContentApp(
       // Enables mustache templating inside the markdown files.
       templateEngine: MustacheTemplateEngine(),
-      dataDirectory: "content",
+
       debugPrint: true,
       parsers: [
         MarkdownParser(),
