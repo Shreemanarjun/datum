@@ -146,6 +146,30 @@ void main() {
         expect(config1, isNot(equals(config2)));
       });
     });
+
+    group('default shouldRetry logic', () {
+      // Access the default shouldRetry function via the default config.
+      const config = DatumConfig();
+      final shouldRetry = config.errorRecoveryStrategy.shouldRetry;
+
+      test('returns true for a retryable NetworkException', () async {
+        final exception = NetworkException('Connection timeout', isRetryable: true);
+        final result = await shouldRetry(exception);
+        expect(result, isTrue);
+      });
+
+      test('returns false for a non-retryable NetworkException', () async {
+        final exception = NetworkException('Bad request', isRetryable: false);
+        final result = await shouldRetry(exception);
+        expect(result, isFalse);
+      });
+
+      test('returns false for other DatumException types', () async {
+        final exception = AdapterException('TestAdapter', 'Read failed');
+        final result = await shouldRetry(exception);
+        expect(result, isFalse);
+      });
+    });
   });
 }
 
