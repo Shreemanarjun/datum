@@ -1,6 +1,36 @@
+## 0.0.6
+
+### ✨ Features
+
+- ✨ feat(core): implement reactive and query methods on Datum core
+  - add convenience methods to Datum class for accessing reactive and query functionalities
+  - introduce `watchAll`, `watchById`, `watchQuery`, `query`, `fetchRelated`, and `watchRelated` methods for streamlined data access
+  - implement `getPendingCount`, `getPendingOperations`, `getStorageSize`, `watchStorageSize`, `getLastSyncResult` and `checkHealth` methods for data management
+  - add `pauseSync` and `resumeSync` methods to pause/resume synchronization for all managers
+
+### ✅ Tests
+
+- ✅ test(core): enhance datum core tests
+  - add test case for uninitialized datum state error
+  - add tests for `statusForUser` and `allHealths` methods
+  - add `CustomManagerConfig` for testing purposes to inject mock manager into Datum initialization
+  - add non relational test entity to test relational methods
+
+### ♻️ Refactors & 🧹 Chores
+
+- rename `AdapterHealthStatus.ok` to `AdapterHealthStatus.healthy` for clarity
+- refactor `LocalAdapter` and `RemoteAdapter` to import `datum` package
+- refactor `data_change_event` to import `data_source` from the `datum` package
+- refactor `health` to import `data_source` from the `datum` package
+- refactor `datum manager` to import `datum` package
+- refactor `migration executor` to support generic type
+- add `DataSource` enum to specify data source for queries
+
 ## 0.0.5
 - Add docs link
-- 
+
+
+
 ## 0.0.4
 
 ### Features

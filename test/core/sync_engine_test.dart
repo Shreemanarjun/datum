@@ -8,6 +8,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:rxdart/rxdart.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
+import 'auto_start_sync_test.dart';
 import 'datum_config_test.dart';
 
 class MockIsolateHelper extends Mock implements IsolateHelper {}
@@ -15,8 +16,6 @@ class MockIsolateHelper extends Mock implements IsolateHelper {}
 class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
 
 class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
-
-class MockLogger extends Mock implements DatumLogger {}
 
 void main() {
   group('DatumSyncEngine', () {
