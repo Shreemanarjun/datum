@@ -398,11 +398,58 @@ void main() {
       );
     });
   });
+
+  group('Datum Core Initialization', () {
+    late MockConnectivityChecker mockConnectivity;
+    late MockLocalAdapter<TestEntity> localAdapter;
+    late MockRemoteAdapter<TestEntity> remoteAdapter;
+
+    setUp(() {
+      Datum.resetForTesting();
+      mockConnectivity = MockConnectivityChecker();
+      when(() => mockConnectivity.isConnected).thenAnswer((_) async => true);
+      localAdapter = MockLocalAdapter<TestEntity>();
+      remoteAdapter = MockRemoteAdapter<TestEntity>();
+      when(() => localAdapter.getStoredSchemaVersion()).thenAnswer((_) async => 0);
+      when(() => localAdapter.initialize()).thenAnswer((_) async {});
+      when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
+      when(() => localAdapter.dispose()).thenAnswer((_) async {});
+      when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
+      when(() => localAdapter.getPendingOperations(any())).thenAnswer((_) async => []);
+      when(() => localAdapter.getSyncMetadata(any())).thenAnswer((_) async => null);
+      when(() => localAdapter.getLastSyncResult(any())).thenAnswer((_) async => null);
+      when(() => localAdapter.getAllUserIds()).thenAnswer((_) async => ['user1']);
+      when(() => localAdapter.readAll(userId: 'user1')).thenAnswer((_) async => []);
+      when(() => localAdapter.getStorageSize(userId: 'user1'))
+          .thenAnswer((_) async => 0);
+    });
+
+    tearDown(() async {
+      if (Datum.instanceOrNull != null) {
+        await Datum.instance.dispose();
+      }
+      Datum.resetForTesting();
+    });
+
+    test('allHealths returns an empty stream if no managers are registered',
+        () async {
+      // Arrange
+      await Datum.initialize(
+        config: const DatumConfig(enableLogging: false),
+        connectivityChecker: mockConnectivity,
+        registrations: [],
+      );
+
+      // Act
+      final healths = await Datum.instance.allHealths.first;
+
+      // Assert
+      expect(healths, isEmpty);
+    });
+  });
 }
 
 /// A custom DatumConfig that holds a mock manager instance.
-/// This allows us to intercept the manager creation process during Datum initialization
-/// and inject our mock, which is not possible with the standard API.
 class CustomManagerConfig<T extends DatumEntity> extends DatumConfig<T> {
   final DatumManager<T> mockManager;
 

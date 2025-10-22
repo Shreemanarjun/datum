@@ -78,5 +78,23 @@ void main() {
       expect(string, contains('conflicts: 1'));
       expect(string, contains('duration: 123ms'));
     });
+
+    test('toString() provides a useful summary for a skipped result', () {
+      final result = DatumSyncResult<TestEntity>.skipped(
+        userId,
+        5,
+        reason: 'Offline',
+      );
+
+      final string = result.toString();
+      expect(string, 'DatumSyncResult(userId: $userId, status: skipped, reason: Offline)');
+    });
+
+    test('toString() provides a useful summary for a cancelled result', () {
+      const result = DatumSyncResult<TestEntity>.cancelled(userId, 3);
+
+      final string = result.toString();
+      expect(string, 'DatumSyncResult(userId: $userId, status: cancelled)');
+    });
   });
 }

@@ -249,5 +249,62 @@ void main() {
         expect(await manager.getNextSyncDuration(), isNull);
       });
     });
+    test('watchNextSyncDuration emits decreasing durations and then null', () {
+      fakeAsync((async) async {
+        // Arrange
+        await manager.initialize();
+        final durations = <Duration?>[];
+        manager.watchNextSyncDuration.listen(durations.add);
+
+        // Assert initial state
+        // The stream starts with null because no sync is scheduled.
+        expect(durations, [null]);
+
+        // Act 1: Start auto-sync
+        manager.startAutoSync('user-A');
+        async.flushMicrotasks(); // Allow stream to process the start event
+
+        // Assert 1: A duration should be emitted (approx 30s)
+        expect(durations.length, 2);
+        expect(durations.last, isNotNull);
+        expect(durations.last!.inSeconds, closeTo(30, 1));
+
+        // Act 2: Elapse some time
+        async.elapse(const Duration(seconds: 5));
+
+        // Assert 2: A smaller duration should be emitted (approx 25s)
+        expect(durations.last, isNotNull);
+        expect(durations.last!.inSeconds, closeTo(25, 1));
+
+        // Act 3: Stop the sync
+        manager.stopAutoSync(userId: 'user-A');
+        async.flushMicrotasks(); // Allow stream to process the stop event
+
+        // Assert 3: The stream should now emit null
+        expect(durations.last, isNull);
+      });
+    });
+    test('watchNextSyncDuration emits Duration.zero when time has passed', () {
+      fakeAsync((async) async {
+        // Arrange
+        await manager.initialize();
+        final durations = <Duration?>[];
+        manager.watchNextSyncDuration.listen(durations.add);
+
+        // Act 1: Start auto-sync (interval is 30s)
+        manager.startAutoSync('user-A');
+        async.flushMicrotasks();
+
+        // Assert 1: Initial duration is around 30s
+        expect(durations.last, isNotNull);
+        expect(durations.last!.inSeconds, closeTo(30, 1));
+
+        // Act 2: Elapse time past the sync interval
+        async.elapse(const Duration(seconds: 31));
+
+        // Assert 2: The last emitted duration should be Duration.zero
+        expect(durations.last, Duration.zero);
+      });
+    });
   });
 }

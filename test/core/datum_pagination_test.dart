@@ -123,5 +123,21 @@ void main() {
       // So the values will be [..., 1, 1, 1, false, null]
       expect(string, contains(', 1, 1, 1, false, null)'));
     });
+    test('constructor provides correct default values', () {
+      const config = PaginationConfig();
+      expect(config.pageSize, 50);
+      expect(config.currentPage, isNull);
+      expect(config.cursor, isNull);
+    });
+    test('empty() constructor creates a correct empty result', () {
+      const emptyResult = PaginatedResult<TestEntity>.empty();
+
+      expect(emptyResult.items, isEmpty);
+      expect(emptyResult.totalCount, 0);
+      expect(emptyResult.currentPage, 1);
+      expect(emptyResult.totalPages, 0);
+      expect(emptyResult.hasMore, isFalse);
+      expect(emptyResult.nextCursor, isNull);
+    });
   });
 }
