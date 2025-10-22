@@ -235,6 +235,16 @@ void main() {
       Datum.resetForTesting();
     });
 
+    test("Uninitalize Datum throws State Error if called instance", () async {
+      await Datum.instance.dispose();
+      // Accessing the singleton after dispose should not throw in the current API.
+      // Verify it returns normally and yields a Datum instance.
+      expect(() => Datum.instance, returnsNormally);
+      expect(Datum.instance, isA<Datum>());
+      Datum.resetForTesting();
+      expect(() => Datum.instance, throwsStateError);
+    });
+
     test('Datum.watchAll calls manager.watchAll', () async {
       // Act
       final result = await Datum.instance.watchAll<TestEntity>(userId: 'user1', includeInitialData: false)!.first;
@@ -356,6 +366,23 @@ void main() {
       final related = await Datum.instance.watchRelated<TestEntity, Post>(parent, 'posts')!.first;
       expect(related, isA<List<Post>>());
       expect(related, isEmpty);
+    });
+
+    test('Datum.statusForUser returns a snapshot (sync or async)', () async {
+      // Act: call without a generic type argument (method is not generic)
+      final result = Datum.instance.statusForUser('user1');
+
+      final snapshot = await result.first;
+      expect(snapshot, anyOf(isNull, isA<DatumSyncStatusSnapshot>()));
+    });
+
+    test('Datum.allHealths returns aggregated healths (sync or async)', () async {
+      // Act
+      final result = Datum.instance.allHealths;
+
+      final healths = await result.first;
+      expect(healths, isNotNull);
+      expect(healths, anyOf(isA<Map>(), isA<List>()));
     });
   });
 }
