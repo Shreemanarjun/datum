@@ -65,7 +65,7 @@ void main() {
           header: CustomHeader(
             title: 'Datum',
             subtitle: "Data, Seamlessly Synced",
-            logo: '/images/logo.png',
+            logo: '/images/logo.webp',
             items: [
               // Link back to the main marketing site.
               a(

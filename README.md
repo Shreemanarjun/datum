@@ -1294,7 +1294,7 @@ Datum is constantly evolving. Here's a glimpse of what's on the horizon:
 
 If you find this package helpful and would like to support its development, please consider buying me a coffee. Your support is greatly appreciated and helps me dedicate more time to improving and maintaining this project.
 
-<a href="https://buymeacoffee.com/shreemanarjun" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+<a href="https://buymeacoffee.com/shreemanarjun" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.webp" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 ### Contributing
 
