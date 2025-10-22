@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/datum.png" alt="Datum Logo" width="200">
+  <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/datum_logo.png" alt="Datum Logo" width="200">
 </p>
 
 # 🧠 **Datum** — Offline-First Data Synchronization Framework for Dart & Flutter
