@@ -384,6 +384,19 @@ void main() {
       expect(healths, isNotNull);
       expect(healths, anyOf(isA<Map>(), isA<List>()));
     });
+
+    test('registering the same entity type twice throws StateError', () async {
+      // TestEntity is registered in setUp.
+      final registration = DatumRegistration<TestEntity>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+      );
+      // Trying to register it again should fail.
+      expect(
+        () => Datum.instance.register<TestEntity>(registration: registration),
+        throwsA(isA<StateError>()),
+      );
+    });
   });
 }
 

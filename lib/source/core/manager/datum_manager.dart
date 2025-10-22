@@ -172,13 +172,18 @@ class DatumManager<T extends DatumEntity> with Disposable {
     );
     try {
       if (await executor.needsMigration()) {
-        await executor.execute();
+        final result = await executor.execute();
+        if (!result.success) {
+          // If the migration failed, throw the captured error to be handled by the catch block below.
+          Error.throwWithStackTrace(result.migrationError!, result.migrationStack!);
+        }
       }
     } on Object catch (e, stack) {
       _logger.error('Schema migration failed: $e', stack);
       if (config.onMigrationError != null) {
         await config.onMigrationError!(e, stack);
       } else {
+        // If no custom error handler is provided, rethrow the exception.
         rethrow; // Preserve previous behavior when no handler is provided.
       }
     }
