@@ -5,31 +5,6 @@ title: Datum Initialization
 Before using Datum, you must initialize it with your configuration, connectivity checker, and entity registrations. This typically happens once at your application's startup.
 
 
-## 2. Implement Local and Remote Adapters
-
-Datum uses adapters to interact with your local storage (e.g., SQLite, Hive) and remote backend (e.g., REST API, GraphQL). You need to implement `LocalAdapter` and `RemoteAdapter` for each `DatumEntity` you define.
-
-These examples are simplified; your actual implementations will contain logic for data persistence and network communication.
-
-```dart
-// These bridge Datum to your specific local database and backend API.
-// (These are simplified for example purposes)
-class MyLocalAdapter<T extends DatumEntity> extends LocalAdapter<T> {
-  @override
-  Future<void> initialize() async { /* Setup local database */ }
-  @override
-  Future<void> dispose() async { /* Close local database */ }
-  // Implement other LocalAdapter methods like `save`, `findById`, `findAll`, etc.
-}
-
-class MyRemoteAdapter<T extends DatumEntity> extends RemoteAdapter<T> {
-  @override
-  Future<void> initialize() async { /* Setup remote API client */ }
-  @override
-  Future<void> dispose() async { /* Close remote API client */ }
-  // Implement other RemoteAdapter methods like `push`, `pull`, etc.
-}
-```
 
 ## 3. Implement a Connectivity Checker
 
