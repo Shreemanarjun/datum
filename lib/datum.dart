@@ -26,6 +26,7 @@ export 'source/core/middleware/datum_middleware.dart';
 export 'source/core/migration/migration.dart';
 export 'source/core/migration/migration_executor.dart';
 export 'source/core/models/conflict_context.dart';
+export 'source/core/models/data_source.dart';
 export 'source/core/models/datum_change_detail.dart';
 export 'source/core/models/datum_entity.dart';
 export 'source/core/models/datum_exception.dart';

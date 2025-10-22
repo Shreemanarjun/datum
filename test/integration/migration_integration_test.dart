@@ -171,13 +171,22 @@ void main() {
 
       // 2. Act & Assert: Try to migrate to version 3 with only a V2->V3 migration.
       // The manager will look for a migration starting from version 1 and fail.
-      final (_, initializeFuture) = createManager(
-        schemaVersion: 3,
-        migrations: [V2toV3()],
+      final manager = DatumManager<TestEntity>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+        connectivity: connectivityChecker,
+        datumConfig: DatumConfig(
+          schemaVersion: 3,
+          migrations: [V2toV3()],
+        ),
       );
-      expect(
-        initializeFuture,
-        throwsA(
+
+      try {
+        await manager.initialize();
+        fail('Expected MigrationException, but no exception was thrown.');
+      } catch (e) {
+        expect(
+          e,
           isA<MigrationException>().having(
             (e) => e.message,
             'message',
@@ -185,8 +194,8 @@ void main() {
               'Migration path broken: No migration found from version 1',
             ),
           ),
-        ),
-      );
+        );
+      }
     });
 
     test(
@@ -235,6 +244,7 @@ void main() {
         connectivity: connectivityChecker,
       );
       await manager.initialize();
+      await Future.delayed(Duration.zero); // Allow the error handler to complete
 
       // 3. Assert: Verify the callback was called with the correct error.
       expect(
@@ -273,22 +283,25 @@ void main() {
       await localAdapter.setStoredSchemaVersion(1);
 
       // 2. Act & Assert: Attempt to run the failing migration.
-      final (_, initializeFuture) = createManager(
+      final (manager, initFuture) = createManager(
         schemaVersion: 2,
         migrations: [FailingMigration()],
       );
 
-      // The initialization should throw the exception from the migration.
-      await expectLater(
-        initializeFuture,
-        throwsA(
+      try {
+        // Await the initialization Future returned by createManager
+        await initFuture;
+        fail('Expected an exception, but none was thrown.');
+      } catch (e) {
+        expect(
+          e,
           isA<Exception>().having(
             (e) => e.toString(),
             'message',
             contains('Simulated migration failure for entity2'),
           ),
-        ),
-      );
+        );
+      }
 
       // 3. Assert: Verify that the database state was rolled back.
       // The schema version should NOT have been updated.

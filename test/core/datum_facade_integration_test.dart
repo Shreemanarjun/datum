@@ -278,6 +278,10 @@ void main() {
 
     group('Facade CRUD methods', () {
       test('Datum.create() delegates to the correct manager', () async {
+        // Override the default read stub for this test to ensure `create` is called.
+        when(() => localAdapter1.read('e1', userId: 'u1')).thenAnswer((_) async => null);
+        when(() => localAdapter2.read('e2', userId: 'u1')).thenAnswer((_) async => null);
+
         // Arrange
         await initializeDatum();
         final entity1 = TestEntity.create('e1', 'u1', 'Item 1');
@@ -314,6 +318,32 @@ void main() {
         verify(() => localAdapter2.read('e2', userId: 'u1')).called(1);
       });
 
+      test('Datum.readAll<T>() delegates to the correct manager', () async {
+        // Arrange
+        await initializeDatum();
+
+        // Act
+        await Datum.instance.readAll<TestEntity>(userId: 'u1');
+        await Datum.instance.readAll<TestEntity2>(userId: 'u1');
+
+        // Assert
+        verify(() => localAdapter1.readAll(userId: 'u1')).called(1);
+        verify(() => localAdapter2.readAll(userId: 'u1')).called(1);
+      });
+
+      test('Datum.update<T>() delegates to the correct manager', () async {
+        // Arrange
+        await initializeDatum();
+        final entity1 = TestEntity.create('e1', 'u1', 'Item 1');
+
+        // Act: update is an alias for push, which will call patch/update on the adapter
+        await Datum.instance.update(entity1);
+
+        // Assert
+        verify(() => localAdapter1.patch(id: 'e1', delta: any(named: 'delta'), userId: 'u1')).called(1);
+        verifyNever(() => localAdapter2.patch(id: any(named: 'id'), delta: any(named: 'delta'), userId: any(named: 'userId')));
+      });
+
       test('Datum.delete<T>() delegates to the correct manager', () async {
         // Arrange
         await initializeDatum();
@@ -334,6 +364,9 @@ void main() {
         // Arrange
         await initializeDatum();
         final entity1 = TestEntity.create('e1', 'u1', 'Item 1');
+
+        // Override the default read stub for this test to ensure `create` is called.
+        when(() => localAdapter1.read('e1', userId: 'u1')).thenAnswer((_) async => null);
 
         // Arrange: When synchronize is called, it will ask for pending operations.
         // We must stub this to return the operation that was just pushed.
@@ -541,6 +574,133 @@ void main() {
       verify(() => remoteAdapter1.create(any(that: isA<TestEntity>()))).called(1);
       verify(() => remoteAdapter2.create(any(that: isA<TestEntity2>()))).called(1);
     });
+
+    group('Global synchronize with different directions', () {
+      const userId = 'u1';
+
+      test('with pushOnly performs only push on all managers', () async {
+        // Arrange
+        await initializeDatum();
+
+        // --- PUSH setup ---
+        // Local has pending operations for both entity types
+        final localEntity1 = TestEntity.create('local-e1', userId, 'Local Item 1');
+        final localEntity2 = TestEntity2(id: 'local-e2', userId: userId, description: 'Local Item 2', modifiedAt: _fallbackDate, createdAt: _fallbackDate, version: 1);
+        when(() => localAdapter1.getPendingOperations(userId)).thenAnswer((_) async => [DatumSyncOperation(id: 'op1', userId: userId, entityId: 'local-e1', type: DatumOperationType.create, timestamp: _fallbackDate, data: localEntity1)]);
+        when(() => localAdapter2.getPendingOperations(userId)).thenAnswer((_) async => [DatumSyncOperation(id: 'op2', userId: userId, entityId: 'local-e2', type: DatumOperationType.create, timestamp: _fallbackDate, data: localEntity2)]);
+
+        // --- PULL setup (to verify it's NOT called) ---
+        final remoteEntity1 = TestEntity.create('remote-e1', userId, 'Remote Item 1');
+        when(() => remoteAdapter1.readAll(userId: userId, scope: any(named: 'scope'))).thenAnswer((_) async => [remoteEntity1]);
+
+        // Act
+        final result = await Datum.instance.synchronize(
+          userId,
+          options: const DatumSyncOptions(direction: SyncDirection.pushOnly),
+        );
+
+        // Assert
+        // 1. Verify push was performed for both managers
+        verify(() => remoteAdapter1.create(localEntity1)).called(1);
+        verify(() => remoteAdapter2.create(localEntity2)).called(1);
+
+        // 2. Verify pull was NOT performed
+        verifyNever(() => remoteAdapter1.readAll(userId: userId, scope: any(named: 'scope')));
+        verifyNever(() => localAdapter1.create(remoteEntity1));
+
+        // 3. Check result aggregation
+        expect(result.syncedCount, 2);
+        expect(result.failedCount, 0);
+      });
+
+      test('with pullOnly performs only pull on all managers', () async {
+        // Arrange
+        await initializeDatum();
+
+        // --- PUSH setup (to verify it's NOT called) ---
+        final localEntity1 = TestEntity.create('local-e1', userId, 'Local Item 1');
+        when(() => localAdapter1.getPendingOperations(userId)).thenAnswer((_) async => [DatumSyncOperation(id: 'op1', userId: userId, entityId: 'local-e1', type: DatumOperationType.create, timestamp: _fallbackDate, data: localEntity1)]);
+
+        // --- PULL setup ---
+        final remoteEntity1 = TestEntity.create('remote-e1', userId, 'Remote Item 1');
+        final remoteEntity2 = TestEntity2(id: 'remote-e2', userId: userId, description: 'Remote Item 2', modifiedAt: _fallbackDate, createdAt: _fallbackDate, version: 1);
+        when(() => remoteAdapter1.readAll(userId: userId, scope: any(named: 'scope'))).thenAnswer((_) async => [remoteEntity1]);
+        when(() => remoteAdapter2.readAll(userId: userId, scope: any(named: 'scope'))).thenAnswer((_) async => [remoteEntity2]);
+
+        // Act
+        final result = await Datum.instance.synchronize(
+          userId,
+          options: const DatumSyncOptions(direction: SyncDirection.pullOnly),
+        );
+
+        // Assert
+        // 1. Verify pull was performed for both managers
+        verify(() => remoteAdapter1.readAll(userId: userId, scope: any(named: 'scope'))).called(1);
+        verify(() => remoteAdapter2.readAll(userId: userId, scope: any(named: 'scope'))).called(1);
+        verify(() => localAdapter1.create(remoteEntity1)).called(1);
+        verify(() => localAdapter2.create(remoteEntity2)).called(1);
+
+        // 2. Verify push was NOT performed
+        verifyNever(() => remoteAdapter1.create(localEntity1));
+
+        // 3. Check result aggregation
+        // Pull operations don't currently contribute to syncedCount in the global result,
+        // as the individual manager results are what matter. This is expected.
+        expect(result.syncedCount, 0);
+        expect(result.failedCount, 0);
+      });
+
+      test('with pullThenPush performs pull then push on all managers', () async {
+        // Arrange
+        await initializeDatum();
+
+        // --- PULL setup ---
+        final remoteEntity1 = TestEntity.create('remote-e1', userId, 'Remote Item 1');
+        final remoteEntity2 = TestEntity2(id: 'remote-e2', userId: userId, description: 'Remote Item 2', modifiedAt: _fallbackDate, createdAt: _fallbackDate, version: 1);
+        when(() => remoteAdapter1.readAll(userId: userId, scope: any(named: 'scope'))).thenAnswer((_) async => [remoteEntity1]);
+        when(() => remoteAdapter2.readAll(userId: userId, scope: any(named: 'scope'))).thenAnswer((_) async => [remoteEntity2]);
+
+        // --- PUSH setup ---
+        final localEntity1 = TestEntity.create('local-e1', userId, 'Local Item 1');
+        final localEntity2 = TestEntity2(id: 'local-e2', userId: userId, description: 'Local Item 2', modifiedAt: _fallbackDate, createdAt: _fallbackDate, version: 1);
+        when(() => localAdapter1.getPendingOperations(userId)).thenAnswer((_) async => [DatumSyncOperation(id: 'op1', userId: userId, entityId: 'local-e1', type: DatumOperationType.create, timestamp: _fallbackDate, data: localEntity1)]);
+        when(() => localAdapter2.getPendingOperations(userId)).thenAnswer((_) async => [DatumSyncOperation(id: 'op2', userId: userId, entityId: 'local-e2', type: DatumOperationType.create, timestamp: _fallbackDate, data: localEntity2)]);
+
+        // Act
+        final result = await Datum.instance.synchronize(
+          userId,
+          options: const DatumSyncOptions(direction: SyncDirection.pullThenPush),
+        );
+
+        // Assert
+        // 1. Verify pull was performed for both managers
+        verify(() => localAdapter1.create(remoteEntity1)).called(1);
+        verify(() => localAdapter2.create(remoteEntity2)).called(1);
+
+        // 2. Verify push was performed for both managers
+        verify(() => remoteAdapter1.create(localEntity1)).called(1);
+        verify(() => remoteAdapter2.create(localEntity2)).called(1);
+
+        // 3. Verify core interactions for pullThenPush occurred for each manager.
+        // We avoid a strict global ordering check (verifyInOrder) because the engine
+        // may perform additional metadata/save operations in between steps.
+        verify(() => remoteAdapter1.readAll(userId: userId, scope: any(named: 'scope'))).called(1);
+        verify(() => localAdapter1.readByIds([remoteEntity1.id], userId: userId)).called(1);
+        verify(() => localAdapter1.getPendingOperations(userId)).called(greaterThanOrEqualTo(1));
+        verify(() => localAdapter1.removePendingOperation('op1')).called(1);
+        verify(() => localAdapter1.saveLastSyncResult(userId, any())).called(greaterThanOrEqualTo(1));
+
+        verify(() => remoteAdapter2.readAll(userId: userId, scope: any(named: 'scope'))).called(1);
+        verify(() => localAdapter2.readByIds([remoteEntity2.id], userId: userId)).called(1);
+        verify(() => localAdapter2.getPendingOperations(userId)).called(greaterThanOrEqualTo(1));
+        verify(() => localAdapter2.removePendingOperation('op2')).called(1);
+        verify(() => localAdapter2.saveLastSyncResult(userId, any())).called(greaterThanOrEqualTo(1));
+
+        // 4. Check result aggregation
+        expect(result.syncedCount, 2);
+        expect(result.failedCount, 0);
+      });
+    });
   });
 }
 
@@ -568,6 +728,11 @@ void _stubAdapterBehaviors<T extends DatumEntity>(
   when(() => localAdapter.read(any(), userId: any(named: 'userId'))).thenAnswer((_) async => null);
   when(() => localAdapter.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {});
   when(() => localAdapter.readAll(userId: any(named: 'userId'))).thenAnswer((_) async => []);
+  // Stub read for update tests to simulate an existing item
+  when(() => localAdapter.read(any(that: equals('e1')), userId: any(named: 'userId'))).thenAnswer(
+    (_) async => TestEntity.create('e1', 'u1', 'Existing') as T?,
+  );
+
   when(() => localAdapter.delete(any(), userId: any(named: 'userId'))).thenAnswer((_) async => true);
   when(() => localAdapter.patch(
         id: any(named: 'id'),

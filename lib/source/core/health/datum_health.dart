@@ -13,8 +13,8 @@ class DatumHealth extends Equatable {
 
   const DatumHealth({
     this.status = DatumSyncHealth.healthy,
-    this.localAdapterStatus = AdapterHealthStatus.ok,
-    this.remoteAdapterStatus = AdapterHealthStatus.ok,
+    this.localAdapterStatus = AdapterHealthStatus.healthy,
+    this.remoteAdapterStatus = AdapterHealthStatus.healthy,
   });
 
   @override
@@ -34,7 +34,7 @@ enum DatumSyncHealth {
 /// Describes the health of an individual adapter.
 enum AdapterHealthStatus {
   /// The adapter is functioning correctly.
-  ok,
+  healthy,
 
   /// The adapter is unreachable or has failed.
   unhealthy,

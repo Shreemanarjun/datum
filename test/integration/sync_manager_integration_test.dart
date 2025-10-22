@@ -435,7 +435,7 @@ void main() {
     test('health stream reflects adapter health', () async {
       // Arrange: Stub the adapter's health check
       when(() => localAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.unhealthy);
-      when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
+      when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.healthy);
 
       // Act & Assert
       // The health stream should emit a DatumHealth object reflecting the adapters' statuses.
@@ -449,7 +449,7 @@ void main() {
           isA<DatumHealth>()
               .having((h) => h.status, 'status', DatumSyncHealth.degraded)
               .having((h) => h.localAdapterStatus, 'localAdapterStatus', AdapterHealthStatus.unhealthy)
-              .having((h) => h.remoteAdapterStatus, 'remoteAdapterStatus', AdapterHealthStatus.ok),
+              .having((h) => h.remoteAdapterStatus, 'remoteAdapterStatus', AdapterHealthStatus.healthy),
         ]),
       );
 
@@ -560,8 +560,8 @@ void main() {
 
     test('checkHealth calls checkHealth on both adapters', () async {
       // Arrange
-      when(() => localAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
-      when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
+      when(() => localAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.healthy);
+      when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.healthy);
 
       // Act
       await manager.checkHealth();
@@ -737,7 +737,7 @@ void _stubDefaultBehaviors(
   ).thenAnswer((_) async => null);
 
   // Health & Storage
-  when(() => localAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
-  when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.ok);
+  when(() => localAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.healthy);
+  when(() => remoteAdapter.checkHealth()).thenAnswer((_) async => AdapterHealthStatus.healthy);
   when(() => localAdapter.getStorageSize(userId: any(named: 'userId'))).thenAnswer((_) async => 0);
 }

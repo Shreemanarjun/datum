@@ -1,7 +1,7 @@
 import 'package:datum/datum.dart';
 
 /// A mock entity for testing purposes.
-class TestEntity extends DatumEntity {
+class TestEntity extends RelationalDatumEntity {
   /// Creates a [TestEntity].
   const TestEntity({
     required this.id,
@@ -119,4 +119,8 @@ class TestEntity extends DatumEntity {
 
   @override
   bool get stringify => true;
+
+  // Add a sample relation for testing relational methods.
+  @override
+  Map<String, Relation> get relations => {'posts': const HasMany('userId')};
 }

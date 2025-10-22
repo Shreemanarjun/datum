@@ -4,7 +4,8 @@ import 'package:mocktail/mocktail.dart';
 
 import '../mocks/mock_adapters.dart';
 import '../mocks/mock_connectivity_checker.dart';
-import '../mocks/test_entity.dart';
+
+import 'non_relational_test_entity.dart';
 
 /// A simple User entity for testing relationships.
 class User extends RelationalDatumEntity {
@@ -577,25 +578,24 @@ void main() {
     test(
       'throws an ArgumentError if parent is not a RelationalDatumEntity',
       () async {
-        // Arrange: Initialize with a non-relational entity type.
+        // Arrange: Initialize Datum before using it.
         await Datum.initialize(
           config: const DatumConfig(enableLogging: false),
           connectivityChecker: MockConnectivityChecker(),
-          registrations: [],
         );
-
+        // Arrange: Initialize with a non-relational entity type.
         await Datum.instance.register(
-          registration: DatumRegistration<TestEntity>(
-            localAdapter: MockLocalAdapter<TestEntity>(),
-            remoteAdapter: MockRemoteAdapter<TestEntity>(),
+          registration: DatumRegistration<NonRelationalTestEntity>(
+            localAdapter: MockLocalAdapter<NonRelationalTestEntity>(),
+            remoteAdapter: MockRemoteAdapter<NonRelationalTestEntity>(),
           ),
         );
 
         // Act & Assert
         expect(
-          () => Datum.manager<TestEntity>().fetchRelated<User>(
-            TestEntity.create('id', 'uid', 'name'),
-            'author',
+          () => Datum.manager<NonRelationalTestEntity>().fetchRelated<User>(
+            NonRelationalTestEntity.create('id', 'uid', 'name'),
+            'posts',
           ),
           throwsA(isA<ArgumentError>()),
         );

@@ -618,7 +618,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
   @override
   Future<AdapterHealthStatus> checkHealth() async {
-    return AdapterHealthStatus.ok;
+    return AdapterHealthStatus.healthy;
   }
 
   @override
@@ -845,9 +845,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
   /// Closes the stream controller. Call this in test tearDown.
   @override
   Future<void> dispose() async {
-    // In a test environment, we often want the data and streams to persist
-    // across manager instances. The stream will be closed by the test's
-    // tearDown block if a new mock is created for each test.
+    if (!_changeController.isClosed) await _changeController.close();
   }
 
   @override
@@ -971,7 +969,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
 
   @override
   Future<AdapterHealthStatus> checkHealth() async {
-    return AdapterHealthStatus.ok;
+    return AdapterHealthStatus.healthy;
   }
 }
 

@@ -505,33 +505,49 @@ class Datum {
 
     try {
       final direction = options?.direction ?? config.defaultSyncDirection;
+      final pushResults = <DatumSyncResult<DatumEntity>>[];
+      final pullResults = <DatumSyncResult<DatumEntity>>[];
 
       switch (direction) {
         case SyncDirection.pushThenPull:
-          await _pushChanges(userId, options);
-          final pullResults = await _pullChanges(userId, options);
-          for (final res in pullResults) {
+          pushResults.addAll(await _pushChanges(userId, options));
+          pullResults.addAll(await _pullChanges(userId, options));
+          for (final res in pushResults) {
             totalSynced += res.syncedCount;
             totalFailed += res.failedCount;
+            allPending.addAll(res.pendingOperations);
+          }
+          for (final res in pullResults) {
+            totalSynced += res.syncedCount;
             totalConflicts += res.conflictsResolved;
             allPending.addAll(res.pendingOperations);
           }
           break;
         case SyncDirection.pullThenPush:
-          final pullResults = await _pullChanges(userId, options);
+          pullResults.addAll(await _pullChanges(userId, options));
           for (final res in pullResults) {
             totalSynced += res.syncedCount;
             totalFailed += res.failedCount;
             totalConflicts += res.conflictsResolved;
             allPending.addAll(res.pendingOperations);
           }
-          await _pushChanges(userId, options);
+          pushResults.addAll(await _pushChanges(userId, options));
+          for (final res in pushResults) {
+            totalSynced += res.syncedCount;
+            totalFailed += res.failedCount;
+            allPending.addAll(res.pendingOperations);
+          }
           break;
         case SyncDirection.pushOnly:
-          await _pushChanges(userId, options);
+          pushResults.addAll(await _pushChanges(userId, options));
+          for (final res in pushResults) {
+            totalSynced += res.syncedCount;
+            totalFailed += res.failedCount;
+            allPending.addAll(res.pendingOperations);
+          }
           break;
         case SyncDirection.pullOnly:
-          final pullResults = await _pullChanges(userId, options);
+          pullResults.addAll(await _pullChanges(userId, options));
           for (final res in pullResults) {
             totalSynced += res.syncedCount;
             totalFailed += res.failedCount;
@@ -574,17 +590,19 @@ class Datum {
     }
   }
 
-  Future<void> _pushChanges(String userId, DatumSyncOptions? options) async {
+  Future<List<DatumSyncResult<DatumEntity>>> _pushChanges(String userId, DatumSyncOptions? options) async {
     logger.info('Starting global push phase for user $userId...');
     // Ensure we only perform a push operation, respecting the original options.
     final pushOnlyOptions = (options ?? const DatumSyncOptions()).copyWith(
       direction: SyncDirection.pushOnly,
     );
 
+    final results = <DatumSyncResult<DatumEntity>>[];
     for (final manager in _managers.values) {
       // We call synchronize with pushOnly to process the queue for each manager.
-      await manager.synchronize(userId, options: pushOnlyOptions);
+      results.add(await manager.synchronize(userId, options: pushOnlyOptions));
     }
+    return results;
   }
 
   Future<List<DatumSyncResult<DatumEntity>>> _pullChanges(
@@ -713,6 +731,120 @@ class Datum {
   }) =>
       Datum.manager<T>().deleteAndSync(id: id, userId: userId, syncOptions: syncOptions);
 
+  /// Watches all entities from the local adapter for a specific type,
+  /// emitting a new list on any change.
+  ///
+  /// The [includeInitialData] parameter controls whether the stream should
+  /// immediately emit the current list of all items. Defaults to `true`.
+  /// If `false`, the stream will only emit when a change occurs.
+  /// Returns null if the adapter does not support reactive queries.
+  Stream<List<T>>? watchAll<T extends DatumEntity>({String? userId, bool includeInitialData = true}) {
+    return Datum.manager<T>().watchAll(userId: userId, includeInitialData: includeInitialData);
+  }
+
+  /// Watches a single entity by its ID for a specific type,
+  /// emitting the item on change or null if deleted.
+  /// Returns null if the adapter does not support reactive queries.
+  Stream<T?>? watchById<T extends DatumEntity>(String id, String? userId) {
+    return Datum.manager<T>().watchById(id, userId);
+  }
+
+  /// Watches a paginated list of items for a specific type.
+  /// Returns null if the adapter does not support reactive queries.
+  Stream<PaginatedResult<T>>? watchAllPaginated<T extends DatumEntity>(
+    PaginationConfig config, {
+    String? userId,
+  }) {
+    return Datum.manager<T>().watchAllPaginated(config, userId: userId);
+  }
+
+  /// Watches a subset of items matching a query for a specific type.
+  /// Returns null if the adapter does not support reactive queries.
+  Stream<List<T>>? watchQuery<T extends DatumEntity>(DatumQuery query, {String? userId}) {
+    return Datum.manager<T>().watchQuery(query, userId: userId);
+  }
+
+  /// Executes a one-time query against the specified data source for a specific type.
+  ///
+  /// This provides a powerful way to fetch filtered and sorted data directly
+  /// from either the local or remote adapter without relying on reactive streams.
+  Future<List<T>> query<T extends DatumEntity>(
+    DatumQuery query, {
+    required DataSource source,
+    String? userId,
+  }) async {
+    return Datum.manager<T>().query(query, source: source, userId: userId);
+  }
+
+  /// Fetches related entities for a given parent entity.
+  ///
+  /// - [parent]: The entity instance for which to fetch related data.
+  /// - [relationName]: The name of the relation to fetch, as defined in the
+  ///   parent's `relations` map.
+  /// - [source]: The [DataSource] to fetch from (defaults to `local`).
+  ///
+  /// Returns a list of the related entities. Throws an [ArgumentError] if the
+  /// parent is not a [RelationalDatumEntity], or an [Exception] if the
+  /// relation name is not defined on the parent.
+  Future<List<R>> fetchRelated<P extends DatumEntity, R extends DatumEntity>(
+    P parent,
+    String relationName, {
+    DataSource source = DataSource.local,
+  }) async {
+    // Use the parent's runtimeType to find the correct manager.
+    return Datum.managerByType(parent.runtimeType).fetchRelated<R>(parent, relationName, source: source);
+  }
+
+  /// Reactively watches related entities for a given parent entity.
+  ///
+  /// This method provides a stream of related entities that automatically
+  /// updates when the underlying data changes.
+  ///
+  /// - [parent]: The entity instance for which to watch related data.
+  /// - [relationName]: The name of the relation to watch.
+  ///
+  /// Returns a `Stream<List<R>>` of the related entities, or `null` if the
+  /// adapter does not support reactive queries. Throws an error if the
+  /// relation is not defined.
+  Stream<List<R>>? watchRelated<P extends DatumEntity, R extends DatumEntity>(
+    P parent,
+    String relationName,
+  ) {
+    // Use the parent's runtimeType to find the correct manager.
+    return Datum.managerByType(parent.runtimeType).watchRelated<R>(parent, relationName);
+  }
+
+  /// Returns the number of pending synchronization operations for the user for a specific entity type.
+  Future<int> getPendingCount<T extends DatumEntity>(String userId) async {
+    return Datum.manager<T>().getPendingCount(userId);
+  }
+
+  /// Returns a list of pending synchronization operations for the user for a specific entity type.
+  Future<List<DatumSyncOperation<T>>> getPendingOperations<T extends DatumEntity>(String userId) async {
+    return Datum.manager<T>().getPendingOperations(userId);
+  }
+
+  /// Gets the current storage size in bytes from the local adapter for a specific entity type.
+  Future<int> getStorageSize<T extends DatumEntity>({String? userId}) {
+    return Datum.manager<T>().getStorageSize(userId: userId);
+  }
+
+  /// Reactively watches the storage size in bytes from the local adapter for a specific entity type.
+  /// Returns a stream that emits the size whenever it changes.
+  Stream<int> watchStorageSize<T extends DatumEntity>({String? userId}) {
+    return Datum.manager<T>().watchStorageSize(userId: userId);
+  }
+
+  /// Retrieves the result of the last synchronization for a user from local storage for a specific entity type.
+  Future<DatumSyncResult<T>?> getLastSyncResult<T extends DatumEntity>(String userId) async {
+    return Datum.manager<T>().getLastSyncResult(userId);
+  }
+
+  /// Performs a health check on the local and remote adapters for a specific entity type.
+  Future<DatumHealth> checkHealth<T extends DatumEntity>() async {
+    return Datum.manager<T>().checkHealth();
+  }
+
   Future<void> dispose() async {
     // Pause all syncs before disposing to prevent new operations during shutdown.
     pauseAllSyncs();
@@ -730,12 +862,26 @@ class Datum {
 
   /// Pauses synchronization for all registered managers.
   ///
+  /// This is an alias for [pauseAllSyncs].
+  void pauseSync() {
+    pauseAllSyncs();
+  }
+
+  /// Pauses synchronization for all registered managers.
+  ///
   /// While paused, any calls to `synchronize()` on any manager will be skipped.
   void pauseAllSyncs() {
     logger.info('Pausing sync for all managers...');
     for (final manager in _managers.values) {
       manager.pauseSync();
     }
+  }
+
+  /// Resumes synchronization for all registered managers.
+  ///
+  /// This is an alias for [resumeAllSyncs].
+  void resumeSync() {
+    resumeAllSyncs();
   }
 
   /// Resumes synchronization for all registered managers.

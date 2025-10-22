@@ -44,6 +44,17 @@ class AdapterPairImpl<T extends DatumEntity> implements AdapterPair {
 
   @override
   DatumManager<T> createManager(Datum datum) {
+    // This is a testing hook. If the config is a special type, return the mock manager from it.
+    // This allows us to inject a mock manager during Datum.initialize() in tests.
+    final registrationConfig = config ?? datum.config.copyWith<T>();
+    if (registrationConfig is CustomManagerConfig<T>) {
+      final customConfig = registrationConfig;
+      // Return the mock manager provided by the custom config.
+      // We still need to pass some dependencies to it for initialization.
+      // This part is a bit of a hack for testing purposes.
+      return customConfig.mockManager;
+    }
+
     // Keep specific return type here
     final manager = DatumManager<T>(
       localAdapter: local,
@@ -52,10 +63,17 @@ class AdapterPairImpl<T extends DatumEntity> implements AdapterPair {
       localObservers: observers,
       globalObservers: datum.globalObservers,
       middlewares: middlewares,
-      datumConfig: config ?? datum.config.copyWith<T>(),
+      datumConfig: registrationConfig,
       connectivity: datum.connectivityChecker,
       logger: datum.logger,
     );
     return manager;
   }
+}
+
+/// A testing-only config to smuggle a mock manager into the creation process.
+class CustomManagerConfig<T extends DatumEntity> extends DatumConfig<T> {
+  final DatumManager<T> mockManager;
+
+  const CustomManagerConfig(this.mockManager);
 }

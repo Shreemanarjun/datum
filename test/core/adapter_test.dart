@@ -210,7 +210,7 @@ void main() {
     });
 
     test('default checkHealth returns ok', () async {
-      expect(await adapter.checkHealth(), AdapterHealthStatus.ok);
+      expect(await adapter.checkHealth(), AdapterHealthStatus.healthy);
     });
 
     test('default watchRelated throws UnimplementedError', () {
@@ -259,7 +259,7 @@ void main() {
     });
 
     test('default checkHealth returns ok', () async {
-      expect(await adapter.checkHealth(), AdapterHealthStatus.ok);
+      expect(await adapter.checkHealth(), AdapterHealthStatus.healthy);
     });
   });
 }

@@ -230,7 +230,7 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// Returns [AdapterHealthStatus.ok] by default. Adapters should override
   /// this to provide a meaningful health check (e.g., check if a database
   /// file is accessible).
-  Future<AdapterHealthStatus> checkHealth() async => AdapterHealthStatus.ok;
+  Future<AdapterHealthStatus> checkHealth() async => AdapterHealthStatus.healthy;
 
   /// Returns the storage size in bytes for a given user.
   Future<int> getStorageSize({String? userId});

@@ -305,7 +305,7 @@ class UserLocalAdapter extends LocalAdapter<UserEntity> {
 
   @override
   Stream<List<UserEntity>>? watchAll(
-      {String? userId, bool? includeInitialData}) {
+      {String? userId, bool includeInitialData = true}) {
     // Use box.watch() for efficient reactive queries.
     // We use a transformer to combine the initial data with subsequent changes.
     final changes = _userBox.watch().asyncMap((_) => readAll(userId: userId));
@@ -313,7 +313,7 @@ class UserLocalAdapter extends LocalAdapter<UserEntity> {
     return changes.transform(
       StreamTransformer.fromBind((stream) async* {
         // 1. Yield the initial data first, if requested.
-        if (includeInitialData ?? true) {
+        if (includeInitialData) {
           yield await readAll(userId: userId);
         }
         // 2. Then, yield all subsequent updates from the stream.
@@ -370,6 +370,7 @@ class UserLocalAdapter extends LocalAdapter<UserEntity> {
   }
 
   @override
-  Future<AdapterHealthStatus> checkHealth() async =>
-      _userBox.isOpen ? AdapterHealthStatus.ok : AdapterHealthStatus.unhealthy;
+  Future<AdapterHealthStatus> checkHealth() async => _userBox.isOpen
+      ? AdapterHealthStatus.healthy
+      : AdapterHealthStatus.unhealthy;
 }

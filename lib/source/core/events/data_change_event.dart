@@ -1,4 +1,5 @@
 import 'package:datum/source/core/events/datum_event.dart';
+import 'package:datum/source/core/models/data_source.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 
 /// Event emitted whenever local or remote data changes.
@@ -35,13 +36,4 @@ enum ChangeType {
 
   /// Data was deleted.
   deleted,
-}
-
-/// Source of data change.
-enum DataSource {
-  /// Change originated locally.
-  local,
-
-  /// Change came from remote source.
-  remote,
 }

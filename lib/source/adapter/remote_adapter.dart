@@ -1,10 +1,4 @@
-import 'package:datum/source/core/health/datum_health.dart';
-import 'package:datum/source/core/models/datum_change_detail.dart';
-import 'package:datum/source/core/models/datum_entity.dart';
-import 'package:datum/source/core/models/relational_datum_entity.dart';
-import 'package:datum/source/core/query/datum_query.dart';
-import 'package:datum/source/core/models/datum_sync_metadata.dart';
-import 'package:datum/source/core/models/datum_sync_scope.dart';
+import 'package:datum/datum.dart';
 
 /// Remote storage adapter abstraction for cloud data sources.
 abstract class RemoteAdapter<T extends DatumEntity> {
@@ -28,7 +22,7 @@ abstract class RemoteAdapter<T extends DatumEntity> {
   /// Return null if the adapter doesn't support reactive queries.
   Stream<T?>? watchById(String id, {String? userId}) => null;
 
-  /// Watch a subset of items matching a query directly from the remote source.
+  /// Watch a subset of items matching a query from the remote source.
   /// Return null if the adapter doesn't support reactive queries.
   Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) => null;
 
@@ -97,5 +91,5 @@ abstract class RemoteAdapter<T extends DatumEntity> {
   ///
   /// Returns [AdapterHealthStatus.ok] by default. Adapters should override
   /// this to provide a meaningful health check (e.g., ping a server endpoint).
-  Future<AdapterHealthStatus> checkHealth() async => AdapterHealthStatus.ok;
+  Future<AdapterHealthStatus> checkHealth() async => AdapterHealthStatus.healthy;
 }

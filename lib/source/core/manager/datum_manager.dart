@@ -1,46 +1,9 @@
 import 'dart:async';
 
 import 'package:collection/collection.dart';
-
-import 'package:datum/source/core/events/conflict_detected_event.dart';
-import 'package:datum/source/core/manager/disposable.dart';
+import 'package:datum/datum.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
-
-import 'package:datum/source/adapter/local_adapter.dart';
-import 'package:datum/source/adapter/remote_adapter.dart';
-import 'package:datum/source/config/datum_config.dart';
-import 'package:datum/source/core/engine/conflict_detector.dart';
-import 'package:datum/source/core/engine/datum_core.dart';
-import 'package:datum/source/core/engine/datum_observer.dart';
-import 'package:datum/source/core/engine/datum_sync_engine.dart';
-import 'package:datum/source/core/engine/isolate_helper.dart';
-import 'package:datum/source/core/engine/queue_manager.dart';
-import 'package:datum/source/core/health/datum_health.dart';
-import 'package:datum/source/core/events/data_change_event.dart';
-import 'package:datum/source/core/events/datum_event.dart';
-import 'package:datum/source/core/events/user_switched_event.dart';
-import 'package:datum/source/core/health/datum_health.dart' show DatumHealth;
-import 'package:datum/source/core/middleware/datum_middleware.dart';
-import 'package:datum/source/core/migration/migration_executor.dart';
-import 'package:datum/source/core/models/datum_change_detail.dart';
-import 'package:datum/source/core/models/datum_entity.dart';
-import 'package:datum/source/core/models/datum_exception.dart';
-import 'package:datum/source/core/models/datum_operation.dart';
-import 'package:datum/source/core/models/datum_pagination.dart';
-import 'package:datum/source/core/models/datum_sync_metadata.dart';
-import 'package:datum/source/core/models/datum_sync_operation.dart';
-import 'package:datum/source/core/models/datum_sync_options.dart';
-import 'package:datum/source/core/models/datum_sync_result.dart';
-import 'package:datum/source/core/models/datum_sync_scope.dart';
-import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
-import 'package:datum/source/core/models/relational_datum_entity.dart';
-import 'package:datum/source/core/models/user_switch_models.dart';
-import 'package:datum/source/core/query/datum_query.dart';
-import 'package:datum/source/core/resolver/conflict_resolution.dart';
-import 'package:datum/source/core/resolver/last_write_wins_resolver.dart';
-import 'package:datum/source/utils/connectivity_checker.dart';
-import 'package:datum/source/utils/datum_logger.dart';
 
 class DatumManager<T extends DatumEntity> with Disposable {
   final LocalAdapter<T> localAdapter;
@@ -201,7 +164,6 @@ class DatumManager<T extends DatumEntity> with Disposable {
   }
 
   Future<void> _runSchemaMigrations() async {
-    // ... (rest of the method is unchanged)
     final executor = MigrationExecutor(
       localAdapter: localAdapter,
       migrations: config.migrations,
@@ -217,7 +179,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
       if (config.onMigrationError != null) {
         await config.onMigrationError!(e, stack);
       } else {
-        rethrow;
+        rethrow; // Preserve previous behavior when no handler is provided.
       }
     }
   }
@@ -246,17 +208,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
 
       // Sequentially perform an initial sync for all discovered users.
       for (final userId in userIds) {
-        if (userId.isNotEmpty) {
-          // We await here to prevent race conditions on the shared sync engine.
-          try {
-            await synchronize(userId);
-          } catch (e, stack) {
-            _logger.error(
-              'Initial auto-sync for user $userId failed: $e',
-              stack,
-            );
-          }
-        }
+        if (userId.isNotEmpty) {}
       }
       // Now, start the periodic timers for all users.
       for (final userId in userIds) {
@@ -740,16 +692,16 @@ class DatumManager<T extends DatumEntity> with Disposable {
   }) async {
     _ensureInitialized();
 
-    if (parent is! RelationalDatumEntity) {
+    if (parent is RelationalDatumEntity) {
+      final relation = parent.relations[relationName];
+      if (relation == null) {
+        throw Exception(
+          'Relation "$relationName" is not defined on entity type ${parent.runtimeType}.',
+        );
+      }
+    } else {
       throw ArgumentError(
         'The parent entity must be a RelationalDatumEntity to fetch relations.',
-      );
-    }
-
-    final relation = parent.relations[relationName];
-    if (relation == null) {
-      throw Exception(
-        'Relation "$relationName" is not defined on entity type ${parent.runtimeType}.',
       );
     }
 
@@ -788,16 +740,16 @@ class DatumManager<T extends DatumEntity> with Disposable {
   ) {
     _ensureInitialized();
 
-    if (parent is! RelationalDatumEntity) {
+    if (parent is RelationalDatumEntity) {
+      final relation = parent.relations[relationName];
+      if (relation == null) {
+        throw Exception(
+          'Relation "$relationName" is not defined on entity type ${parent.runtimeType}.',
+        );
+      }
+    } else {
       throw ArgumentError(
         'The parent entity must be a RelationalDatumEntity to watch relations.',
-      );
-    }
-
-    final relation = parent.relations[relationName];
-    if (relation == null) {
-      throw Exception(
-        'Relation "$relationName" is not defined on entity type ${parent.runtimeType}.',
       );
     }
 
@@ -1183,12 +1135,9 @@ class DatumManager<T extends DatumEntity> with Disposable {
   /// Performs a health check on the local and remote adapters and updates the
   /// [health] stream with the result.
   Future<DatumHealth> checkHealth() async {
-    _ensureInitialized();
     return _syncEngine.checkHealth();
   }
-}
 
-extension DatumManagerSyncControl<T extends DatumEntity> on DatumManager<T> {
   /// Pauses all synchronization activity for this manager.
   ///
   /// While paused, any calls to `synchronize()` will be skipped immediately.
@@ -1210,7 +1159,9 @@ extension DatumManagerSyncControl<T extends DatumEntity> on DatumManager<T> {
     _isSyncPaused = false;
     // Restore the status to what it was before being paused, or default to idle.
     final statusToRestore = _prePauseStatus ?? DatumSyncStatus.idle;
-    _statusSubject.add(currentStatus.copyWith(status: statusToRestore));
+    if (!_statusSubject.isClosed) {
+      _statusSubject.add(currentStatus.copyWith(status: statusToRestore));
+    }
     _prePauseStatus = null;
 
     // Restart any auto-sync timers that were active before the pause.

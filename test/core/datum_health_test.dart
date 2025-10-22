@@ -6,19 +6,19 @@ void main() {
     test('constructor provides correct default values', () {
       const health = DatumHealth();
       expect(health.status, DatumSyncHealth.healthy);
-      expect(health.localAdapterStatus, AdapterHealthStatus.ok);
-      expect(health.remoteAdapterStatus, AdapterHealthStatus.ok);
+      expect(health.localAdapterStatus, AdapterHealthStatus.healthy);
+      expect(health.remoteAdapterStatus, AdapterHealthStatus.healthy);
     });
 
     test('constructor sets all fields correctly', () {
       const health = DatumHealth(
         status: DatumSyncHealth.degraded,
         localAdapterStatus: AdapterHealthStatus.unhealthy,
-        remoteAdapterStatus: AdapterHealthStatus.ok,
+        remoteAdapterStatus: AdapterHealthStatus.healthy,
       );
       expect(health.status, DatumSyncHealth.degraded);
       expect(health.localAdapterStatus, AdapterHealthStatus.unhealthy);
-      expect(health.remoteAdapterStatus, AdapterHealthStatus.ok);
+      expect(health.remoteAdapterStatus, AdapterHealthStatus.healthy);
     });
 
     test('supports value equality', () {
@@ -40,12 +40,12 @@ void main() {
     test('props list is correct for equality check', () {
       const health = DatumHealth(
         status: DatumSyncHealth.syncing,
-        localAdapterStatus: AdapterHealthStatus.ok,
+        localAdapterStatus: AdapterHealthStatus.healthy,
         remoteAdapterStatus: AdapterHealthStatus.unhealthy,
       );
       expect(health.props, [
         DatumSyncHealth.syncing,
-        AdapterHealthStatus.ok,
+        AdapterHealthStatus.healthy,
         AdapterHealthStatus.unhealthy,
       ]);
     });
@@ -53,7 +53,7 @@ void main() {
     test('toString provides a useful representation from Equatable', () {
       const health = DatumHealth(status: DatumSyncHealth.offline);
       // Equatable generates a toString like: ClassName(prop1, prop2, ...)
-      expect(health.toString(), 'DatumHealth(DatumSyncHealth.offline, AdapterHealthStatus.ok, AdapterHealthStatus.ok)');
+      expect(health.toString(), 'DatumHealth(DatumSyncHealth.offline, AdapterHealthStatus.healthy, AdapterHealthStatus.healthy)');
     });
   });
 }

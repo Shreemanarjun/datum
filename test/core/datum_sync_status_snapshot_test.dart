@@ -168,7 +168,7 @@ void main() {
       expect(
         stringRepresentation,
         contains(
-          'health: DatumHealth(DatumSyncHealth.degraded, AdapterHealthStatus.ok, AdapterHealthStatus.ok)',
+          'health: DatumHealth(DatumSyncHealth.degraded, AdapterHealthStatus.healthy, AdapterHealthStatus.healthy)',
         ),
       );
     });

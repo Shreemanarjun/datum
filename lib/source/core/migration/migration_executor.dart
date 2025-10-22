@@ -1,11 +1,8 @@
-import 'package:datum/source/adapter/local_adapter.dart';
-import 'package:datum/source/core/models/datum_exception.dart';
-import 'package:datum/source/utils/datum_logger.dart';
-import 'package:datum/source/core/migration/migration.dart';
+import 'package:datum/datum.dart';
 
 /// Orchestrates the execution of schema migrations.
-class MigrationExecutor {
-  final LocalAdapter localAdapter;
+class MigrationExecutor<T extends DatumEntity> {
+  final LocalAdapter<T> localAdapter;
   final List<Migration> migrations;
   final int targetVersion;
   final DatumLogger logger;
@@ -24,33 +21,58 @@ class MigrationExecutor {
     return storedVersion < targetVersion;
   }
 
-  /// Executes the migration process.
+  /// Executes the migration process from the adapter's stored version up to [targetVersion].
+  /// This method snapshots the adapter's raw data and stored schema version before
+  /// attempting migrations and will restore them if any error occurs.
   Future<void> execute() async {
-    var currentVersion = await localAdapter.getStoredSchemaVersion();
-    logger.info(
-      'Starting schema migration from version $currentVersion to $targetVersion...',
-    );
+    // Snapshot current adapter state so we can restore on failure.
+    final originalData = await localAdapter.getAllRawData();
+    final originalStoredVersion = await localAdapter.getStoredSchemaVersion();
 
-    while (currentVersion < targetVersion) {
-      final migration = _findMigration(currentVersion);
-
-      logger.info(
-        'Running migration from v${migration.fromVersion} to v${migration.toVersion}...',
-      );
-
-      // Perform migration in a transaction to ensure atomicity.
+    try {
+      // Run the full migration sequence inside a transaction when possible.
       await localAdapter.transaction(() async {
-        final rawData = await localAdapter.getAllRawData();
-        final migratedData = rawData.map(migration.migrate).toList();
-        await localAdapter.overwriteAllRawData(migratedData);
-        await localAdapter.setStoredSchemaVersion(migration.toVersion);
+        var currentVersion = await localAdapter.getStoredSchemaVersion();
+        logger.info('Starting schema migration from version $currentVersion to $targetVersion...');
+
+        while (currentVersion < targetVersion) {
+          final migration = _findMigration(currentVersion);
+
+          logger.info('Running migration from v${migration.fromVersion} to v${migration.toVersion}...');
+
+          // Retrieve current raw data and produce migrated maps.
+          final rawData = await localAdapter.getAllRawData();
+          final migratedData = rawData.map(migration.migrate).toList();
+
+          // Persist migrated data and update stored schema version.
+          await localAdapter.overwriteAllRawData(migratedData);
+          await localAdapter.setStoredSchemaVersion(migration.toVersion);
+
+          currentVersion = migration.toVersion;
+          logger.info('Migration to v$currentVersion successful.');
+        }
+
+        logger.info('Schema migration completed. Current version: $currentVersion');
       });
+    } catch (error, stack) {
+      logger.error('Migration failed, attempting to restore original state: $error', stack);
+      // Attempt to restore the adapter to its original state to ensure tests
+      // (and real environments without adapter-level transactional rollback)
+      // don't end up in a partially-migrated state.
+      try {
+        await localAdapter.overwriteAllRawData(originalData);
+        await localAdapter.setStoredSchemaVersion(originalStoredVersion);
+        logger.info('Restored original data and schema version after migration failure.');
+      } catch (restoreError, restoreStack) {
+        // If restoration fails, log both errors and rethrow the original error.
+        logger.error('Failed to restore original state after migration failure: $restoreError', restoreStack);
+        // Prefer rethrowing the original migration error for caller semantics.
+        rethrow;
+      }
 
-      currentVersion = migration.toVersion;
-      logger.info('Migration to v$currentVersion successful.');
+      // Re-throw the original migration error to preserve semantics expected by callers/tests.
+      rethrow;
     }
-
-    logger.info('Schema migration completed. Current version: $currentVersion');
   }
 
   /// Finds the next migration to run from the current version.
