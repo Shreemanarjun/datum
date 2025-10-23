@@ -36,7 +36,7 @@ class DatumUserSwitchResult {
   final int unsyncedOperationsHandled;
 
   /// Conflicts encountered during the switch.
-  final List<DatumEntity>? conflicts;
+  final List<DatumEntityBase>? conflicts;
 
   /// Error message if the switch failed.
   final String? errorMessage;
@@ -56,7 +56,7 @@ class DatumUserSwitchResult {
     required String newUserId,
     String? previousUserId,
     int unsyncedOperationsHandled = 0,
-    List<DatumEntity>? conflicts,
+    List<DatumEntityBase>? conflicts,
   }) {
     return DatumUserSwitchResult(
       success: true,

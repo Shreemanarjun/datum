@@ -4,7 +4,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../mocks/test_entity.dart';
 
-class MockConflictResolver<T extends DatumEntity> extends Mock implements DatumConflictResolver<T> {}
+class MockConflictResolver<T extends DatumEntityBase> extends Mock implements DatumConflictResolver<T> {}
 
 class AnotherTestEntity extends TestEntity {
   AnotherTestEntity({required super.id, required super.userId})

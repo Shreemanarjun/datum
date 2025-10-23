@@ -4,11 +4,11 @@ import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
-class MockDatumObserver<T extends DatumEntity> extends Mock implements DatumObserver<T> {}
+class MockDatumObserver<T extends DatumEntityBase> extends Mock implements DatumObserver<T> {}
 
 class MockGlobalDatumObserver extends Mock implements GlobalDatumObserver {}
 
@@ -366,8 +366,8 @@ void main() {
 
       verify(
         () => mockGlobalObserver.onConflictDetected(
-          any(that: predicate<DatumEntity>((e) => e.id == local.id)),
-          any(that: predicate<DatumEntity>((e) => e.id == remote.id)),
+          any(that: predicate<DatumEntityBase>((e) => e.id == local.id)),
+          any(that: predicate<DatumEntityBase>((e) => e.id == remote.id)),
           any(that: isA<DatumConflictContext>()),
         ),
       ).called(1);
@@ -375,7 +375,7 @@ void main() {
       verify(
         () => mockGlobalObserver.onConflictResolved(
           any(
-            that: isA<DatumConflictResolution<DatumEntity>>().having(
+            that: isA<DatumConflictResolution<DatumEntityBase>>().having(
               (r) => r.strategy,
               'strategy',
               DatumResolutionStrategy.takeRemote,

@@ -57,11 +57,11 @@ class Post extends DatumEntity {
   Map<String, dynamic>? diff(DatumEntity oldVersion) => null; // For a minimal test entity, we can return null.
 }
 
-class MockDatumManager<T extends DatumEntity> extends Mock implements DatumManager<T> {}
+class MockDatumManager<T extends DatumEntityBase> extends Mock implements DatumManager<T> {}
 
-class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
 class MockConnectivityChecker extends Mock implements DatumConnectivityChecker {}
 
@@ -420,8 +420,7 @@ void main() {
       when(() => localAdapter.getLastSyncResult(any())).thenAnswer((_) async => null);
       when(() => localAdapter.getAllUserIds()).thenAnswer((_) async => ['user1']);
       when(() => localAdapter.readAll(userId: 'user1')).thenAnswer((_) async => []);
-      when(() => localAdapter.getStorageSize(userId: 'user1'))
-          .thenAnswer((_) async => 0);
+      when(() => localAdapter.getStorageSize(userId: 'user1')).thenAnswer((_) async => 0);
     });
 
     tearDown(() async {
@@ -431,8 +430,7 @@ void main() {
       Datum.resetForTesting();
     });
 
-    test('allHealths returns an empty stream if no managers are registered',
-        () async {
+    test('allHealths returns an empty stream if no managers are registered', () async {
       // Arrange
       await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
@@ -450,7 +448,7 @@ void main() {
 }
 
 /// A custom DatumConfig that holds a mock manager instance.
-class CustomManagerConfig<T extends DatumEntity> extends DatumConfig<T> {
+class CustomManagerConfig<T extends DatumEntityBase> extends DatumConfig<T> {
   final DatumManager<T> mockManager;
 
   const CustomManagerConfig(this.mockManager);

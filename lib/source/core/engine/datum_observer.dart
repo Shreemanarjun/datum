@@ -9,7 +9,7 @@ import 'package:datum/source/core/models/datum_sync_result.dart';
 /// Implement this class and register it via `Datum.addObserver()` (for global
 /// observation) or during `Datum.register()` (for entity-specific observation)
 /// to receive notifications about key operations.
-abstract class DatumObserver<T extends DatumEntity> {
+abstract class DatumObserver<T extends DatumEntityBase> {
   /// Called at the beginning of a `create` operation.
   void onCreateStart(T item) {}
 
@@ -53,21 +53,21 @@ abstract class DatumObserver<T extends DatumEntity> {
 
 /// A specialized observer that can handle any entity type.
 /// This is used for global observers registered on the main `Datum` instance.
-abstract class GlobalDatumObserver extends DatumObserver<DatumEntity> {
+abstract class GlobalDatumObserver extends DatumObserver<DatumEntityBase> {
   @override
-  void onCreateStart(DatumEntity item) {}
+  void onCreateStart(DatumEntityBase item) {}
   @override
-  void onCreateEnd(DatumEntity item) {}
+  void onCreateEnd(DatumEntityBase item) {}
   @override
-  void onUpdateStart(DatumEntity item) {}
+  void onUpdateStart(DatumEntityBase item) {}
   @override
-  void onUpdateEnd(DatumEntity item) {}
+  void onUpdateEnd(DatumEntityBase item) {}
   @override
   void onConflictDetected(
-    DatumEntity local,
-    DatumEntity remote,
+    DatumEntityBase local,
+    DatumEntityBase remote,
     DatumConflictContext context,
   ) {}
   @override
-  void onConflictResolved(DatumConflictResolution<DatumEntity> resolution) {}
+  void onConflictResolved(DatumConflictResolution<DatumEntityBase> resolution) {}
 }

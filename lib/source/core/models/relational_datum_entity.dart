@@ -61,7 +61,7 @@ class HasOne extends Relation {
 /// Example: A `Post` entity could have a `ManyToMany(PostTag.constInstance, 'postId', 'tagId')`
 /// to link to `Tag` entities.
 class ManyToMany extends Relation {
-  final DatumEntity pivotEntity;
+  final DatumEntityBase pivotEntity;
   final String thisForeignKey;
   final String otherForeignKey;
   final String thisLocalKey;
@@ -119,28 +119,28 @@ class ManyToMany extends Relation {
 /// ```
 ///
 /// ---
-///
-/// Entities that have relationships with other syncable entities should extend this
-/// class instead of [DatumEntity] directly.
-abstract class RelationalDatumEntity extends DatumEntity {
-  /// Creates a `const` [RelationalDatumEntity].
-  const RelationalDatumEntity();
+// ///
+// /// Entities that have relationships with other syncable entities should extend this
+// /// class instead of [DatumEntity] directly.
+// abstract class RelationalDatumEntity extends DatumEntity {
+//   /// Creates a `const` [RelationalDatumEntity].
+//   const RelationalDatumEntity();
 
-  /// Indicates whether this entity supports relationships. Always `true` for this class.
-  @override
-  bool get isRelational => true;
+//   /// Indicates whether this entity supports relationships. Always `true` for this class.
+//   @override
+//   bool get isRelational => true;
 
-  /// A map defining all relationships for this entity.
-  ///
-  /// The key is a descriptive name for the relation, and the value is an
-  /// instance of a [Relation] subclass (`BelongsTo`, `HasMany`, `ManyToMany`).
-  ///
-  /// Example:
-  /// ```dart
-  /// @override
-  /// Map<String, Relation> get relations => {
-  ///   'author': BelongsTo('userId'),
-  /// };
-  /// ```
-  Map<String, Relation> get relations => {};
-}
+//   /// A map defining all relationships for this entity.
+//   ///
+//   /// The key is a descriptive name for the relation, and the value is an
+//   /// instance of a [Relation] subclass (`BelongsTo`, `HasMany`, `ManyToMany`).
+//   ///
+//   /// Example:
+//   /// ```dart
+//   /// @override
+//   /// Map<String, Relation> get relations => {
+//   ///   'author': BelongsTo('userId'),
+//   /// };
+//   /// ```
+//   Map<String, Relation> get relations => {};
+// }

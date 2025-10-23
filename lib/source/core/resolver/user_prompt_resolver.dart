@@ -6,7 +6,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 
 /// A resolver that delegates the conflict decision to the user via a prompt.
-class UserPromptResolver<T extends DatumEntity> implements DatumConflictResolver<T> {
+class UserPromptResolver<T extends DatumEntityBase> implements DatumConflictResolver<T> {
   /// Function that prompts the user to choose a resolution strategy.
   final Future<DatumResolutionStrategy> Function(
     DatumConflictContext context,

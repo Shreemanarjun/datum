@@ -5,7 +5,7 @@ import 'package:datum/datum.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
 
-class DatumManager<T extends DatumEntity> with Disposable {
+class DatumManager<T extends DatumEntityBase> with Disposable {
   final LocalAdapter<T> localAdapter;
   final RemoteAdapter<T> remoteAdapter;
 
@@ -388,56 +388,38 @@ class DatumManager<T extends DatumEntity> with Disposable {
     // Check for user switch before proceeding.
     await _syncEngine.checkForUserSwitch(userId);
 
-    final existing = await localAdapter.read(item.id, userId: userId);
-    final isCreate = existing == null;
-
     final transformed = await _applyPreSaveTransforms(item);
+    final existing = await localAdapter.read(item.id, userId: userId);
 
-    Map<String, dynamic>? delta;
-    if (!isCreate) {
-      delta = transformed.diff(existing);
+    if (existing != null) {
+      // This is an update. Calculate the diff.
+      final delta = transformed.diff(existing);
       if (delta == null) {
         _logger.debug(
           'No changes detected for entity ${item.id}, skipping save.',
         );
         return transformed;
       }
-    }
-
-    if (isCreate) {
-      _logger.debug('Notifying observers of onCreateStart for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onCreateStart(transformed);
-      }
-      for (final observer in _globalObservers) {
-        observer.onCreateStart(transformed);
-      }
-      await localAdapter.create(transformed);
-    } else if (delta != null) {
-      // If a delta is available, perform a more efficient patch.
-      _logger.debug('Notifying observers of onUpdateStart for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onUpdateStart(transformed);
-      }
-      for (final observer in _globalObservers) {
-        observer.onUpdateStart(transformed);
-      }
-      await localAdapter.patch(
-        id: transformed.id,
-        delta: delta,
-        userId: userId,
-      );
+      // If we are here, it's a valid update with changes.
+      return _performUpdate(transformed, delta, source, forceRemoteSync);
     } else {
-      // Fallback to a full update if no delta is calculated.
-      _logger.debug('Notifying observers of onUpdateStart for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onUpdateStart(transformed);
-      }
-      for (final observer in _globalObservers) {
-        observer.onUpdateStart(transformed);
-      }
-      await localAdapter.update(transformed);
+      // This is a new creation.
+      return _performCreate(transformed, source, forceRemoteSync);
     }
+  }
+
+  Future<T> _performCreate(T transformed, DataSource source, bool forceRemoteSync) async {
+    final userId = transformed.userId;
+    const isCreate = true; // Explicitly true for this path
+
+    _logger.debug('Notifying observers of onCreateStart for ${transformed.id}');
+    for (final observer in _localObservers) {
+      observer.onCreateStart(transformed);
+    }
+    for (final observer in _globalObservers) {
+      observer.onCreateStart(transformed);
+    }
+    await localAdapter.create(transformed);
 
     if (source == DataSource.local || forceRemoteSync) {
       final operation = _createOperation(
@@ -445,7 +427,6 @@ class DatumManager<T extends DatumEntity> with Disposable {
         type: isCreate ? DatumOperationType.create : DatumOperationType.update,
         entityId: transformed.id,
         data: transformed,
-        delta: delta,
       );
       // Calculate size
       final payload = operation.delta ?? operation.data?.toDatumMap(target: MapTarget.remote);
@@ -464,22 +445,54 @@ class DatumManager<T extends DatumEntity> with Disposable {
       ),
     );
 
-    if (isCreate) {
-      _logger.debug('Notifying observers of onCreateEnd for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onCreateEnd(transformed);
-      }
-      for (final observer in _globalObservers) {
-        observer.onCreateEnd(transformed);
-      }
-    } else {
-      _logger.debug('Notifying observers of onUpdateEnd for ${item.id}');
-      for (final observer in _localObservers) {
-        observer.onUpdateEnd(transformed);
-      }
-      for (final observer in _globalObservers) {
-        observer.onUpdateEnd(transformed);
-      }
+    _logger.debug('Notifying observers of onCreateEnd for ${transformed.id}');
+    for (final observer in _localObservers) {
+      observer.onCreateEnd(transformed);
+    }
+    for (final observer in _globalObservers) {
+      observer.onCreateEnd(transformed);
+    }
+
+    return transformed;
+  }
+
+  Future<T> _performUpdate(T transformed, Map<String, dynamic> delta, DataSource source, bool forceRemoteSync) async {
+    final userId = transformed.userId;
+
+    _logger.debug('Notifying observers of onUpdateStart for ${transformed.id}');
+    for (final observer in _localObservers) {
+      observer.onUpdateStart(transformed);
+    }
+    for (final observer in _globalObservers) {
+      observer.onUpdateStart(transformed);
+    }
+
+    await localAdapter.patch(id: transformed.id, delta: delta, userId: userId);
+
+    if (source == DataSource.local || forceRemoteSync) {
+      final operation = _createOperation(
+        userId: userId,
+        type: DatumOperationType.update,
+        entityId: transformed.id,
+        data: transformed,
+        delta: delta,
+      );
+      final payload = operation.delta ?? operation.data?.toDatumMap(target: MapTarget.remote);
+      final encoded = payload != null ? await _isolateHelper.computeJsonEncode(payload) : '';
+      final size = encoded.length;
+      await _queueManager.enqueue(operation.copyWith(sizeInBytes: size));
+    }
+
+    _eventController.add(
+      DataChangeEvent<T>(userId: userId, data: transformed, changeType: ChangeType.updated, source: source),
+    );
+
+    _logger.debug('Notifying observers of onUpdateEnd for ${transformed.id}');
+    for (final observer in _localObservers) {
+      observer.onUpdateEnd(transformed);
+    }
+    for (final observer in _globalObservers) {
+      observer.onUpdateEnd(transformed);
     }
     return transformed;
   }
@@ -690,7 +703,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   /// Returns a list of the related entities. Throws an [ArgumentError] if the
   /// parent is not a [RelationalDatumEntity], or an [Exception] if the
   /// relation name is not defined on the parent.
-  Future<List<R>> fetchRelated<R extends DatumEntity>(
+  Future<List<R>> fetchRelated<R extends DatumEntityBase>(
     T parent,
     String relationName, {
     DataSource source = DataSource.local,
@@ -739,7 +752,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   /// Returns a `Stream<List<R>>` of the related entities, or `null` if the
   /// adapter does not support reactive queries. Throws an error if the
   /// relation is not defined.
-  Stream<List<R>>? watchRelated<R extends DatumEntity>(
+  Stream<List<R>>? watchRelated<R extends DatumEntityBase>(
     T parent,
     String relationName,
   ) {
@@ -1181,7 +1194,7 @@ class DatumManager<T extends DatumEntity> with Disposable {
   }
 }
 
-extension DatumManagerAutoSyncInfo<T extends DatumEntity> on DatumManager<T> {
+extension DatumManagerAutoSyncInfo<T extends DatumEntityBase> on DatumManager<T> {
   /// Gets the [DateTime] of the next scheduled auto-sync as a `Future`.
   ///
   /// Returns `null` if no auto-sync is currently scheduled.

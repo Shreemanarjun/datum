@@ -4,7 +4,7 @@ import 'package:meta/meta.dart';
 
 /// Base class for all synchronization-related events.
 @immutable
-abstract class DatumSyncEvent<T extends DatumEntity> {
+abstract class DatumSyncEvent<T extends DatumEntityBase> {
   /// Creates a base sync event.
   DatumSyncEvent({required this.userId, DateTime? timestamp}) : timestamp = timestamp ?? DateTime.now();
 
@@ -19,7 +19,7 @@ abstract class DatumSyncEvent<T extends DatumEntity> {
 }
 
 /// Event fired when a synchronization cycle starts.
-class DatumSyncStartedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
+class DatumSyncStartedEvent<T extends DatumEntityBase> extends DatumSyncEvent<T> {
   /// Creates a sync started event.
   DatumSyncStartedEvent({
     required super.userId,
@@ -35,7 +35,7 @@ class DatumSyncStartedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
 }
 
 /// Event fired to report synchronization progress.
-class DatumSyncProgressEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
+class DatumSyncProgressEvent<T extends DatumEntityBase> extends DatumSyncEvent<T> {
   /// Creates a sync progress event.
   DatumSyncProgressEvent({
     required super.userId,
@@ -66,7 +66,7 @@ class DatumSyncProgressEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
 }
 
 /// Event fired when a synchronization cycle completes.
-class DatumSyncCompletedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
+class DatumSyncCompletedEvent<T extends DatumEntityBase> extends DatumSyncEvent<T> {
   /// Creates a sync completed event.
   DatumSyncCompletedEvent({
     required super.userId,
@@ -82,7 +82,7 @@ class DatumSyncCompletedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
 }
 
 /// Event fired when an error occurs during synchronization.
-class DatumSyncErrorEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
+class DatumSyncErrorEvent<T extends DatumEntityBase> extends DatumSyncEvent<T> {
   /// Creates a sync error event.
   DatumSyncErrorEvent({
     required super.userId,

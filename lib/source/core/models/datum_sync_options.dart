@@ -5,7 +5,7 @@ import 'package:meta/meta.dart';
 
 /// Configuration passed when triggering a manual synchronization via `Datum.sync()`.
 @immutable
-class DatumSyncOptions<T extends DatumEntity> {
+class DatumSyncOptions<T extends DatumEntityBase> {
   /// Whether to include delete operations in the sync.
   final bool includeDeletes;
 

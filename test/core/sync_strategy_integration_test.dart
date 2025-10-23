@@ -7,9 +7,9 @@ import 'package:mocktail/mocktail.dart';
 import '../mocks/test_entity.dart';
 
 // Use proper mocktail mocks for adapters
-class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
 class MockConnectivityChecker extends Mock implements DatumConnectivityChecker {}
 

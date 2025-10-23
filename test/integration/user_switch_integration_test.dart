@@ -5,11 +5,11 @@ import 'package:datum/datum.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
-class MockDatumObserver<T extends DatumEntity> extends Mock implements DatumObserver<T> {}
+class MockDatumObserver<T extends DatumEntityBase> extends Mock implements DatumObserver<T> {}
 
 void main() {
   group('User Switch Integration Tests', () {
@@ -318,7 +318,7 @@ void _stubDefaultBehaviors(
 }
 
 /// Helper function to create a test operation.
-DatumSyncOperation<T> _createTestOperation<T extends DatumEntity>(
+DatumSyncOperation<T> _createTestOperation<T extends DatumEntityBase>(
   T entity,
   DatumOperationType type,
 ) =>

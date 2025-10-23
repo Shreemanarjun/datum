@@ -3,7 +3,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
 
 /// Detects conflicts between local and remote versions of an entity.
-class DatumConflictDetector<T extends DatumEntity> {
+class DatumConflictDetector<T extends DatumEntityBase> {
   /// Detects conflicts between local and remote items.
   ///
   /// Returns a [DatumConflictContext] if a conflict is detected, otherwise null.

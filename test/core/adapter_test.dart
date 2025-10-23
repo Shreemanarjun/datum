@@ -1,4 +1,5 @@
 import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
 import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
@@ -117,7 +118,7 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   Future<void> updateSyncMetadata(DatumSyncMetadata metadata, String userId) => throw UnimplementedError();
 
   @override
-  Future<List<R>> fetchRelated<R extends DatumEntity>(
+  Future<List<R>> fetchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     LocalAdapter<R> relatedAdapter,

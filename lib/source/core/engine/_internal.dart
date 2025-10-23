@@ -11,10 +11,10 @@ import 'package:datum/source/core/resolver/conflict_resolution.dart';
 
 // Helper to hold adapter pairs before managers are created.
 abstract class AdapterPair {
-  DatumManager<DatumEntity> createManager(Datum datum);
+  DatumManager<DatumEntityBase> createManager(Datum datum);
 }
 
-class AdapterPairImpl<T extends DatumEntity> implements AdapterPair {
+class AdapterPairImpl<T extends DatumEntityBase> implements AdapterPair {
   final LocalAdapter<T> local;
   final RemoteAdapter<T> remote;
   final DatumConflictResolver<T>? conflictResolver;
@@ -72,7 +72,7 @@ class AdapterPairImpl<T extends DatumEntity> implements AdapterPair {
 }
 
 /// A testing-only config to smuggle a mock manager into the creation process.
-class CustomManagerConfig<T extends DatumEntity> extends DatumConfig<T> {
+class CustomManagerConfig<T extends DatumEntityBase> extends DatumConfig<T> {
   final DatumManager<T> mockManager;
 
   const CustomManagerConfig(this.mockManager);

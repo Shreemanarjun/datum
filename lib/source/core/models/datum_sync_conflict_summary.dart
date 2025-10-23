@@ -3,7 +3,7 @@ import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 
 /// Description of a conflict encountered during a sync.
-class DatumSyncConflictSummary<T extends DatumEntity> extends Equatable {
+class DatumSyncConflictSummary<T extends DatumEntityBase> extends Equatable {
   /// How the conflict was resolved.
   final DatumConflictResolution<T> resolution;
 

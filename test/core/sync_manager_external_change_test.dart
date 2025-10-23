@@ -6,9 +6,9 @@ import 'package:datum/datum.dart';
 
 import '../mocks/test_entity.dart';
 
-class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
 typedef StreamControllers = ({
   StreamController<DatumChangeDetail<TestEntity>> local,

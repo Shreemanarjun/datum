@@ -8,13 +8,13 @@ import 'package:rxdart/rxdart.dart';
 import '../mocks/test_entity.dart';
 
 // Use proper mocktail mocks for adapters
-class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
 class MockConnectivityChecker extends Mock implements DatumConnectivityChecker {}
 
-class MockSyncEngine<T extends DatumEntity> extends Mock implements DatumSyncEngine<T> {}
+class MockSyncEngine<T extends DatumEntityBase> extends Mock implements DatumSyncEngine<T> {}
 
 /// A custom logger for tests that omits stack traces for cleaner output.
 class TestLogger extends DatumLogger {

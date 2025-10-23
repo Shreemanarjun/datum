@@ -4,7 +4,7 @@ import 'package:datum/source/core/models/datum_sync_operation.dart';
 import 'package:datum/source/utils/datum_logger.dart';
 
 /// Manages the queue of pending synchronization operations.
-class QueueManager<T extends DatumEntity> {
+class QueueManager<T extends DatumEntityBase> {
   final LocalAdapter<T> localAdapter;
   final DatumLogger logger;
 

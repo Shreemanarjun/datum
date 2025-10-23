@@ -7,9 +7,9 @@ import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
 // Create mocktail-based mocks for this test file to allow `when()` stubs.
-class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('DatumManager Lifecycle & Memory Leak Verification', () {

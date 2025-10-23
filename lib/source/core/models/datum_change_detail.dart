@@ -5,7 +5,7 @@ import 'package:meta/meta.dart';
 /// Represents a change that occurred in a data source.
 /// This is used by adapters to notify the engine about external changes.
 @immutable
-class DatumChangeDetail<T extends DatumEntity> {
+class DatumChangeDetail<T extends DatumEntityBase> {
   /// Creates a change detail object.
   const DatumChangeDetail({
     required this.type,

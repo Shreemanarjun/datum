@@ -7,13 +7,13 @@ import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
 // Define mocktail mocks directly in the test file for clarity and correctness.
-class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
-class MockMiddleware<T extends DatumEntity> extends Mock implements DatumMiddleware<T> {}
+class MockMiddleware<T extends DatumEntityBase> extends Mock implements DatumMiddleware<T> {}
 
-class MockObserver<T extends DatumEntity> extends Mock implements DatumObserver<T> {}
+class MockObserver<T extends DatumEntityBase> extends Mock implements DatumObserver<T> {}
 
 void main() {
   group('DatumMiddleware', () {

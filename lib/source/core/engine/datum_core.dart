@@ -18,15 +18,17 @@ class Datum {
   static Datum? get instanceOrNull => _instance;
 
   final DatumConfig config;
-  final Map<Type, DatumManager<DatumEntity>> _managers = {};
+
+  // Updated: Use DatumEntityBase instead of DatumEntity
+  final Map<Type, DatumManager<DatumEntityBase>> _managers = {};
   final Map<Type, AdapterPair> _adapterPairs = {};
   final DatumConnectivityChecker connectivityChecker;
   final List<GlobalDatumObserver> globalObservers = [];
   final DatumLogger logger;
-  final List<StreamSubscription<DatumSyncEvent<DatumEntity>>> _managerSubscriptions = [];
+  final List<StreamSubscription<DatumSyncEvent<DatumEntityBase>>> _managerSubscriptions = [];
 
   // Stream controllers for events and status
-  final StreamController<DatumSyncEvent<DatumEntity>> _eventController = StreamController.broadcast();
+  final StreamController<DatumSyncEvent<DatumEntityBase>> _eventController = StreamController.broadcast();
   Stream<DatumSyncEvent> get events => _eventController.stream;
 
   final BehaviorSubject<Map<String, DatumSyncStatusSnapshot>> _statusSubject = BehaviorSubject.seeded({});
@@ -42,21 +44,14 @@ class Datum {
   DatumMetrics get currentMetrics => _metricsSubject.value;
 
   /// A stream that aggregates the health status of all registered managers.
-  ///
-  /// It emits a map where the key is the entity [Type] and the value is the
-  /// latest [DatumHealth] for that manager. This is useful for building a
-  /// global health dashboard.
   Stream<Map<Type, DatumHealth>> get allHealths {
     if (_managers.isEmpty) {
       return Stream.value({});
     }
-    // Extract the streams and their corresponding types (keys).
     final healthStreams = _managers.values.map((m) => m.health).toList();
     final types = _managers.keys.toList();
 
-    // Combine the latest values from all health streams into a single list.
     return CombineLatestStream.list(healthStreams).map((healthList) {
-      // Reconstruct the map from the types and the emitted health list.
       return Map.fromIterables(types, healthList);
     });
   }
@@ -68,8 +63,6 @@ class Datum {
   }) : logger = logger ?? DatumLogger(enabled: config.enableLogging);
 
   /// Initializes the central Datum engine as a singleton.
-  ///
-  /// This must be called once before accessing [Datum.instance] or any other methods.
   static Future<Datum> initialize({
     required DatumConfig config,
     required DatumConnectivityChecker connectivityChecker,
@@ -78,17 +71,12 @@ class Datum {
     List<GlobalDatumObserver> observers = const [],
   }) async {
     if (_instance != null) {
-      // Prevent re-initialization to avoid unpredictable behavior.
-      // If re-configuration is needed, a `Datum.dispose()` or `Datum.reset()`
-      // should be called first.
       return _instance!;
     }
-    // If logging is disabled in the config, we should not produce any logs,
-    // even if a custom logger is provided.
     if (!config.enableLogging) {
       return _initializeSilently(config, connectivityChecker, logger, registrations, observers);
     }
-    // Initialize logger early to use it for initialization logging.
+
     final initLogger = logger ?? DatumLogger(enabled: config.enableLogging);
     final logBuffer = StringBuffer();
 
@@ -105,10 +93,8 @@ class Datum {
       logBuffer.writeln('├─ 📦 Registering Entities');
     }
     for (final reg in registrations) {
-      // ignore: unused_local_variable
-      // Use <TT> to avoid shadowing the generic type from the capture method.
       reg.capture(
-        <TT extends DatumEntity>() => datum._register<TT>(reg as DatumRegistration<TT>, logBuffer),
+        <TT extends DatumEntityBase>() => datum._register<TT>(reg as DatumRegistration<TT>, logBuffer),
       );
     }
     await datum._initializeManagers(logBuffer);
@@ -121,7 +107,6 @@ class Datum {
     return _instance = datum;
   }
 
-  /// A private helper to initialize Datum without any logging output.
   static Future<Datum> _initializeSilently(
     DatumConfig config,
     DatumConnectivityChecker connectivityChecker,
@@ -132,13 +117,13 @@ class Datum {
     final datum = Datum._(
       config: config,
       connectivityChecker: connectivityChecker,
-      logger: null, // Force a disabled logger when logging is off.
+      logger: null,
     );
     datum.globalObservers.addAll(observers);
 
     for (final reg in registrations) {
       reg.capture(
-        <TT extends DatumEntity>() => datum._register<TT>(reg as DatumRegistration<TT>),
+        <TT extends DatumEntityBase>() => datum._register<TT>(reg as DatumRegistration<TT>),
       );
     }
     await datum._initializeManagers(StringBuffer());
@@ -146,11 +131,8 @@ class Datum {
     return _instance = datum;
   }
 
-  // Helper functions for logging that respect the logger's color setting.
   String _green(Object text) => logger.colors ? '\x1B[32m$text\x1B[0m' : text.toString();
-
   String _yellow(Object text) => logger.colors ? '\x1B[33m$text\x1B[0m' : text.toString();
-
   String _cyan(Object text) => logger.colors ? '\x1B[36m$text\x1B[0m' : text.toString();
 
   void _logInitializationHeader(
@@ -161,8 +143,8 @@ class Datum {
     logBuffer.writeln('🚀 Initializing Datum...');
     logBuffer.writeln(_cyan('   Hello! Datum is your smart offline-first data synchronization framework 😊'));
     logBuffer.writeln('├─ ⚙️  Configuration');
-    logBuffer.writeln('│  ├─ 📝 ${_yellow('Logging')}: ${_green(config.enableLogging)} (Shows detailed logs in console)');
-    logBuffer.writeln('│  ├─ 🔄 ${_yellow('Auto-sync')}: ${_green(config.autoStartSync)} (Interval: ${_cyan(formatDuration(config.autoSyncInterval))} - how often to sync in background)');
+    logBuffer.writeln('│  ├─ 📝 ${_yellow('Logging')}: ${_green(config.enableLogging)}');
+    logBuffer.writeln('│  ├─ 🔄 ${_yellow('Auto-sync')}: ${_green(config.autoStartSync)} (Interval: ${_cyan(formatDuration(config.autoSyncInterval))})');
     if (config.autoStartSync) {
       final initialUserId = config.initialUserId;
       if (initialUserId != null) {
@@ -171,16 +153,16 @@ class Datum {
         logBuffer.writeln('│  │  └─ 🎯 Discovering all local users to sync.');
       }
     }
-    logBuffer.writeln('│  ├─ 🏗️  ${_yellow('Schema')}: v${_green(config.schemaVersion)} (Migrations: ${_green(config.migrations.length)} - your data model version)');
-    logBuffer.writeln('│  ├─ 🌐 ${_yellow('Connectivity')}: ${_green(connectivityChecker.runtimeType)} (How the app checks for internet)');
-    logBuffer.writeln('│  ├─ 🧭 ${_yellow('Sync Direction')}: ${_green(config.defaultSyncDirection.name)} (Order of push/pull operations)');
-    logBuffer.writeln('│  ├─ 🚦 ${_yellow('Sync Strategy')}: ${_green(config.syncExecutionStrategy.runtimeType)} (How to process pending changes)');
-    logBuffer.writeln('│  ├─ ⏳ ${_yellow('Sync Timeout')}: ${_cyan(formatDuration(config.syncTimeout))} (Max time for one sync cycle)');
-    logBuffer.writeln('│  ├─ ↪️  ${_yellow('User Switch')}: ${_green(config.defaultUserSwitchStrategy.name)} (Action on user login/logout)');
-    logBuffer.writeln('│  ├─ 🛡️  ${_yellow('Error Recovery')}: ${_green(config.errorRecoveryStrategy.runtimeType)} (Retries: ${_cyan(config.errorRecoveryStrategy.maxRetries)} - how to handle temporary network errors)');
-    logBuffer.writeln('│  └─ ⚡ ${_yellow('Event Handling')} (For real-time updates from server):');
-    logBuffer.writeln('│     ├─ ⏱️  Debounce: ${_cyan(formatDuration(config.remoteEventDebounceTime))} (Groups multiple remote changes into one)');
-    logBuffer.writeln('│     └─ 🗑️  Cache TTL: ${_cyan(formatDuration(config.changeCacheDuration))} (Prevents processing the same event twice)');
+    logBuffer.writeln('│  ├─ 🏗️  ${_yellow('Schema')}: v${_green(config.schemaVersion)} (Migrations: ${_green(config.migrations.length)})');
+    logBuffer.writeln('│  ├─ 🌐 ${_yellow('Connectivity')}: ${_green(connectivityChecker.runtimeType)}');
+    logBuffer.writeln('│  ├─ 🧭 ${_yellow('Sync Direction')}: ${_green(config.defaultSyncDirection.name)}');
+    logBuffer.writeln('│  ├─ 🚦 ${_yellow('Sync Strategy')}: ${_green(config.syncExecutionStrategy.runtimeType)}');
+    logBuffer.writeln('│  ├─ ⏳ ${_yellow('Sync Timeout')}: ${_cyan(formatDuration(config.syncTimeout))}');
+    logBuffer.writeln('│  ├─ ↪️  ${_yellow('User Switch')}: ${_green(config.defaultUserSwitchStrategy.name)}');
+    logBuffer.writeln('│  ├─ 🛡️  ${_yellow('Error Recovery')}: ${_green(config.errorRecoveryStrategy.runtimeType)} (Retries: ${_cyan(config.errorRecoveryStrategy.maxRetries)})');
+    logBuffer.writeln('│  └─ ⚡ ${_yellow('Event Handling')}:');
+    logBuffer.writeln('│     ├─ ⏱️  Debounce: ${_cyan(formatDuration(config.remoteEventDebounceTime))}');
+    logBuffer.writeln('│     └─ 🗑️  Cache TTL: ${_cyan(formatDuration(config.changeCacheDuration))}');
   }
 
   Future<void> _logPendingOperationsSummary(StringBuffer logBuffer) async {
@@ -190,9 +172,7 @@ class Datum {
         final userIds = await manager.localAdapter.getAllUserIds();
         allUserIds.addAll(userIds);
       } catch (e) {
-        logger.warn(
-          'Could not get user IDs from ${manager.localAdapter.runtimeType}: $e',
-        );
+        logger.warn('Could not get user IDs from ${manager.localAdapter.runtimeType}: $e');
       }
     }
 
@@ -200,17 +180,13 @@ class Datum {
       logBuffer.writeln('├─ ❤️  Initial Health Status');
       for (final managerEntry in _managers.entries) {
         final health = managerEntry.value.currentStatus.health;
-        logBuffer.writeln(
-          '│  └─ ${_cyan(managerEntry.key)}: ${_green(health.status.name)}',
-        );
+        logBuffer.writeln('│  └─ ${_cyan(managerEntry.key)}: ${_green(health.status.name)}');
       }
     }
 
     if (allUserIds.isEmpty) {
       logBuffer.writeln('├─ 📊 Sync Status & Metrics: No local users found yet.');
-      logBuffer.writeln(
-        '│  └─ 📈 Initial Metrics: ${_green(currentMetrics.toString())}',
-      );
+      logBuffer.writeln('│  └─ 📈 Initial Metrics: ${_green(currentMetrics.toString())}');
       return;
     }
 
@@ -221,18 +197,14 @@ class Datum {
     for (final userId in allUserIds) {
       logBuffer.writeln('│  ├─ 👤 User: ${_cyan(userId)}');
       DatumSyncMetadata? metadata;
-      // Try to get metadata from any manager
       if (_managers.isNotEmpty) {
         metadata = await _managers.values.first.localAdapter.getSyncMetadata(userId);
       }
 
-      // Fetch and log last sync result for data transfer info
       final lastSyncResult = _managers.isNotEmpty ? await _managers.values.first.getLastSyncResult(userId) : null;
 
       if (metadata?.lastSyncTime != null) {
-        logBuffer.writeln(
-          '│  │  ├─ 🕒 Last Sync: ${_cyan(formatDuration(DateTime.now().difference(metadata!.lastSyncTime!)))} ago',
-        );
+        logBuffer.writeln('│  │  ├─ 🕒 Last Sync: ${_cyan(formatDuration(DateTime.now().difference(metadata!.lastSyncTime!)))} ago');
       } else {
         logBuffer.writeln('│  │  ├─ 🕒 Last Sync: Never synced');
       }
@@ -243,12 +215,8 @@ class Datum {
         final cyclePushed = (lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2);
         final cyclePulled = (lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2);
 
-        logBuffer.writeln(
-          '│  │  ├─ 💾 Total Data: ${_green('↑$totalPushed KB')} / ${_green('↓$totalPulled KB')}',
-        );
-        logBuffer.writeln(
-          '│  │  ├─ 📈 Last Sync: ${_green('↑$cyclePushed KB')} / ${_green('↓$cyclePulled KB')}',
-        );
+        logBuffer.writeln('│  │  ├─ 💾 Total Data: ${_green('↑$totalPushed KB')} / ${_green('↓$totalPulled KB')}');
+        logBuffer.writeln('│  │  ├─ 📈 Last Sync: ${_green('↑$cyclePushed KB')} / ${_green('↓$cyclePulled KB')}');
       } else {
         logBuffer.writeln('│  │  ├─ 💾 Data Transferred: No history');
       }
@@ -267,9 +235,7 @@ class Datum {
           userHasContent = true;
           logBuffer.writeln('│  │  ├─ ${_cyan(entityType)}:');
           final sizeInKb = (storageSize / 1024).toStringAsFixed(2);
-          logBuffer.writeln(
-            '│  │  │  └─ Items: ${_green(itemCount)}, Pending: ${_yellow(count)}, Size: ${_cyan('$sizeInKb KB')}',
-          );
+          logBuffer.writeln('│  │  │  └─ Items: ${_green(itemCount)}, Pending: ${_yellow(count)}, Size: ${_cyan('$sizeInKb KB')}');
         }
       }
       if (!userHasContent) {
@@ -281,45 +247,33 @@ class Datum {
 
   void _logObservers(StringBuffer logBuffer) {
     if (globalObservers.isNotEmpty) {
-      logBuffer.writeln(
-        '├─ 👀 Global Observers Registered (${_green(globalObservers.length)}):',
-      );
+      logBuffer.writeln('├─ 👀 Global Observers Registered (${_green(globalObservers.length)}):');
       for (final observer in globalObservers) {
         logBuffer.writeln('│  └─ ${_green(observer.runtimeType)}');
       }
     }
   }
 
-  /// Adds a global observer to listen to events from all managers.
   void addObserver(GlobalDatumObserver observer) {
     globalObservers.add(observer);
   }
 
-  /// Registers an entity type with its specific adapters.
-  ///
-  /// This can be called after `Datum.initialize()` to dynamically add support
-  /// for new entity types. It will create and initialize the manager for the
-  /// given registration.
-  Future<void> register<T extends DatumEntity>({
+  Future<void> register<T extends DatumEntityBase>({
     required DatumRegistration<T> registration,
   }) async {
     _register<T>(registration);
-    // Initialization now happens inside the main initialize flow.
-    // If called dynamically, we need a log buffer.
     final logBuffer = StringBuffer();
     await _initializeManagerForType(T, logBuffer);
     logger.info(logBuffer.toString());
   }
 
-  void _register<T extends DatumEntity>(
+  void _register<T extends DatumEntityBase>(
     DatumRegistration<T> registration, [
     StringBuffer? logBuffer,
   ]) {
-    // With modern Dart, using the generic type T directly as a map key is reliable.
     if (_managers.containsKey(T)) {
       throw StateError(
-        'Entity type $T is already registered. Duplicate registration is not allowed. '
-        'Please ensure each entity type is registered only once.',
+        'Entity type $T is already registered. Duplicate registration is not allowed.',
       );
     }
 
@@ -328,15 +282,18 @@ class Datum {
     bool isRelational = false;
     int relationCount = 0;
 
-    // Check for relational capabilities.
+    // Updated: Use sealed class pattern matching
     try {
-      final sample = registration.localAdapter.sampleInstance;
-      if (sample.isRelational && sample is RelationalDatumEntity) {
-        isRelational = sample.isRelational;
-        relationCount = sample.relations.length;
+      final sample = T;
+      switch (sample) {
+        case RelationalDatumEntity():
+          isRelational = true;
+          relationCount = (sample as RelationalDatumEntity).relations.length;
+        case DatumEntity():
+          isRelational = false;
       }
     } catch (_) {
-      // If creating a sample instance fails, we just skip this log.
+      // If creating a sample instance fails, skip this check
     }
 
     final lastCharForConfig = hasMiddlewares || hasObservers || isRelational ? '├' : '└';
@@ -364,7 +321,6 @@ class Datum {
     if (isRelational) {
       logBuffer?.writeln('│     └─ 🤝 Relational: ${_green(true)} (Relations: ${_cyan(relationCount)})');
     } else {
-      // Explicitly log that it's not relational if no other optional logs follow.
       if (!hasMiddlewares && !hasObservers) {
         logBuffer?.writeln('│     └─ 🤝 Relational: ${_green(false)}');
       }
@@ -373,7 +329,6 @@ class Datum {
     _adapterPairs[T] = AdapterPairImpl<T>.fromRegistration(registration);
   }
 
-  /// Initializes all registered managers and the central engine.
   Future<void> _initializeManagers(StringBuffer logBuffer) async {
     if (_adapterPairs.isNotEmpty) {
       logBuffer.writeln('├─ 🚀 Initializing Managers');
@@ -386,22 +341,19 @@ class Datum {
   Future<void> _initializeManagerForType(Type type, StringBuffer logBuffer) async {
     final adapters = _adapterPairs[type];
     if (adapters == null) {
-      throw StateError(
-        'AdapterPair not found for type $type during initialization.',
-      );
+      throw StateError('AdapterPair not found for type $type during initialization.');
     }
 
-    // The generic factory helps create the correctly typed manager.
     final manager = adapters.createManager(this);
     logBuffer.writeln('│  └─ ✨ Manager for ${_cyan(type)} ready.');
     _managers[type] = manager;
-    // Subscribe to the manager's event stream and pipe events to the global controller.
+
     final subscription = manager.eventStream.listen(
       _eventController.add,
       onError: _eventController.addError,
     );
     _managerSubscriptions.add(subscription);
-    await manager.initialize(); // This calls DatumManager.initialize()
+    await manager.initialize();
   }
 
   void _listenToEventsForMetrics() {
@@ -422,7 +374,6 @@ class Datum {
               successfulSyncs: current.successfulSyncs + 1,
               conflictsDetected: current.conflictsDetected + event.result.conflictsResolved,
               activeUsers: newActiveUsers,
-              // Add the bytes from this cycle to the running total.
               totalBytesPushed: current.totalBytesPushed + event.result.bytesPushedInCycle,
               totalBytesPulled: current.totalBytesPulled + event.result.bytesPulledInCycle,
             );
@@ -431,7 +382,6 @@ class Datum {
               failedSyncs: current.failedSyncs + 1,
               conflictsDetected: current.conflictsDetected + event.result.conflictsResolved,
               activeUsers: newActiveUsers,
-              // Add the bytes from this cycle to the running total.
               totalBytesPushed: current.totalBytesPushed + event.result.bytesPushedInCycle,
               totalBytesPulled: current.totalBytesPulled + event.result.bytesPulledInCycle,
             );
@@ -445,50 +395,38 @@ class Datum {
             conflictsResolvedAutomatically: current.conflictsResolvedAutomatically + 1,
           );
         case _:
-          return; // No change, don't emit a new value.
+          return;
       }
       _metricsSubject.add(next);
     });
   }
 
   /// Provides access to the specific manager for an entity type.
-  /// This preserves the familiar `SynqManager` API.
-  static DatumManager<T> manager<T extends DatumEntity>() {
+  static DatumManager<T> manager<T extends DatumEntityBase>() {
     final manager = instance._managers[T];
-    // By checking the type with 'is', Dart's flow analysis promotes `manager`
-    // to the specific `DatumManager<T>` type, making the return type-safe.
     if (manager is DatumManager<T>) {
       return manager;
     }
-    throw StateError(
-      'Entity type $T is not registered or has a manager of the wrong type.',
-    );
+    throw StateError('Entity type $T is not registered or has a manager of the wrong type.');
   }
 
   /// Provides access to a manager for a given entity [Type].
-  ///
-  /// This is useful for relational data fetching where the type of the
-  /// related entity is not known at compile time.
-  static DatumManager<DatumEntity> managerByType(Type type) {
+  static DatumManager<DatumEntityBase> managerByType(Type type) {
     final manager = instance._managers[type];
     if (manager != null) {
       return manager;
     }
-    throw StateError(
-      'Entity type $type is not registered or has a manager of the wrong type.',
-    );
+    throw StateError('Entity type $type is not registered or has a manager of the wrong type.');
   }
 
   /// A global sync that can coordinate across all managers.
-  Future<DatumSyncResult<DatumEntity>> synchronize(
+  Future<DatumSyncResult<DatumEntityBase>> synchronize(
     String userId, {
     DatumSyncOptions? options,
   }) async {
     final snapshot = _getSnapshot(userId);
     if (snapshot.status == DatumSyncStatus.syncing) {
-      logger.info(
-        '[Global] Sync for user $userId skipped: another global sync is already in progress.',
-      );
+      logger.info('[Global] Sync for user $userId skipped: another global sync is already in progress.');
       return DatumSyncResult.skipped(userId, snapshot.pendingOperations);
     }
 
@@ -501,12 +439,12 @@ class Datum {
     var totalSynced = 0;
     var totalFailed = 0;
     var totalConflicts = 0;
-    final allPending = <DatumSyncOperation<DatumEntity>>[];
+    final allPending = <DatumSyncOperation<DatumEntityBase>>[];
 
     try {
       final direction = options?.direction ?? config.defaultSyncDirection;
-      final pushResults = <DatumSyncResult<DatumEntity>>[];
-      final pullResults = <DatumSyncResult<DatumEntity>>[];
+      final pushResults = <DatumSyncResult<DatumEntityBase>>[];
+      final pullResults = <DatumSyncResult<DatumEntityBase>>[];
 
       switch (direction) {
         case SyncDirection.pushThenPull:
@@ -522,7 +460,6 @@ class Datum {
             totalConflicts += res.conflictsResolved;
             allPending.addAll(res.pendingOperations);
           }
-          break;
         case SyncDirection.pullThenPush:
           pullResults.addAll(await _pullChanges(userId, options));
           for (final res in pullResults) {
@@ -537,7 +474,6 @@ class Datum {
             totalFailed += res.failedCount;
             allPending.addAll(res.pendingOperations);
           }
-          break;
         case SyncDirection.pushOnly:
           pushResults.addAll(await _pushChanges(userId, options));
           for (final res in pushResults) {
@@ -545,7 +481,6 @@ class Datum {
             totalFailed += res.failedCount;
             allPending.addAll(res.pendingOperations);
           }
-          break;
         case SyncDirection.pullOnly:
           pullResults.addAll(await _pullChanges(userId, options));
           for (final res in pullResults) {
@@ -554,10 +489,9 @@ class Datum {
             totalConflicts += res.conflictsResolved;
             allPending.addAll(res.pendingOperations);
           }
-          break;
       }
 
-      final result = DatumSyncResult<DatumEntity>(
+      final result = DatumSyncResult<DatumEntityBase>(
         userId: userId,
         duration: stopwatch.elapsed,
         syncedCount: totalSynced,
@@ -566,58 +500,42 @@ class Datum {
         pendingOperations: allPending,
       );
 
-      _updateSnapshot(
-        userId,
-        (s) => s.copyWith(status: DatumSyncStatus.completed),
-      );
+      _updateSnapshot(userId, (s) => s.copyWith(status: DatumSyncStatus.completed));
       for (final observer in globalObservers) {
         observer.onSyncEnd(result);
       }
       return result;
     } catch (e, stack) {
       logger.error('Synchronization failed for user $userId', stack);
-      _updateSnapshot(
-        userId,
-        (s) => s.copyWith(status: DatumSyncStatus.failed, errors: [e]),
-      );
-      // CRITICAL: Using `return Future.error` instead of a synchronous `throw`
-      // is essential to prevent race conditions. It ensures that any error
-      // events emitted from the underlying managers have a chance to be
-      // delivered to listeners on the global `Datum.instance.events` stream
-      // *before* the Future returned by this `synchronize()` method completes
-      // with an error.
+      _updateSnapshot(userId, (s) => s.copyWith(status: DatumSyncStatus.failed, errors: [e]));
       return Future.error(e, stack);
     }
   }
 
-  Future<List<DatumSyncResult<DatumEntity>>> _pushChanges(String userId, DatumSyncOptions? options) async {
+  Future<List<DatumSyncResult<DatumEntityBase>>> _pushChanges(String userId, DatumSyncOptions? options) async {
     logger.info('Starting global push phase for user $userId...');
-    // Ensure we only perform a push operation, respecting the original options.
     final pushOnlyOptions = (options ?? const DatumSyncOptions()).copyWith(
       direction: SyncDirection.pushOnly,
     );
 
-    final results = <DatumSyncResult<DatumEntity>>[];
+    final results = <DatumSyncResult<DatumEntityBase>>[];
     for (final manager in _managers.values) {
-      // We call synchronize with pushOnly to process the queue for each manager.
       results.add(await manager.synchronize(userId, options: pushOnlyOptions));
     }
     return results;
   }
 
-  Future<List<DatumSyncResult<DatumEntity>>> _pullChanges(
+  Future<List<DatumSyncResult<DatumEntityBase>>> _pullChanges(
     String userId,
     DatumSyncOptions? options,
   ) async {
     logger.info('Starting global pull phase for user $userId...');
-    // Ensure we only perform a pull operation, respecting the original options.
     final pullOnlyOptions = (options ?? const DatumSyncOptions()).copyWith(
       direction: SyncDirection.pullOnly,
     );
 
-    final results = <DatumSyncResult<DatumEntity>>[];
+    final results = <DatumSyncResult<DatumEntityBase>>[];
     for (final manager in _managers.values) {
-      // We call synchronize with pullOnly for each manager.
       results.add(await manager.synchronize(userId, options: pullOnlyOptions));
     }
     return results;
@@ -637,48 +555,31 @@ class Datum {
     _statusSubject.add(_snapshots);
   }
 
-  /// Creates a new entity of type T.
-  Future<T> create<T extends DatumEntity>(T entity) {
+  // CRUD operations remain the same but now use DatumEntityBase
+  Future<T> create<T extends DatumEntityBase>(T entity) {
     return Datum.manager<T>().push(item: entity, userId: entity.userId);
   }
 
-  /// Reads a single entity of type T by its ID.
-  Future<T?> read<T extends DatumEntity>(String id, {String? userId}) {
-    // In a multi-manager setup, we might need to know which manager to ask.
-    // For now, we assume the first one that can handle type T.
+  Future<T?> read<T extends DatumEntityBase>(String id, {String? userId}) {
     return Datum.manager<T>().read(id, userId: userId);
   }
 
-  /// Reads all entities of type T.
-  Future<List<T>> readAll<T extends DatumEntity>({String? userId}) {
+  Future<List<T>> readAll<T extends DatumEntityBase>({String? userId}) {
     return Datum.manager<T>().readAll(userId: userId);
   }
 
-  /// Updates an existing entity of type T.
-  Future<T> update<T extends DatumEntity>(T entity) {
+  Future<T> update<T extends DatumEntityBase>(T entity) {
     return Datum.manager<T>().push(item: entity, userId: entity.userId);
   }
 
-  /// Deletes an entity of type T by its ID.
-  Future<bool> delete<T extends DatumEntity>({
+  Future<bool> delete<T extends DatumEntityBase>({
     required String id,
     required String userId,
   }) async {
     return Datum.manager<T>().delete(id: id, userId: userId);
   }
 
-  /// Creates or updates an entity locally and immediately triggers a synchronization.
-  ///
-  /// This is a convenience method that combines `push()` and `synchronize()`
-  /// into a single atomic call for a specific entity type. It's useful for
-  /// operations that require immediate confirmation from the remote server.
-  ///
-  /// - [item]: The entity to save.
-  /// - [userId]: The ID of the user this entity belongs to.
-  /// - [syncOptions]: Optional configuration for the synchronization part of the call.
-  ///
-  /// Returns a tuple containing the locally saved entity and the sync result.
-  Future<(T, DatumSyncResult<T>)> pushAndSync<T extends DatumEntity>({
+  Future<(T, DatumSyncResult<T>)> pushAndSync<T extends DatumEntityBase>({
     required T item,
     required String userId,
     DatumSyncOptions? syncOptions,
@@ -690,18 +591,7 @@ class Datum {
     );
   }
 
-  /// Updates an entity locally and immediately triggers a synchronization.
-  ///
-  /// This is an alias for [pushAndSync] and is provided for semantic clarity.
-  /// It's useful for operations that require immediate confirmation from the
-  /// remote server.
-  ///
-  /// - [item]: The entity to update.
-  /// - [userId]: The ID of the user this entity belongs to.
-  /// - [syncOptions]: Optional configuration for the synchronization part of the call.
-  ///
-  /// Returns a tuple containing the locally updated entity and the sync result.
-  Future<(T, DatumSyncResult<T>)> updateAndSync<T extends DatumEntity>({
+  Future<(T, DatumSyncResult<T>)> updateAndSync<T extends DatumEntityBase>({
     required T item,
     required String userId,
     DatumSyncOptions? syncOptions,
@@ -713,62 +603,33 @@ class Datum {
     );
   }
 
-  /// Deletes an entity locally and immediately triggers a synchronization.
-  ///
-  /// This is useful for ensuring a delete operation is persisted to the remote
-  /// server as soon as possible.
-  ///
-  /// - [id]: The ID of the entity to delete.
-  /// - [userId]: The ID of the user this entity belongs to.
-  /// - [syncOptions]: Optional configuration for the synchronization part of the call.
-  ///
-  /// Returns a tuple containing a boolean indicating if the local delete was
-  /// successful and the result of the subsequent synchronization.
-  Future<(bool, DatumSyncResult<T>)> deleteAndSync<T extends DatumEntity>({
+  Future<(bool, DatumSyncResult<T>)> deleteAndSync<T extends DatumEntityBase>({
     required String id,
     required String userId,
     DatumSyncOptions? syncOptions,
   }) =>
       Datum.manager<T>().deleteAndSync(id: id, userId: userId, syncOptions: syncOptions);
 
-  /// Watches all entities from the local adapter for a specific type,
-  /// emitting a new list on any change.
-  ///
-  /// The [includeInitialData] parameter controls whether the stream should
-  /// immediately emit the current list of all items. Defaults to `true`.
-  /// If `false`, the stream will only emit when a change occurs.
-  /// Returns null if the adapter does not support reactive queries.
-  Stream<List<T>>? watchAll<T extends DatumEntity>({String? userId, bool includeInitialData = true}) {
+  Stream<List<T>>? watchAll<T extends DatumEntityBase>({String? userId, bool includeInitialData = true}) {
     return Datum.manager<T>().watchAll(userId: userId, includeInitialData: includeInitialData);
   }
 
-  /// Watches a single entity by its ID for a specific type,
-  /// emitting the item on change or null if deleted.
-  /// Returns null if the adapter does not support reactive queries.
-  Stream<T?>? watchById<T extends DatumEntity>(String id, String? userId) {
+  Stream<T?>? watchById<T extends DatumEntityBase>(String id, String? userId) {
     return Datum.manager<T>().watchById(id, userId);
   }
 
-  /// Watches a paginated list of items for a specific type.
-  /// Returns null if the adapter does not support reactive queries.
-  Stream<PaginatedResult<T>>? watchAllPaginated<T extends DatumEntity>(
+  Stream<PaginatedResult<T>>? watchAllPaginated<T extends DatumEntityBase>(
     PaginationConfig config, {
     String? userId,
   }) {
     return Datum.manager<T>().watchAllPaginated(config, userId: userId);
   }
 
-  /// Watches a subset of items matching a query for a specific type.
-  /// Returns null if the adapter does not support reactive queries.
-  Stream<List<T>>? watchQuery<T extends DatumEntity>(DatumQuery query, {String? userId}) {
+  Stream<List<T>>? watchQuery<T extends DatumEntityBase>(DatumQuery query, {String? userId}) {
     return Datum.manager<T>().watchQuery(query, userId: userId);
   }
 
-  /// Executes a one-time query against the specified data source for a specific type.
-  ///
-  /// This provides a powerful way to fetch filtered and sorted data directly
-  /// from either the local or remote adapter without relying on reactive streams.
-  Future<List<T>> query<T extends DatumEntity>(
+  Future<List<T>> query<T extends DatumEntityBase>(
     DatumQuery query, {
     required DataSource source,
     String? userId,
@@ -776,80 +637,68 @@ class Datum {
     return Datum.manager<T>().query(query, source: source, userId: userId);
   }
 
-  /// Fetches related entities for a given parent entity.
-  ///
-  /// - [parent]: The entity instance for which to fetch related data.
-  /// - [relationName]: The name of the relation to fetch, as defined in the
-  ///   parent's `relations` map.
-  /// - [source]: The [DataSource] to fetch from (defaults to `local`).
-  ///
-  /// Returns a list of the related entities. Throws an [ArgumentError] if the
-  /// parent is not a [RelationalDatumEntity], or an [Exception] if the
-  /// relation name is not defined on the parent.
-  Future<List<R>> fetchRelated<P extends DatumEntity, R extends DatumEntity>(
+  /// Fetches related entities with proper type checking for RelationalDatumEntity
+  Future<List<R>> fetchRelated<P extends DatumEntityBase, R extends DatumEntityBase>(
     P parent,
     String relationName, {
     DataSource source = DataSource.local,
   }) async {
-    // Use the parent's runtimeType to find the correct manager.
-    return Datum.managerByType(parent.runtimeType).fetchRelated<R>(parent, relationName, source: source);
+    // Type-safe check using sealed class pattern matching
+    switch (parent) {
+      case RelationalDatumEntity():
+        return Datum.managerByType(parent.runtimeType).fetchRelated<R>(parent, relationName, source: source);
+      case DatumEntity():
+        throw ArgumentError(
+          'Entity of type ${parent.runtimeType} is not relational and cannot have relations. '
+          'To use relations, extend RelationalDatumEntity instead of DatumEntity.',
+        );
+    }
   }
 
-  /// Reactively watches related entities for a given parent entity.
-  ///
-  /// This method provides a stream of related entities that automatically
-  /// updates when the underlying data changes.
-  ///
-  /// - [parent]: The entity instance for which to watch related data.
-  /// - [relationName]: The name of the relation to watch.
-  ///
-  /// Returns a `Stream<List<R>>` of the related entities, or `null` if the
-  /// adapter does not support reactive queries. Throws an error if the
-  /// relation is not defined.
-  Stream<List<R>>? watchRelated<P extends DatumEntity, R extends DatumEntity>(
+  /// Reactively watches related entities with proper type checking
+  Stream<List<R>>? watchRelated<P extends DatumEntityBase, R extends DatumEntityBase>(
     P parent,
     String relationName,
   ) {
-    // Use the parent's runtimeType to find the correct manager.
-    return Datum.managerByType(parent.runtimeType).watchRelated<R>(parent, relationName);
+    // Type-safe check using sealed class pattern matching
+    switch (parent) {
+      case RelationalDatumEntity():
+        return Datum.managerByType(parent.runtimeType).watchRelated<R>(parent, relationName);
+      case DatumEntity():
+        throw ArgumentError(
+          'Entity of type ${parent.runtimeType} is not relational and cannot have relations. '
+          'To use relations, extend RelationalDatumEntity instead of DatumEntity.',
+        );
+    }
   }
 
-  /// Returns the number of pending synchronization operations for the user for a specific entity type.
-  Future<int> getPendingCount<T extends DatumEntity>(String userId) async {
+  Future<int> getPendingCount<T extends DatumEntityBase>(String userId) async {
     return Datum.manager<T>().getPendingCount(userId);
   }
 
-  /// Returns a list of pending synchronization operations for the user for a specific entity type.
-  Future<List<DatumSyncOperation<T>>> getPendingOperations<T extends DatumEntity>(String userId) async {
+  Future<List<DatumSyncOperation<T>>> getPendingOperations<T extends DatumEntityBase>(String userId) async {
     return Datum.manager<T>().getPendingOperations(userId);
   }
 
-  /// Gets the current storage size in bytes from the local adapter for a specific entity type.
-  Future<int> getStorageSize<T extends DatumEntity>({String? userId}) {
+  Future<int> getStorageSize<T extends DatumEntityBase>({String? userId}) {
     return Datum.manager<T>().getStorageSize(userId: userId);
   }
 
-  /// Reactively watches the storage size in bytes from the local adapter for a specific entity type.
-  /// Returns a stream that emits the size whenever it changes.
-  Stream<int> watchStorageSize<T extends DatumEntity>({String? userId}) {
+  Stream<int> watchStorageSize<T extends DatumEntityBase>({String? userId}) {
     return Datum.manager<T>().watchStorageSize(userId: userId);
   }
 
-  /// Retrieves the result of the last synchronization for a user from local storage for a specific entity type.
-  Future<DatumSyncResult<T>?> getLastSyncResult<T extends DatumEntity>(String userId) async {
+  Future<DatumSyncResult<T>?> getLastSyncResult<T extends DatumEntityBase>(String userId) async {
     return Datum.manager<T>().getLastSyncResult(userId);
   }
 
-  /// Performs a health check on the local and remote adapters for a specific entity type.
-  Future<DatumHealth> checkHealth<T extends DatumEntity>() async {
+  Future<DatumHealth> checkHealth<T extends DatumEntityBase>() async {
     return Datum.manager<T>().checkHealth();
   }
 
   Future<void> dispose() async {
-    // Pause all syncs before disposing to prevent new operations during shutdown.
     pauseAllSyncs();
 
-    // Await all disposals and cancellations concurrently for efficiency.
     await Future.wait([
       ..._managers.values.map((m) => m.dispose()),
       ..._managerSubscriptions.map((s) => s.cancel()),
@@ -860,16 +709,10 @@ class Datum {
     await _statusSubject.close();
   }
 
-  /// Pauses synchronization for all registered managers.
-  ///
-  /// This is an alias for [pauseAllSyncs].
   void pauseSync() {
     pauseAllSyncs();
   }
 
-  /// Pauses synchronization for all registered managers.
-  ///
-  /// While paused, any calls to `synchronize()` on any manager will be skipped.
   void pauseAllSyncs() {
     logger.info('Pausing sync for all managers...');
     for (final manager in _managers.values) {
@@ -877,14 +720,10 @@ class Datum {
     }
   }
 
-  /// Resumes synchronization for all registered managers.
-  ///
-  /// This is an alias for [resumeAllSyncs].
   void resumeSync() {
     resumeAllSyncs();
   }
 
-  /// Resumes synchronization for all registered managers.
   void resumeAllSyncs() {
     logger.info('Resuming sync for all managers...');
     for (final manager in _managers.values) {

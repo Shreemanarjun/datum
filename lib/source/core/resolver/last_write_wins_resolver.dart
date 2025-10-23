@@ -6,7 +6,7 @@ import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 
 /// A simple conflict resolver that chooses the entity with the later `modifiedAt` timestamp.
-class LastWriteWinsResolver<T extends DatumEntity> implements DatumConflictResolver<T> {
+class LastWriteWinsResolver<T extends DatumEntityBase> implements DatumConflictResolver<T> {
   @override
   String get name => 'LastWriteWins';
 

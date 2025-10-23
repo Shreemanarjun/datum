@@ -3,7 +3,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 
 /// Event emitted after a conflict has been successfully resolved.
-class ConflictResolvedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
+class ConflictResolvedEvent<T extends DatumEntityBase> extends DatumSyncEvent<T> {
   /// Creates a conflict resolved event.
   ConflictResolvedEvent({
     required super.userId,

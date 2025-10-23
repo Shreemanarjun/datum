@@ -8,7 +8,7 @@ typedef MigrationResult = ({
 });
 
 /// Orchestrates the execution of schema migrations.
-class MigrationExecutor<T extends DatumEntity> {
+class MigrationExecutor<T extends DatumEntityBase> {
   final LocalAdapter<T> localAdapter;
   final List<Migration> migrations;
   final int targetVersion;

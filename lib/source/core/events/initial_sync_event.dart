@@ -3,7 +3,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 
 /// Event emitted when event listeners are attached for a user and the
 /// full dataset snapshot needs to be delivered.
-class InitialSyncEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
+class InitialSyncEvent<T extends DatumEntityBase> extends DatumSyncEvent<T> {
   /// Creates an initial sync event.
   InitialSyncEvent({
     required super.userId,

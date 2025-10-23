@@ -13,9 +13,9 @@ import 'datum_config_test.dart';
 
 class MockIsolateHelper extends Mock implements IsolateHelper {}
 
-class MockLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('DatumSyncEngine', () {

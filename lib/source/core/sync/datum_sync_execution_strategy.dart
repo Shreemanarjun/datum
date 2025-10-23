@@ -33,7 +33,7 @@ abstract class DatumSyncExecutionStrategy {
   /// - [processOperation]: A function that processes a single operation.
   /// - [isCancelled]: A function to check if the sync has been cancelled.
   /// - [onProgress]: A callback to report progress.
-  Future<void> execute<T extends DatumEntity>(
+  Future<void> execute<T extends DatumEntityBase>(
     List<DatumSyncOperation<T>> operations,
     Future<void> Function(DatumSyncOperation<T> operation) processOperation,
     bool Function() isCancelled,
@@ -48,7 +48,7 @@ class SequentialStrategy implements DatumSyncExecutionStrategy {
   const SequentialStrategy();
 
   @override
-  Future<void> execute<T extends DatumEntity>(
+  Future<void> execute<T extends DatumEntityBase>(
     List<DatumSyncOperation<T>> operations,
     Future<void> Function(DatumSyncOperation<T> operation) processOperation,
     bool Function() isCancelled,
@@ -89,7 +89,7 @@ class IsolateStrategy implements DatumSyncExecutionStrategy {
   final bool forceIsolateInTest;
 
   @override
-  Future<void> execute<T extends DatumEntity>(
+  Future<void> execute<T extends DatumEntityBase>(
     List<DatumSyncOperation<T>> operations,
     Future<void> Function(DatumSyncOperation<T> operation) processOperation,
     bool Function() isCancelled,
@@ -139,7 +139,7 @@ class ParallelStrategy implements DatumSyncExecutionStrategy {
   final bool failFast;
 
   @override
-  Future<void> execute<T extends DatumEntity>(
+  Future<void> execute<T extends DatumEntityBase>(
     List<DatumSyncOperation<T>> operations,
     Future<void> Function(DatumSyncOperation<T> operation) processOperation,
     bool Function() isCancelled,
@@ -198,7 +198,7 @@ class ParallelStrategy implements DatumSyncExecutionStrategy {
 }
 
 /// Helper function to encapsulate the original Isolate.spawn logic.
-Future<void> _spawnIsolate<T extends DatumEntity>(
+Future<void> _spawnIsolate<T extends DatumEntityBase>(
   List<DatumSyncOperation<T>> operations,
   Future<void> Function(DatumSyncOperation<T> operation) processOperation,
   bool Function() isCancelled,
@@ -324,7 +324,7 @@ void _isolateEntryPoint(_IsolateInitMessage initMessage) {
   // Since the wrapped strategy isn't passed, we assume a default.
   // This part of the logic is simplified as the main isolate does the work.
   const SequentialStrategy() // This should be `wrappedStrategy` but it's not serializable.
-      .execute<DatumEntity>(
+      .execute<DatumEntityBase>(
         operations,
         requestProcessing,
         isCancelled,

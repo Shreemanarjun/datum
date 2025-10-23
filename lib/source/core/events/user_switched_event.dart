@@ -2,7 +2,7 @@ import 'package:datum/source/core/events/datum_event.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 
 /// Event emitted when the active user is changed in the manager.
-class UserSwitchedEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
+class UserSwitchedEvent<T extends DatumEntityBase> extends DatumSyncEvent<T> {
   /// Creates a user switched event.
   UserSwitchedEvent({
     required this.previousUserId,

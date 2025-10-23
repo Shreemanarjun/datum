@@ -1,4 +1,5 @@
 import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
 import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -43,9 +44,6 @@ class User extends RelationalDatumEntity {
     this.version = 1,
     this.isDeleted = false,
   }) : userId = id; // For users, userId is often the same as id
-
-  @override
-  bool get isRelational => true;
 
   @override
   Map<String, Relation> get relations => {
@@ -238,9 +236,9 @@ class Profile extends RelationalDatumEntity {
 }
 
 /// A local adapter that intentionally does not implement fetchRelated.
-class _UnimplementedLocalAdapter<T extends DatumEntity> extends LocalAdapter<T> {
+class _UnimplementedLocalAdapter<T extends DatumEntityBase> extends LocalAdapter<T> {
   @override
-  Future<List<R>> fetchRelated<R extends DatumEntity>(
+  Future<List<R>> fetchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     LocalAdapter<R> relatedAdapter,
@@ -251,7 +249,7 @@ class _UnimplementedLocalAdapter<T extends DatumEntity> extends LocalAdapter<T> 
   }
 
   @override
-  Stream<List<R>>? watchRelated<R extends DatumEntity>(
+  Stream<List<R>>? watchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     LocalAdapter<R> relatedAdapter,

@@ -5,7 +5,7 @@ import 'package:meta/meta.dart';
 
 /// Represents the outcome of a synchronization cycle.
 @immutable
-class DatumSyncResult<T extends DatumEntity> {
+class DatumSyncResult<T extends DatumEntityBase> {
   /// The user ID for which the sync was performed.
   final String userId;
 

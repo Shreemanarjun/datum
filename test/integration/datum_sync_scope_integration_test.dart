@@ -6,9 +6,9 @@ import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
 // Re-using mocks from other tests for consistency
-class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('DatumSyncScope Integration Test', () {

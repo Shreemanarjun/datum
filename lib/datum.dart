@@ -44,7 +44,6 @@ export 'source/core/models/datum_sync_scope.dart';
 export 'source/core/models/datum_sync_status_snapshot.dart';
 export 'source/core/models/error_strategy.dart';
 export 'source/core/models/excludable_entity.dart';
-export 'source/core/models/relational_datum_entity.dart';
 export 'source/core/models/user_switch_models.dart';
 export 'source/core/query/datum_query.dart';
 export 'source/core/query/datum_query_builder.dart';

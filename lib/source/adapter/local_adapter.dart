@@ -4,7 +4,7 @@ import 'package:datum/datum.dart';
 import 'package:meta/meta.dart';
 
 /// Local storage adapter abstraction that provides access to offline data.
-abstract class LocalAdapter<T extends DatumEntity> {
+abstract class LocalAdapter<T extends DatumEntityBase> {
   /// A descriptive name for the adapter (e.g., "Hive", "SQLite").
   String get name => runtimeType.toString();
 
@@ -144,7 +144,7 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// This is an optional method that adapters can implement if their backend
   /// supports efficient relational queries (e.g., via joins in SQL).
   /// If not implemented, it will throw an [UnimplementedError].
-  Future<List<R>> fetchRelated<R extends DatumEntity>(
+  Future<List<R>> fetchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     LocalAdapter<R> relatedAdapter,
@@ -159,7 +159,7 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// This is an optional method that adapters can implement to provide
   /// reactive streams for relational data. If not implemented, it will
   /// throw an [UnimplementedError].
-  Stream<List<R>>? watchRelated<R extends DatumEntity>(
+  Stream<List<R>>? watchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     LocalAdapter<R> relatedAdapter,
@@ -219,12 +219,6 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// Dispose of underlying resources (e.g., close database connections).
   Future<void> dispose();
 
-  /// Provides a sample, empty, or dummy instance of the entity.
-  /// This is used for reflection-like purposes, such as logging.
-  T get sampleInstance {
-    throw UnimplementedError('sampleInstance getter is not implemented for this adapter.');
-  }
-
   /// Checks the health of the local adapter.
   ///
   /// Returns [AdapterHealthStatus.ok] by default. Adapters should override
@@ -242,7 +236,7 @@ abstract class LocalAdapter<T extends DatumEntity> {
   /// implementation if their storage engine supports it. The default implementation
   /// is also available as a static method for testing purposes.
   @visibleForTesting
-  static Stream<int> defaultWatchStorageSize<T extends DatumEntity>(LocalAdapter<T> adapter, {String? userId}) {
+  static Stream<int> defaultWatchStorageSize<T extends DatumEntityBase>(LocalAdapter<T> adapter, {String? userId}) {
     final changes = adapter
         .changeStream()
         // Filter changes to only include the relevant user.

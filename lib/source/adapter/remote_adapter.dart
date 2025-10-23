@@ -1,7 +1,7 @@
 import 'package:datum/datum.dart';
 
 /// Remote storage adapter abstraction for cloud data sources.
-abstract class RemoteAdapter<T extends DatumEntity> {
+abstract class RemoteAdapter<T extends DatumEntityBase> {
   /// A descriptive name for the adapter (e.g., "Firebase", "REST").
   String get name => runtimeType.toString();
 
@@ -74,7 +74,7 @@ abstract class RemoteAdapter<T extends DatumEntity> {
   /// This is an optional method that adapters can implement if their backend
   /// supports efficient relational queries. If not implemented, it will throw
   /// an [UnimplementedError].
-  Future<List<R>> fetchRelated<R extends DatumEntity>(
+  Future<List<R>> fetchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     RemoteAdapter<R> relatedAdapter,

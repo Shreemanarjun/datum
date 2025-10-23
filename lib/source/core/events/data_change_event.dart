@@ -3,7 +3,7 @@ import 'package:datum/source/core/models/data_source.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 
 /// Event emitted whenever local or remote data changes.
-class DataChangeEvent<T extends DatumEntity> extends DatumSyncEvent<T> {
+class DataChangeEvent<T extends DatumEntityBase> extends DatumSyncEvent<T> {
   /// Creates a data change event.
   DataChangeEvent({
     required super.userId,

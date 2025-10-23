@@ -331,7 +331,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
     );
   }
 
-  void _handleSyncResult(DatumSyncResult<DatumEntity> result,
+  void _handleSyncResult(DatumSyncResult<DatumEntityBase> result,
       {String operation = 'Sync'}) {
     ref.read(lastSyncResultProvider.notifier).update(result);
 

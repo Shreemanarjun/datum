@@ -23,7 +23,7 @@ class PaginationConfig extends Equatable {
 }
 
 /// Result of a paginated query.
-class PaginatedResult<T extends DatumEntity> extends Equatable {
+class PaginatedResult<T extends DatumEntityBase> extends Equatable {
   /// Items in the current page.
   final List<T> items;
 

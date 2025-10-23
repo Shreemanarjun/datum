@@ -3,9 +3,10 @@ import 'dart:math';
 
 import 'package:collection/collection.dart';
 import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
 import 'package:rxdart/rxdart.dart' show MergeStream, Rx, SwitchMapExtension;
 
-class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
+class MockLocalAdapter<T extends DatumEntityBase> implements LocalAdapter<T> {
   MockLocalAdapter({this.fromJson, this.relatedAdapters});
 
   final Map<String, Map<String, T>> _storage = {};
@@ -22,7 +23,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   final T Function(Map<String, dynamic>)? fromJson;
 
   /// A map of related adapters for testing relational queries.
-  final Map<Type, LocalAdapter<DatumEntity>>? relatedAdapters;
+  final Map<Type, LocalAdapter<DatumEntityBase>>? relatedAdapters;
 
   /// An external stream to drive reactive queries, typically from DatumManager.
   Stream<DataChangeEvent<T>>? externalChangeStream;
@@ -32,15 +33,6 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
 
   @override
   String get name => 'MockLocalAdapter';
-
-  @override
-  T get sampleInstance {
-    // This is required to fulfill the LocalAdapter contract.
-    // Tests that rely on relational logging will need to stub this.
-    throw UnimplementedError(
-      'sampleInstance is not implemented for this mock adapter.',
-    );
-  }
 
   @override
   Future<void> initialize() async {
@@ -459,7 +451,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   }
 
   @override
-  Future<List<R>> fetchRelated<R extends DatumEntity>(
+  Future<List<R>> fetchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     LocalAdapter<R> relatedAdapter,
@@ -544,7 +536,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   }
 
   @override
-  Stream<List<R>>? watchRelated<R extends DatumEntity>(
+  Stream<List<R>>? watchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     LocalAdapter<R> relatedAdapter,
@@ -657,7 +649,7 @@ class MockLocalAdapter<T extends DatumEntity> implements LocalAdapter<T> {
   }
 }
 
-class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
+class MockRemoteAdapter<T extends DatumEntityBase> implements RemoteAdapter<T> {
   MockRemoteAdapter({this.fromJson});
 
   final Map<String, Map<String, T>> _remoteStorage = {};
@@ -890,7 +882,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
   }
 
   @override
-  Future<List<R>> fetchRelated<R extends DatumEntity>(
+  Future<List<R>> fetchRelated<R extends DatumEntityBase>(
     RelationalDatumEntity parent,
     String relationName,
     RemoteAdapter<R> relatedAdapter,
@@ -974,7 +966,7 @@ class MockRemoteAdapter<T extends DatumEntity> implements RemoteAdapter<T> {
 }
 
 /// A helper function to apply query filters and sorting to a list of items.
-List<T> applyQuery<T extends DatumEntity>(List<T> items, DatumQuery query) {
+List<T> applyQuery<T extends DatumEntityBase>(List<T> items, DatumQuery query) {
   var filteredItems = items.where((item) {
     final json = item.toDatumMap();
     if (query.logicalOperator == LogicalOperator.and) {

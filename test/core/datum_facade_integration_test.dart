@@ -118,9 +118,9 @@ class UnregisteredEntity extends DatumEntity {
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {};
 }
 
-class MockedLocalAdapter<T extends DatumEntity> extends Mock implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntityBase> extends Mock implements LocalAdapter<T> {}
 
-class MockedRemoteAdapter<T extends DatumEntity> extends Mock implements RemoteAdapter<T> {}
+class MockedRemoteAdapter<T extends DatumEntityBase> extends Mock implements RemoteAdapter<T> {}
 
 void main() {
   group('Datum Facade Integration Tests', () {
@@ -188,26 +188,59 @@ void main() {
       );
     });
 
+    // New, more modular stubbing helpers
+    void stubLifecycle<T extends DatumEntityBase>(MockedLocalAdapter<T> local, MockedRemoteAdapter<T> remote) {
+      when(() => local.initialize()).thenAnswer((_) async {});
+      when(() => remote.initialize()).thenAnswer((_) async {});
+      when(() => local.dispose()).thenAnswer((_) async {});
+      when(() => remote.dispose()).thenAnswer((_) async {});
+      when(() => local.getStoredSchemaVersion()).thenAnswer((_) async => 0);
+      when(() => local.changeStream()).thenAnswer((_) => Stream<DatumChangeDetail<T>>.empty());
+      when(() => remote.changeStream).thenAnswer((_) => Stream<DatumChangeDetail<T>>.empty());
+    }
+
+    void stubReads<T extends DatumEntityBase>(MockedLocalAdapter<T> local, MockedRemoteAdapter<T> remote) {
+      when(() => local.read(any(), userId: any(named: 'userId'))).thenAnswer((_) async => null);
+      when(() => local.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {});
+      when(() => local.readAll(userId: any(named: 'userId'))).thenAnswer((_) async => []);
+      when(() => remote.readAll(userId: any(named: 'userId'), scope: any(named: 'scope'))).thenAnswer((_) async => []);
+    }
+
+    void stubWrites<T extends DatumEntityBase>(MockedLocalAdapter<T> local, MockedRemoteAdapter<T> remote) {
+      when(() => local.create(any())).thenAnswer((_) async {});
+      when(() => local.update(any())).thenAnswer((_) async {});
+      when(() => local.delete(any(), userId: any(named: 'userId'))).thenAnswer((_) async => true);
+      when(() => remote.create(any(that: isA<T>()))).thenAnswer((_) async {});
+      when(() => remote.delete(any(that: isA<String>()), userId: any(named: 'userId', that: isA<String>()))).thenAnswer((_) async {});
+    }
+
+    void stubSyncing<T extends DatumEntityBase>(MockedLocalAdapter<T> local, MockedRemoteAdapter<T> remote) {
+      when(() => local.getPendingOperations(any())).thenAnswer((_) async => []);
+      when(() => local.addPendingOperation(any(), any())).thenAnswer((_) async {});
+      when(() => local.removePendingOperation(any())).thenAnswer((_) async {});
+      when(() => local.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
+      when(() => remote.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
+      when(() => local.getSyncMetadata(any())).thenAnswer((_) async => null);
+      when(() => remote.getSyncMetadata(any())).thenAnswer((_) async => null);
+      when(() => local.saveLastSyncResult(any(), any())).thenAnswer((_) async {});
+      when(() => local.getLastSyncResult(any())).thenAnswer((_) async => null);
+    }
+
+    // The old function can now be a composition of the new, smaller helpers.
+    // Or, you can call the smaller helpers directly in your `setUp`.
+    void stubAllBehaviors<T extends DatumEntityBase>(MockedLocalAdapter<T> local, MockedRemoteAdapter<T> remote) {
+      stubLifecycle(local, remote);
+      stubReads(local, remote);
+      stubWrites(local, remote);
+      stubSyncing(local, remote);
+    }
+
     void stubDefaultBehaviors() {
       // Stub for TestEntity
-      _stubAdapterBehaviors(localAdapter1, remoteAdapter1);
-      when(() => localAdapter1.sampleInstance).thenReturn(
-        TestEntity.create('sample', 'sample', 'sample'),
-      );
+      stubAllBehaviors(localAdapter1, remoteAdapter1);
 
       // Stub for TestEntity2
-      _stubAdapterBehaviors(localAdapter2, remoteAdapter2);
-      when(() => localAdapter2.sampleInstance).thenReturn(
-        // ignore: avoid_redundant_argument_values
-        TestEntity2(
-          id: 'sample',
-          userId: 'sample',
-          description: 'sample',
-          modifiedAt: _fallbackDate,
-          createdAt: _fallbackDate,
-          version: 0,
-        ),
-      );
+      stubAllBehaviors(localAdapter2, remoteAdapter2);
 
       // Stub connectivity
       when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
@@ -220,6 +253,10 @@ void main() {
       remoteAdapter2 = MockedRemoteAdapter<TestEntity2>();
       connectivityChecker = MockConnectivityChecker();
       stubDefaultBehaviors();
+      // Example of using the new helpers directly:
+      // _stubAllBehaviors(localAdapter1, remoteAdapter1);
+      // _stubAllBehaviors(localAdapter2, remoteAdapter2);
+      // when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
     });
 
     tearDown(() async {
@@ -334,10 +371,17 @@ void main() {
       test('Datum.update<T>() delegates to the correct manager', () async {
         // Arrange
         await initializeDatum();
-        final entity1 = TestEntity.create('e1', 'u1', 'Item 1');
+        final initialEntity = TestEntity.create('e1', 'u1', 'Item 1');
+        final updatedEntity = initialEntity.copyWith(name: 'Item 1 Updated');
+        // Stub the read to return the initial entity, so a diff is calculated.
+        when(() => localAdapter1.read('e1', userId: 'u1')).thenAnswer((_) async => initialEntity);
+        // Stub the patch call to return the updated entity, as required by the interface.
+        when(() => localAdapter1.patch(id: 'e1', delta: any(named: 'delta'), userId: 'u1')).thenAnswer(
+          (_) async => updatedEntity,
+        );
 
         // Act: update is an alias for push, which will call patch/update on the adapter
-        await Datum.instance.update(entity1);
+        await Datum.instance.update(updatedEntity);
 
         // Assert
         verify(() => localAdapter1.patch(id: 'e1', delta: any(named: 'delta'), userId: 'u1')).called(1);
@@ -431,6 +475,15 @@ void main() {
             ),
           ],
         );
+
+        // Stub the remote patch call that will happen during the 'sync' phase
+        when(
+          () => remoteAdapter1.patch(
+            id: 'e1',
+            delta: any(named: 'delta'),
+            userId: 'u1',
+          ),
+        ).thenAnswer((_) async => updatedEntity);
 
         // Act
         final (savedItem, syncResult) = await Datum.instance.updateAndSync<TestEntity>(item: updatedEntity, userId: 'u1');
@@ -705,66 +758,3 @@ void main() {
 }
 
 final _fallbackDate = DateTime(2023);
-
-/// Helper function to apply all default stubs to a set of mocks.
-void _stubAdapterBehaviors<T extends DatumEntity>(
-  MockedLocalAdapter<T> localAdapter,
-  MockedRemoteAdapter<T> remoteAdapter,
-) {
-  // Initialization & Disposal
-  when(() => localAdapter.initialize()).thenAnswer((_) async {});
-  when(() => remoteAdapter.initialize()).thenAnswer((_) async {});
-  when(() => localAdapter.dispose()).thenAnswer((_) async {});
-  when(() => remoteAdapter.dispose()).thenAnswer((_) async {});
-  when(() => localAdapter.getStoredSchemaVersion()).thenAnswer((_) async => 0);
-
-  // Streams
-  when(() => localAdapter.changeStream()).thenAnswer((_) => Stream<DatumChangeDetail<T>>.empty());
-  when(() => remoteAdapter.changeStream).thenAnswer((_) => Stream<DatumChangeDetail<T>>.empty());
-
-  // Core Local Operations
-  when(() => localAdapter.create(any())).thenAnswer((_) async {});
-  when(() => localAdapter.update(any())).thenAnswer((_) async {});
-  when(() => localAdapter.read(any(), userId: any(named: 'userId'))).thenAnswer((_) async => null);
-  when(() => localAdapter.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {});
-  when(() => localAdapter.readAll(userId: any(named: 'userId'))).thenAnswer((_) async => []);
-  // Stub read for update tests to simulate an existing item
-  when(() => localAdapter.read(any(that: equals('e1')), userId: any(named: 'userId'))).thenAnswer(
-    (_) async => TestEntity.create('e1', 'u1', 'Existing') as T?,
-  );
-
-  when(() => localAdapter.delete(any(), userId: any(named: 'userId'))).thenAnswer((_) async => true);
-  when(() => localAdapter.patch(
-        id: any(named: 'id'),
-        delta: any(named: 'delta'),
-        userId: any(named: 'userId'),
-      )).thenAnswer((_) async => localAdapter.sampleInstance);
-
-  // Core Remote Operations
-  when(() => remoteAdapter.create(any(that: isA<T>()))).thenAnswer((_) async {});
-  when(() => remoteAdapter.delete(any(that: isA<String>()), userId: any(named: 'userId', that: isA<String>()))).thenAnswer((_) async {});
-  when(() => remoteAdapter.readAll(
-        userId: any(named: 'userId'),
-        scope: any(named: 'scope'),
-      )).thenAnswer((_) async => []);
-  when(() => remoteAdapter.patch(
-        id: any(named: 'id'),
-        delta: any(named: 'delta'),
-        userId: any(named: 'userId'),
-      )).thenAnswer((_) async => localAdapter.sampleInstance);
-
-  // Sync-related Operations
-  when(() => localAdapter.getPendingOperations(any())).thenAnswer((_) async => []);
-  when(
-    () => localAdapter.addPendingOperation(any(), any()),
-  ).thenAnswer((_) async {});
-  when(() => localAdapter.removePendingOperation(any())).thenAnswer((_) async {});
-
-  // Metadata
-  when(() => localAdapter.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
-  when(() => remoteAdapter.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
-  when(() => localAdapter.getSyncMetadata(any())).thenAnswer((_) async => null);
-  when(() => remoteAdapter.getSyncMetadata(any())).thenAnswer((_) async => null);
-  when(() => localAdapter.saveLastSyncResult(any(), any())).thenAnswer((_) async {});
-  when(() => localAdapter.getLastSyncResult(any())).thenAnswer((_) async => null);
-}

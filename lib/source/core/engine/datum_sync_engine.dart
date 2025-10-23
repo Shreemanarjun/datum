@@ -28,7 +28,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:rxdart/rxdart.dart';
 
 /// The core engine that orchestrates the synchronization process.
-class DatumSyncEngine<T extends DatumEntity> {
+class DatumSyncEngine<T extends DatumEntityBase> {
   final LocalAdapter<T> localAdapter;
   final RemoteAdapter<T> remoteAdapter;
   final DatumConflictResolver<T> conflictResolver;
@@ -643,7 +643,7 @@ class DatumSyncEngine<T extends DatumEntity> {
         for (final observer in globalObservers) {
           // We need to cast the resolution to the generic DatumEntity type
           // that the GlobalDatumObserver expects.
-          final genericResolution = resolvedEvent.resolution.copyWithNewType<DatumEntity>();
+          final genericResolution = resolvedEvent.resolution.copyWithNewType<DatumEntityBase>();
           observer.onConflictResolved(genericResolution);
         }
       case DatumSyncErrorEvent<T>():
@@ -724,7 +724,7 @@ class DatumSyncEngine<T extends DatumEntity> {
 }
 
 /// A special exception to carry events back up the call stack on failure.
-class SyncExceptionWithEvents<T extends DatumEntity> implements Exception {
+class SyncExceptionWithEvents<T extends DatumEntityBase> implements Exception {
   final Object originalError;
   final StackTrace originalStackTrace;
   final List<DatumSyncEvent<T>> events;

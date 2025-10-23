@@ -1,4 +1,5 @@
 import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
 
 /// A mock entity for testing purposes.
 class TestEntity extends RelationalDatumEntity {
@@ -102,19 +103,20 @@ class TestEntity extends RelationalDatumEntity {
   List<Object?> get props => [...super.props, name, value, completed];
 
   @override
-  Map<String, dynamic>? diff(DatumEntity oldVersion) {
-    if (oldVersion is! TestEntity) {
-      // If types don't match, return the full object as a "diff"
-      return toDatumMap(target: MapTarget.remote);
-    }
+  Map<String, dynamic>? diff(DatumEntityBase oldVersion) {
+    return switch (oldVersion) {
+      TestEntity() => () {
+          final diffMap = <String, dynamic>{};
 
-    final diffMap = <String, dynamic>{};
+          if (name != oldVersion.name) diffMap['name'] = name;
+          if (value != oldVersion.value) diffMap['value'] = value;
+          if (completed != oldVersion.completed) diffMap['completed'] = completed;
 
-    if (name != oldVersion.name) diffMap['name'] = name;
-    if (value != oldVersion.value) diffMap['value'] = value;
-    if (completed != oldVersion.completed) diffMap['completed'] = completed;
-
-    return diffMap.isEmpty ? null : diffMap;
+          return diffMap.isEmpty ? null : diffMap;
+        }(),
+      DatumEntity() => toDatumMap(target: MapTarget.remote),
+      RelationalDatumEntity() => toDatumMap(target: MapTarget.remote),
+    };
   }
 
   @override
