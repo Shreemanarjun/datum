@@ -1,30 +1,25 @@
 ## 0.0.6
 
-### ✨ Features
+### 🚀 Features
 
-- ✨ feat(core): implement reactive and query methods on Datum core
-  - add convenience methods to Datum class for accessing reactive and query functionalities
-  - introduce `watchAll`, `watchById`, `watchQuery`, `query`, `fetchRelated`, and `watchRelated` methods for streamlined data access
-  - implement `getPendingCount`, `getPendingOperations`, `getStorageSize`, `watchStorageSize`, `getLastSyncResult` and `checkHealth` methods for data management
-  - add `pauseSync` and `resumeSync` methods to pause/resume synchronization for all managers
+- **✨ Sealed Class Migration**: Migrated `DatumEntity` and `RelationalDatumEntity` to a `DatumEntityBase` sealed class for enhanced type safety.
+- **🚀 New Facade Methods**: Added a suite of new methods to the global `Datum` facade for easier data interaction:
+  - **Reactive Watching**: `watchAll`, `watchById`, `watchQuery`, `watchRelated`.
+  - **One-time Fetching**: `query`, `fetchRelated`.
+  - **Data & Sync Management**: `getPendingCount`, `getPendingOperations`, `getStorageSize`, `watchStorageSize`, `getLastSyncResult`, `checkHealth`.
+  - **Sync Control**: `pauseSync`, `resumeSync`.
 
 ### ✅ Tests
 
-- ✅ test(core): enhance datum core tests
-  - add test case for uninitialized datum state error
-  - add tests for `statusForUser` and `allHealths` methods
-  - add `CustomManagerConfig` for testing purposes to inject mock manager into Datum initialization
-  - add non relational test entity to test relational methods
+- **🧪 Enhanced Core Tests**: Added test cases for uninitialized state errors, `statusForUser`, `allHealths`, and relational method behavior with non-relational entities.
 
 ### ♻️ Refactors & 🧹 Chores
 
-- rename `AdapterHealthStatus.ok` to `AdapterHealthStatus.healthy` for clarity
-- refactor `LocalAdapter` and `RemoteAdapter` to import `datum` package
-- refactor `data_change_event` to import `data_source` from the `datum` package
-- refactor `health` to import `data_source` from the `datum` package
-- refactor `datum manager` to import `datum` package
-- refactor `migration executor` to support generic type
-- add `DataSource` enum to specify data source for queries
+- **🗑️ Removed `sampleInstance`**: The `sampleInstance` property on `LocalAdapter` is no longer needed due to the sealed class migration and has been removed.
+- **🩺 Renamed `AdapterHealthStatus.ok`** to `AdapterHealthStatus.healthy` for better clarity.
+- **📦 Refactored internal imports** to use the `datum` package consistently.
+- **⚙️ Made `MigrationExecutor` generic** to improve type safety during migrations.
+- **🗺️ Added `DataSource` enum** to explicitly specify the source for query operations.
 
 ## 0.0.5
 - Add docs link
