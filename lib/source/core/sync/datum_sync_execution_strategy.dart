@@ -1,12 +1,12 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:isolate';
 
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
 
+import '_isolate_runner_io.dart' if (dart.library.html) '_isolate_runner_web.dart';
+
 /// A flag to determine if the code is running in a test environment.
-final bool isTest = Platform.environment.containsKey('FLUTTER_TEST');
+const bool isTest = bool.fromEnvironment('dart.vm.product') == false && bool.fromEnvironment('flutter.test') == true;
 
 /// Defines the execution strategy for processing the sync queue.
 abstract class DatumSyncExecutionStrategy {
@@ -111,14 +111,13 @@ class IsolateStrategy implements DatumSyncExecutionStrategy {
         onProgress,
       );
     } else {
-      // The original Isolate.spawn logic is kept for production builds.
-      // This block is intentionally left unchanged as `compute` is not a
-      // suitable replacement for this specific use case.
-      return _spawnIsolate(
+      // Use the platform-specific runner.
+      return spawnIsolate<T>(
         operations,
         processOperation,
         isCancelled,
         onProgress,
+        wrappedStrategy,
       );
     }
   }
@@ -195,143 +194,4 @@ class ParallelStrategy implements DatumSyncExecutionStrategy {
       throw errors.first;
     }
   }
-}
-
-/// Helper function to encapsulate the original Isolate.spawn logic.
-Future<void> _spawnIsolate<T extends DatumEntityBase>(
-  List<DatumSyncOperation<T>> operations,
-  Future<void> Function(DatumSyncOperation<T> operation) processOperation,
-  bool Function() isCancelled,
-  void Function(int completed, int total) onProgress,
-) {
-  final completer = Completer<void>();
-  final mainReceivePort = ReceivePort();
-
-  final isolateInitMessage = _IsolateInitMessage(
-    // Cast to dynamic to satisfy Isolate.spawn
-    mainToIsolateSendPort: mainReceivePort.sendPort,
-    // Note: The wrapped strategy is not directly serializable. This approach
-    // relies on the main isolate to do the actual processing.
-    operations: operations.cast(),
-  );
-
-  unawaited(
-    Isolate.spawn(_isolateEntryPoint, isolateInitMessage).then((isolate) async {
-      try {
-        final mainPortSubscription = mainReceivePort.listen((message) {
-          if (isCancelled() && !completer.isCompleted) {
-            isolate.kill(priority: Isolate.immediate);
-            completer.complete();
-            return;
-          }
-
-          if (message is _ProcessOperationRequest) {
-            final operation = operations.firstWhere(
-              (op) => op.id == message.id,
-            );
-            processOperation(operation).then((_) => message.responsePort.send(null)).catchError((Object e, StackTrace s) {
-              message.responsePort.send(_IsolateError(e, s));
-            });
-          } else if (message is _ProgressUpdate) {
-            onProgress(message.completed, message.total);
-          } else if (message is _SyncComplete) {
-            if (!completer.isCompleted) completer.complete();
-          } else if (message is _SyncError) {
-            if (!completer.isCompleted) {
-              completer.completeError(message.error, message.stackTrace);
-            }
-          }
-        });
-
-        await completer.future.whenComplete(() {
-          isolate.kill(priority: Isolate.immediate);
-          mainPortSubscription.cancel();
-        });
-      } finally {
-        mainReceivePort.close();
-      }
-    }).catchError((Object e, StackTrace s) {
-      if (!completer.isCompleted) completer.completeError(e, s);
-      mainReceivePort.close();
-    }),
-  );
-
-  return completer.future;
-}
-
-// --- Isolate Communication Models ---
-
-class _IsolateInitMessage {
-  _IsolateInitMessage({
-    required this.mainToIsolateSendPort,
-    required this.operations,
-  });
-
-  final SendPort mainToIsolateSendPort;
-  final List<DatumSyncOperation> operations;
-}
-
-class _ProcessOperationRequest {
-  _ProcessOperationRequest(this.id, this.responsePort);
-  final String id;
-  final SendPort responsePort;
-}
-
-class _IsolateError {
-  _IsolateError(this.error, this.stackTrace);
-  final Object error;
-  final StackTrace stackTrace;
-}
-
-class _ProgressUpdate {
-  _ProgressUpdate(this.completed, this.total);
-  final int completed;
-  final int total;
-}
-
-class _SyncComplete {}
-
-class _SyncError {
-  _SyncError(this.error, this.stackTrace);
-  final Object error;
-  final StackTrace stackTrace;
-}
-
-/// The entry point for the background isolate.
-void _isolateEntryPoint(_IsolateInitMessage initMessage) {
-  final mainSendPort = initMessage.mainToIsolateSendPort;
-  final operations = initMessage.operations;
-
-  Future<void> requestProcessing(DatumSyncOperation<dynamic> operation) async {
-    final responsePort = ReceivePort();
-    mainSendPort.send(
-      _ProcessOperationRequest(operation.id, responsePort.sendPort),
-    );
-    final result = await responsePort.first;
-    responsePort.close();
-
-    if (result is _IsolateError) {
-      return Future.error(result.error, result.stackTrace);
-    }
-  }
-
-  void reportProgress(int completed, int total) {
-    mainSendPort.send(_ProgressUpdate(completed, total));
-  }
-
-  bool isCancelled() => false;
-
-  // Since the wrapped strategy isn't passed, we assume a default.
-  // This part of the logic is simplified as the main isolate does the work.
-  const SequentialStrategy() // This should be `wrappedStrategy` but it's not serializable.
-      .execute<DatumEntityBase>(
-        operations,
-        requestProcessing,
-        isCancelled,
-        reportProgress,
-      )
-      .then((_) => mainSendPort.send(_SyncComplete()))
-      .catchError(
-        (Object e, StackTrace s) => mainSendPort.send(_SyncError(e, s)),
-      );
 }

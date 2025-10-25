@@ -341,4 +341,12 @@ class HiveLocalAdapter<T extends DatumEntity> extends LocalAdapter<T> {
       },
     );
   }
+
+  @override
+  Future<void> initializeUserQueue(String userId) {
+    if (!pendingOpsBox.containsKey(userId)) {
+      return pendingOpsBox.put(userId, []);
+    }
+    return Future.value();
+  }
 }

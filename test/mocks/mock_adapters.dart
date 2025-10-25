@@ -199,6 +199,12 @@ class MockLocalAdapter<T extends DatumEntityBase> implements LocalAdapter<T> {
   }
 
   @override
+  Future<void> initializeUserQueue(String userId) async {
+    // For the mock, this ensures the list for the user exists.
+    _pendingOps.putIfAbsent(userId, () => []);
+  }
+
+  @override
   Future<void> clear() async {
     // ignore: avoid_print
     print(

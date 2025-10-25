@@ -28,6 +28,7 @@ dependencies:
   uuid: ^4.4.0
   collection: ^1.19.1
   meta: ^1.16.0
+  compute: ^1.0.2
 
 dev_dependencies:
   lints: ^4.0.0

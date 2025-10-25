@@ -1,9 +1,6 @@
-import 'dart:math';
 
-import 'package:example/bootstrap.dart';
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseSecurityDialog extends StatefulWidget {
   const SupabaseSecurityDialog({super.key});

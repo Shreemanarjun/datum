@@ -140,6 +140,15 @@ void main() {
       expect(pending2.first.id, 'op2');
     });
 
+    test('initializeUser creates a queue for a new user', () async {
+      // Act
+      await queueManager.initializeUser('new_user');
+
+      // Assert
+      final pending = await queueManager.getPending('new_user');
+      expect(pending, isEmpty); // The queue exists but is empty.
+    });
+
     test('update replaces an existing operation in the queue', () async {
       final initialOperation = DatumSyncOperation<TestEntity>(
         id: 'op1',
