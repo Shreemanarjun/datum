@@ -36,7 +36,8 @@ class _LoginPageState extends ConsumerState<LoginPage> with GlobalHelper {
           talker.debug(authResponse.session);
           ref.read(autorouterProvider).replaceAll([SimpleDatumRoute()]);
         }
-      } on AuthException catch (e, _) {
+      } on AuthException catch (e, s) {
+        talker.error(e, s);
         final message = switch (e) {
           AuthWeakPasswordException() => "Weak password",
           AuthUnknownException() => "Unknown error",

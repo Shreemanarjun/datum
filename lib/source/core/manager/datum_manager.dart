@@ -410,7 +410,6 @@ class DatumManager<T extends DatumEntityBase> with Disposable {
 
   Future<T> _performCreate(T transformed, DataSource source, bool forceRemoteSync) async {
     final userId = transformed.userId;
-    const isCreate = true; // Explicitly true for this path
 
     _logger.debug('Notifying observers of onCreateStart for ${transformed.id}');
     for (final observer in _localObservers) {
@@ -424,7 +423,7 @@ class DatumManager<T extends DatumEntityBase> with Disposable {
     if (source == DataSource.local || forceRemoteSync) {
       final operation = _createOperation(
         userId: userId,
-        type: isCreate ? DatumOperationType.create : DatumOperationType.update,
+        type: DatumOperationType.create,
         entityId: transformed.id,
         data: transformed,
       );
@@ -440,7 +439,7 @@ class DatumManager<T extends DatumEntityBase> with Disposable {
       DataChangeEvent<T>(
         userId: userId,
         data: transformed,
-        changeType: isCreate ? ChangeType.created : ChangeType.updated,
+        changeType: ChangeType.created,
         source: source,
       ),
     );

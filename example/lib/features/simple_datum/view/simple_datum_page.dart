@@ -1,4 +1,5 @@
 import 'package:datum/datum.dart';
+import 'package:example/bootstrap.dart';
 import 'package:example/data/task/entity/task.dart';
 import 'package:example/features/simple_datum/controller/last_sync_result_notifier.dart';
 import 'package:example/features/simple_datum/controller/simple_datum_provider.dart';
@@ -66,9 +67,13 @@ class SimpleDatumController extends AutoDisposeNotifier<void> {
 
 final tasksStreamProvider =
     StreamProvider.autoDispose.family<List<Task>, String?>(
-  (ref, userId) {
+  (ref, userId) async* {
+    talker.debug("tasksStreamProvider");
+    final readData = await Datum.instance.readAll<Task>(userId: userId);
+    talker.debug(readData);
+
     // watchAll can return null if the adapter doesn't support it
-    return Datum.manager<Task>()
+    yield* Datum.manager<Task>()
             .watchAll(userId: userId, includeInitialData: true) ??
         const Stream.empty();
   },

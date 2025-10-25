@@ -14,7 +14,7 @@ final simpleDatumProvider = FutureProvider.autoDispose<Datum>(
       enableLogging: true,
       autoStartSync: true,
       initialUserId: Supabase.instance.client.auth.currentUser?.id,
-      changeCacheDuration: Duration(seconds: 1),
+      changeCacheDuration: Duration(milliseconds: 0),
       autoSyncInterval: Duration(
         minutes: 1,
       ),

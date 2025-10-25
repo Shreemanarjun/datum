@@ -330,4 +330,15 @@ class HiveLocalAdapter<T extends DatumEntity> extends LocalAdapter<T> {
     // Hive box. For now, we fall back to readAll.
     return readAll(userId: userId);
   }
+
+  @override
+  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) {
+    return entityBox.watch().map(
+      (event) {
+        final maps = entityBox.values
+            .where((map) => userId == null || map['userId'] == userId);
+        return maps.map((map) => fromMap(_normalizeMap(map))).toList();
+      },
+    );
+  }
 }

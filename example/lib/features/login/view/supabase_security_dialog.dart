@@ -1,3 +1,6 @@
+import 'dart:math';
+
+import 'package:example/bootstrap.dart';
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,17 +29,7 @@ class _SupabaseSecurityDialogState extends State<SupabaseSecurityDialog> {
         actions: [
           ShadButton(
             child: Text('Save'),
-            onPressed: () async {
-              try {
-                await Supabase.instance.dispose();
-              } catch (e) {
-                print(e);
-              }
-              await Supabase.initialize(
-                url: supabaseURL,
-                anonKey: supabaseKey,
-              );
-            },
+            onPressed: () async {},
           )
         ],
         child: Column(
@@ -48,7 +41,7 @@ class _SupabaseSecurityDialogState extends State<SupabaseSecurityDialog> {
               placeholder: Text(supabaseURL),
             ),
             SizedBox(height: 16),
-            Text("Supabase Key"),
+            Text("Supabase Anon Key"),
             SizedBox(height: 8),
             ShadInput(
               placeholder: Text(supabaseKey),
