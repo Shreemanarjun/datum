@@ -102,9 +102,6 @@ abstract class LocalAdapter<T extends DatumEntityBase> {
   /// Remove all data from the adapter.
   Future<void> clear();
 
-  /// Initializes the queue for a specific user.
-  Future<void> initializeUserQueue(String userId);
-
   // --- Sync & Migration Methods ---
 
   /// Get all pending sync operations.

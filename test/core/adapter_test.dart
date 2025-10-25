@@ -139,11 +139,6 @@ class _TestLocalAdapter extends LocalAdapter<TestEntity> {
   Future<void> saveLastSyncResult(String userId, DatumSyncResult<TestEntity> result) {
     throw UnimplementedError();
   }
-
-  @override
-  Future<void> initializeUserQueue(String userId) {
-    throw UnimplementedError();
-  }
 }
 
 /// A minimal concrete implementation of [RemoteAdapter] for testing default behaviors.

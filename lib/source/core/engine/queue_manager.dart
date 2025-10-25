@@ -51,14 +51,6 @@ class QueueManager<T extends DatumEntityBase> {
     return pending.length;
   }
 
-  /// Ensures that the underlying storage for a user's queue is created.
-  ///
-  /// This can be called when a new user signs up to pre-emptively create their
-  /// queue, preventing potential race conditions.
-  Future<void> initializeUser(String userId) async {
-    await localAdapter.initializeUserQueue(userId);
-  }
-
   /// Clears all data for a specific [userId], including pending operations.
   ///
   /// This is a destructive action and should be used with care, for example,

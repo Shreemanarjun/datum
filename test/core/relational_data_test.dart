@@ -350,11 +350,6 @@ class _UnimplementedLocalAdapter<T extends DatumEntityBase> extends LocalAdapter
   Future<void> saveLastSyncResult(String userId, DatumSyncResult<T> result) {
     throw UnimplementedError();
   }
-
-  @override
-  Future<void> initializeUserQueue(String userId) {
-    return Future.value();
-  }
 }
 
 void main() {
