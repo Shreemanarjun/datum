@@ -671,12 +671,12 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
         continue;
       }
 
-      final mapKey = _getMapKey(field);
+      final mapKey = _getMapKey(field); // Default to snake_case
       final type = field.type.getDisplayString();
       final fromGenerator = _getFromGenerator(field);
 
       if (fromGenerator != null) {
-        final access = "map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']";
+        final access = "map['$mapKey'] ?? map['$fieldName']";
         final code = fromGenerator.replaceAll('%DATA_PROPERTY%', access);
         buffer.writeln("    $fieldName: $code,");
         continue;
@@ -684,77 +684,77 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
 
       if (fieldName == 'createdAt' || fieldName == 'modifiedAt') {
         buffer.writeln(
-          "    $fieldName: _${_toLowerCamelCase(className)}ParseDate(map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']),",
+          "    $fieldName: _${_toLowerCamelCase(className)}ParseDate(map['$mapKey'] ?? map['$fieldName']),",
         );
       } else if (type == 'int') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0) as int,",
+          "    $fieldName: (map['$mapKey'] ?? map['$fieldName'] ?? 0) as int,",
         );
       } else if (type == 'int?') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as int?,",
+          "    $fieldName: (map['$mapKey'] ?? map['$fieldName']) as int?,",
         );
       } else if (type == 'String') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? '') as String,",
+          "    $fieldName: (map['$mapKey'] ?? map['$fieldName'] ?? '') as String,",
         );
       } else if (type == 'String?') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as String?,",
+          "    $fieldName: (map['$mapKey'] ?? map['$fieldName']) as String?,",
         );
       } else if (type == 'bool') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? false) as bool,",
+          "    $fieldName: (map['$mapKey'] ?? map['$fieldName'] ?? false) as bool,",
         );
       } else if (type == 'bool?') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as bool?,",
+          "    $fieldName: (map['$mapKey'] ?? map['$fieldName']) as bool?,",
         );
       } else if (type == 'Color') {
         buffer.writeln(
-          "    $fieldName: Color((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0xFF000000) as int),",
+          "    $fieldName: Color((map['$mapKey'] ?? map['$fieldName'] ?? 0xFF000000) as int),",
         );
       } else if (type == 'List<Offset>') {
         buffer.writeln(
-          "    $fieldName: ((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? []) as List<dynamic>).map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble())).toList(),",
+          "    $fieldName: ((map['$mapKey'] ?? map['$fieldName'] ?? []) as List<dynamic>).map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble())).toList(),",
         );
       } else if (type == 'double') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0.0) is int ? (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0.0).toDouble() : (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0.0) as double,",
+          "    $fieldName: (map['$mapKey'] ?? map['$fieldName'] ?? 0.0) is int ? (map['$mapKey'] ?? map['$fieldName'] ?? 0.0).toDouble() : (map['$mapKey'] ?? map['$fieldName'] ?? 0.0) as double,",
         );
       } else if (type == 'double?') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) is int ? (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']).toDouble() : (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as double?,",
+          "    $fieldName: (map['$mapKey'] ?? map['$fieldName']) is int ? (map['$mapKey'] ?? map['$fieldName']).toDouble() : (map['$mapKey'] ?? map['$fieldName']) as double?,",
         );
       } else if (type == 'Duration') {
         // Deserialize Duration from microseconds
         buffer.writeln(
-          "    $fieldName: Duration(microseconds: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0) as int),",
+          "    $fieldName: Duration(microseconds: (map['$mapKey'] ?? map['$fieldName'] ?? 0) as int),",
         );
       } else if (type == 'Duration?') {
         // Deserialize nullable Duration
         buffer.writeln(
-          "    $fieldName: map['$mapKey'] != null || map['${_camelToSnake(fieldName)}'] != null ? Duration(microseconds: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as int) : null,",
+          "    $fieldName: map['$mapKey'] != null || map['$fieldName'] != null ? Duration(microseconds: (map['$mapKey'] ?? map['$fieldName']) as int) : null,",
         );
       } else if (type == 'Uri') {
         // Deserialize Uri from string
         buffer.writeln(
-          "    $fieldName: Uri.parse((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? '') as String),",
+          "    $fieldName: Uri.parse((map['$mapKey'] ?? map['$fieldName'] ?? '') as String),",
         );
       } else if (type == 'Uri?') {
         // Deserialize nullable Uri
         buffer.writeln(
-          "    $fieldName: map['$mapKey'] != null || map['${_camelToSnake(fieldName)}'] != null ? Uri.parse((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as String) : null,",
+          "    $fieldName: map['$mapKey'] != null || map['$fieldName'] != null ? Uri.parse((map['$mapKey'] ?? map['$fieldName']) as String) : null,",
         );
       } else if (type == 'BigInt') {
         // Deserialize BigInt from string
         buffer.writeln(
-          "    $fieldName: BigInt.parse((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? '0') as String),",
+          "    $fieldName: BigInt.parse((map['$mapKey'] ?? map['$fieldName'] ?? '0') as String),",
         );
       } else if (type == 'BigInt?') {
         // Deserialize nullable BigInt
         buffer.writeln(
-          "    $fieldName: map['$mapKey'] != null || map['${_camelToSnake(fieldName)}'] != null ? BigInt.parse((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as String) : null,",
+          "    $fieldName: map['$mapKey'] != null || map['$fieldName'] != null ? BigInt.parse((map['$mapKey'] ?? map['$fieldName']) as String) : null,",
         );
       } else {
         // Check if it's an enum
@@ -766,16 +766,16 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
           final enumTypeName = type.replaceAll('?', '');
           if (type.endsWith('?')) {
             buffer.writeln(
-              "    $fieldName: map['$mapKey'] != null || map['${_camelToSnake(fieldName)}'] != null ? $enumTypeName.values.byName((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as String) : null,",
+              "    $fieldName: map['$mapKey'] != null || map['$fieldName'] != null ? $enumTypeName.values.byName((map['$mapKey'] ?? map['$fieldName']) as String) : null,",
             );
           } else {
             buffer.writeln(
-              "    $fieldName: $enumTypeName.values.byName((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as String),",
+              "    $fieldName: $enumTypeName.values.byName((map['$mapKey'] ?? map['$fieldName']) as String),",
             );
           }
         } else {
           buffer.writeln(
-            "    $fieldName: map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'],",
+            "    $fieldName: map['$mapKey'] ?? map['$fieldName'],",
           );
         }
       }
