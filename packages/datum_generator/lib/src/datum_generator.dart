@@ -682,13 +682,17 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
         continue;
       }
 
-      if (fieldName == 'createdAt' || fieldName == 'modifiedAt') {
+      if (type == 'DateTime') {
         buffer.writeln(
           "    $fieldName: _${_toLowerCamelCase(className)}ParseDate(map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']),",
         );
+      } else if (type == 'DateTime?') {
+        buffer.writeln(
+          "    $fieldName: map['$mapKey'] != null || map['${_camelToSnake(fieldName)}'] != null ? _${_toLowerCamelCase(className)}ParseDate(map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) : null,",
+        );
       } else if (type == 'int') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0) as int,",
+          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as int,",
         );
       } else if (type == 'int?') {
         buffer.writeln(
@@ -696,7 +700,7 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
         );
       } else if (type == 'String') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? '') as String,",
+          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as String,",
         );
       } else if (type == 'String?') {
         buffer.writeln(
@@ -704,7 +708,7 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
         );
       } else if (type == 'bool') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? false) as bool,",
+          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as bool,",
         );
       } else if (type == 'bool?') {
         buffer.writeln(
@@ -712,15 +716,19 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
         );
       } else if (type == 'Color') {
         buffer.writeln(
-          "    $fieldName: Color((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0xFF000000) as int),",
+          "    $fieldName: Color((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as int),",
+        );
+      } else if (type == 'Color?') {
+        buffer.writeln(
+          "    $fieldName: map['$mapKey'] != null || map['${_camelToSnake(fieldName)}'] != null ? Color((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as int) : null,",
         );
       } else if (type == 'List<Offset>') {
         buffer.writeln(
-          "    $fieldName: ((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? []) as List<dynamic>).map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble())).toList(),",
+          "    $fieldName: ((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as List<dynamic>).map((p) => Offset((p['x'] as num).toDouble(), (p['y'] as num).toDouble())).toList(),",
         );
       } else if (type == 'double') {
         buffer.writeln(
-          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0.0) is int ? (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0.0).toDouble() : (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0.0) as double,",
+          "    $fieldName: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) is int ? (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']).toDouble() : (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as double,",
         );
       } else if (type == 'double?') {
         buffer.writeln(
@@ -729,7 +737,7 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
       } else if (type == 'Duration') {
         // Deserialize Duration from microseconds
         buffer.writeln(
-          "    $fieldName: Duration(microseconds: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? 0) as int),",
+          "    $fieldName: Duration(microseconds: (map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as int),",
         );
       } else if (type == 'Duration?') {
         // Deserialize nullable Duration
@@ -739,7 +747,7 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
       } else if (type == 'Uri') {
         // Deserialize Uri from string
         buffer.writeln(
-          "    $fieldName: Uri.parse((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? '') as String),",
+          "    $fieldName: Uri.parse((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as String),",
         );
       } else if (type == 'Uri?') {
         // Deserialize nullable Uri
@@ -749,7 +757,7 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
       } else if (type == 'BigInt') {
         // Deserialize BigInt from string
         buffer.writeln(
-          "    $fieldName: BigInt.parse((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}'] ?? '0') as String),",
+          "    $fieldName: BigInt.parse((map['$mapKey'] ?? map['${_camelToSnake(fieldName)}']) as String),",
         );
       } else if (type == 'BigInt?') {
         // Deserialize nullable BigInt
@@ -790,9 +798,10 @@ DateTime _${_toLowerCamelCase(className)}ParseDate(dynamic value) {
     return DateTime.fromMillisecondsSinceEpoch(value);
   }
   if (value is String) {
-    return DateTime.tryParse(value) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final parsed = DateTime.tryParse(value);
+    if (parsed != null) return parsed;
   }
-  return DateTime.fromMillisecondsSinceEpoch(0);
+  throw ArgumentError('Invalid date value: \$value');
 }
 ''');
   }
