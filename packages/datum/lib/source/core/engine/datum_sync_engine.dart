@@ -581,7 +581,22 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
             // Only update if remote is strictly newer
             if (remoteVC.isLessThanOrEqualTo(localVC)) {
               shouldUpdate = false;
-              logger.debug('Skipping remote update for ${remoteItem.id} because local version is newer or same.');
+              logger.debug('Skipping remote update for ${remoteItem.id} because local vector clock is newer or same.');
+            } else if (!localVC.isLessThanOrEqualTo(remoteVC)) {
+              // Concurrent => skip (since no resolver yet)
+              shouldUpdate = false;
+              logger.debug('Skipping remote update for ${remoteItem.id} due to concurrent vector clocks.');
+            }
+          } else {
+            // Fallback logic if vector clocks are nor provided
+            if (remoteItem.version < localItem.version) {
+              shouldUpdate = false;
+              logger.debug('Skipping remote update for ${remoteItem.id} because local version is newer.');
+            } else if (remoteItem.version == localItem.version) {
+              if (!remoteItem.modifiedAt.isAfter(localItem.modifiedAt)) {
+                shouldUpdate = false;
+                logger.debug('Skipping remote update for ${remoteItem.id} because local modifiedAt is newer or same.');
+              }
             }
           }
 
