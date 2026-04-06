@@ -39,7 +39,7 @@ class User extends RelationalDatumEntity {
         name,
       ];
 
-  const User({
+  User({
     required this.id,
     required this.name,
     required this.modifiedAt,
@@ -48,11 +48,13 @@ class User extends RelationalDatumEntity {
     this.isDeleted = false,
   }) : userId = id; // For users, userId is often the same as id
 
+  late final Map<String, Relation> _relations = {
+    'posts': HasMany<Post>(this, 'userId'), // A user has many posts.
+    'profile': HasOne<Profile>(this, 'userId'), // A user has one profile.
+  };
+
   @override
-  Map<String, Relation> get relations => {
-        'posts': HasMany(this, 'userId'), // A user has many posts.
-        'profile': HasOne(this, 'userId'), // A user has one profile.
-      };
+  Map<String, Relation> get relations => _relations;
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
@@ -103,7 +105,7 @@ class Post extends RelationalDatumEntity {
         title,
       ];
 
-  const Post({
+  Post({
     required this.id,
     required this.userId,
     required this.title,
@@ -126,8 +128,12 @@ class Post extends RelationalDatumEntity {
   }
 
   // Define the relationship
+  late final Map<String, Relation> _relations = {
+    'author': BelongsTo<User>(this, 'userId'),
+  };
+  
   @override
-  Map<String, Relation> get relations => {'author': BelongsTo(this, 'userId')};
+  Map<String, Relation> get relations => _relations;
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
@@ -198,7 +204,7 @@ class Profile extends RelationalDatumEntity {
         bio,
       ];
 
-  const Profile({
+  Profile({
     required this.id,
     required this.userId,
     required this.bio,
@@ -209,8 +215,12 @@ class Profile extends RelationalDatumEntity {
   });
 
   // Define the relationship
+  late final Map<String, Relation> _relations = {
+    'user': BelongsTo<User>(this, 'userId')
+  };
+
   @override
-  Map<String, Relation> get relations => {'user': BelongsTo(this, 'userId')};
+  Map<String, Relation> get relations => _relations;
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
@@ -354,7 +364,7 @@ class Tag extends RelationalDatumEntity {
         name,
       ];
 
-  const Tag({
+  Tag({
     required this.id,
     required this.userId,
     required this.name,
@@ -364,10 +374,12 @@ class Tag extends RelationalDatumEntity {
     this.isDeleted = false,
   });
 
+  late final Map<String, Relation> _relations = {
+    'posts': ManyToMany(this, PostTag, 'tagId', 'postId'), // ManyToMany with posts through PostTag
+  };
+
   @override
-  Map<String, Relation> get relations => {
-        'posts': ManyToMany(this, PostTag, 'tagId', 'postId'), // ManyToMany with posts through PostTag
-      };
+  Map<String, Relation> get relations => _relations;
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
@@ -847,5 +859,74 @@ void main() {
         );
       },
     );
+  });
+
+  group('Relational Data: query', () {
+    late User testUser;
+    late Post testPost;
+    late DatumManager<User> userManager;
+    late DatumManager<Post> postManager;
+
+    setUp(() {
+      Datum.resetForTesting();
+
+      testUser = User(
+        id: 'user-1',
+        name: 'Kiddo V',
+        modifiedAt: DateTime(2026, 3, 31),
+        createdAt: DateTime(2026, 3, 31),
+      );
+
+      testPost = Post(
+        id: 'post-1',
+        userId: 'user-1',
+        title: 'My First Post',
+        modifiedAt: DateTime(2026, 3, 31),
+        createdAt: DateTime(2026, 3, 31),
+      );
+    });
+
+    tearDown(() {
+      Datum.resetForTesting();
+    });
+    test('query supports nested relation field (author.name)', () async {
+      // Arrange
+      await Datum.initialize(
+        config: const DatumConfig(enableLogging: false),
+        connectivityChecker: createMockConnectivityChecker(),
+        registrations: [
+          DatumRegistration<User>(
+            localAdapter: MockLocalAdapter<User>()..addLocalItem(testUser.id, testUser),
+            remoteAdapter: MockRemoteAdapter<User>(),
+          ),
+          DatumRegistration<Post>(
+            localAdapter: MockLocalAdapter<Post>()..addLocalItem(testUser.id, testPost),
+            remoteAdapter: MockRemoteAdapter<Post>(),
+          ),
+        ],
+      );
+
+      userManager = Datum.manager<User>();
+      postManager = Datum.manager<Post>();
+
+      // Test 1: make sure data exists
+      final users = await userManager.readAll(userId: testUser.userId);
+      final posts = await postManager.readAll(userId: testUser.userId);
+      expect(users, isNotEmpty, reason: 'Users should exist in local adapter');
+      expect(posts, isNotEmpty, reason: 'Posts should exist in local adapter');
+
+      // Test 2: query with nested relation
+      final usersWithPosts = await userManager.query(
+        const DatumQuery(
+          withRelated: ['posts', 'posts.author'],
+        ),
+        source: DataSource.local,
+        userId: testUser.id,
+      );
+      final postsWithAuthors = usersWithPosts.first.relations['posts']?.value as List<Post>?;
+      final author = postsWithAuthors?.first.relations['author']?.value;
+      expect(postsWithAuthors?.length, 1, reason: 'Should find 1 post');
+      expect(author, isNotNull, reason: 'Post author should exist');
+    });
   });
 }
