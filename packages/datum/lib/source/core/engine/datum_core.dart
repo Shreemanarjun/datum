@@ -326,7 +326,9 @@ class Datum {
       await datum._logPendingOperationsSummary(logBuffer);
 
       logBuffer.write('└─ ✅ Datum Initialization Complete.');
-      initLogger.info(logBuffer.toString());
+      for (final line in logBuffer.toString().split('\n')) {
+        initLogger.info(line);
+      }
 
       datum._listenToEventsForMetrics();
       datum._startConnectivityMonitoring();
@@ -424,6 +426,7 @@ class Datum {
     } else {
       logBuffer.writeln('│  │  └─ ℹ️  Using custom request strategy.');
     }
+    logBuffer.writeln('│  ├─ 🚦 ${_yellow('Conflict Resolver')}: ${_green(config.defaultConflictResolver.runtimeType)}');
     logBuffer.writeln('│  ├─ ⏳ ${_yellow('Sync Timeout')}: ${_cyan(formatDuration(config.syncTimeout))}');
     logBuffer.writeln('│  ├─ ↪️  ${_yellow('User Switch')}: ${_green(config.defaultUserSwitchStrategy.name)}');
     switch (config.defaultUserSwitchStrategy) {
@@ -475,6 +478,7 @@ class Datum {
     logBuffer.writeln('├─ 📊 Sync Status & Pending Operations');
     var totalPending = 0;
     var totalItems = 0;
+    var totalSize = 0;
 
     for (final userId in allUserIds) {
       logBuffer.writeln('│  ├─ 👤 User: ${_cyan(userId)}');
@@ -512,6 +516,7 @@ class Datum {
         final storageSize = await manager.localAdapter.getStorageSize(userId: userId);
         totalItems += itemCount;
         totalPending += count;
+        totalSize += storageSize;
 
         if (itemCount > 0 || count > 0) {
           userHasContent = true;
@@ -524,7 +529,8 @@ class Datum {
         logBuffer.writeln('│  │  └─ 📭 No local data or pending operations.');
       }
     }
-    logBuffer.writeln('│  └─ 📈 Totals: Items: ${_green(totalItems)}, Pending: ${_yellow(totalPending)}');
+    final totalSizeInKb = (totalSize / 1024).toStringAsFixed(2);
+    logBuffer.writeln('│  └─ 📈 Totals: Items: ${_green(totalItems)}, Pending: ${_yellow(totalPending)}, Size: ${_yellow('$totalSizeInKb KB')}');
   }
 
   void _logObservers(StringBuffer logBuffer) {
@@ -572,8 +578,8 @@ class Datum {
 
     logBuffer?.writeln('│  └─ 🧩 Entity: ${_cyan(T)}');
     logBuffer?.writeln('│     ├─ 🏠 Local Adapter: ${_green(registration.localAdapter.runtimeType)}');
-    logBuffer?.writeln('│     ├─ ☁️   Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
-    logBuffer?.writeln('│     ├─ ⚖️  Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
+    logBuffer?.writeln('│     ├─ ☁️ Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
+    logBuffer?.writeln('│     ├─ ⚖️ Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
     logBuffer?.writeln('│     $lastCharForConfig─ 🔧 Custom Config: ${_green(registration.config != null)}');
 
     if (hasMiddlewares) {

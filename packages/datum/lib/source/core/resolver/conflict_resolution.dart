@@ -123,3 +123,31 @@ abstract class DatumConflictResolver<T extends DatumEntityInterface> {
     required DatumConflictContext context,
   });
 }
+
+/// Adapts a resolver from `DatumEntityInterface` → `T`.
+///
+/// Required because Dart generics are invariant.
+/// Delegates to the base resolver and converts the result to `T`.
+class DatumConflictResolverAdapter<T extends DatumEntityInterface> implements DatumConflictResolver<T> {
+  final DatumConflictResolver<DatumEntityInterface> base;
+
+  DatumConflictResolverAdapter(this.base);
+
+  @override
+  String get name => base.name;
+
+  @override
+  FutureOr<DatumConflictResolution<T>> resolve({
+    T? local,
+    T? remote,
+    required DatumConflictContext context,
+  }) async {
+    final result = await base.resolve(
+      local: local,
+      remote: remote,
+      context: context,
+    );
+
+    return result.copyWithNewType<T>();
+  }
+}

@@ -7,6 +7,7 @@ import 'package:datum/source/core/engine/datum_core.dart';
 import 'package:datum/source/core/engine/datum_observer.dart';
 import 'package:datum/source/core/manager/datum_manager.dart';
 import 'package:datum/source/core/middleware/datum_middleware.dart';
+import 'package:datum/source/core/models/datum_sync_options.dart';
 
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 
@@ -52,7 +53,12 @@ class AdapterPairImpl<T extends DatumEntityInterface> implements AdapterPair {
   DatumManager<T> createManager(Datum datum) {
     // This is a testing hook. If the config is a special type, return the mock manager from it.
     // This allows us to inject a mock manager during Datum.initialize() in tests.
-    final registrationConfig = config ?? datum.config.copyWith<T>();
+    final registrationConfig = config ?? datum.config.copyWith<T>(
+      defaultConflictResolver: (datum.config.defaultConflictResolver != null)
+          ? DatumConflictResolverAdapter<T>(datum.config.defaultConflictResolver!)
+          : null,
+      defaultSyncOptions: datum.config.defaultSyncOptions?.toTyped<T>()
+    );
     if (registrationConfig is CustomManagerConfig<T>) {
       final customConfig = registrationConfig;
       // Return the mock manager provided by the custom config.
@@ -65,14 +71,14 @@ class AdapterPairImpl<T extends DatumEntityInterface> implements AdapterPair {
     final manager = DatumManager<T>(
       localAdapter: local,
       remoteAdapter: remote,
-      conflictResolver: conflictResolver,
+      conflictResolver: conflictResolver ?? registrationConfig.defaultConflictResolver,
       localObservers: observers,
       globalObservers: datum.globalObservers,
       middlewares: middlewares,
       datumConfig: registrationConfig,
       connectivity: datum.connectivityChecker,
       logger: datum.logger,
-      syncRequestStrategy: syncRequestStrategy,
+      syncRequestStrategy: syncRequestStrategy ?? registrationConfig.syncRequestStrategy,
       persistence: datum.persistence,
       userChangeStream: datum.userChangeStream,
     );

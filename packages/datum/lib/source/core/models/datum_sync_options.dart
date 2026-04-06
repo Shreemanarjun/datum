@@ -97,3 +97,23 @@ class DatumSyncOptions<T extends DatumEntityInterface> {
     );
   }
 }
+
+extension DatumSyncOptionsAdapter on DatumSyncOptions<DatumEntityInterface> {
+  /// Converts to a typed `DatumSyncOptions<T>`.
+  ///
+  /// Required because Dart generics are invariant.
+  DatumSyncOptions<T> toTyped<T extends DatumEntityInterface>() {
+    return DatumSyncOptions<T>(
+      includeDeletes: includeDeletes,
+      resolveConflicts: resolveConflicts,
+      forceFullSync: forceFullSync,
+      overrideBatchSize: overrideBatchSize,
+      timeout: timeout,
+      direction: direction,
+      query: query,
+      conflictResolver: conflictResolver != null
+          ? DatumConflictResolverAdapter<T>(conflictResolver!)
+          : null,
+    );
+  }
+}

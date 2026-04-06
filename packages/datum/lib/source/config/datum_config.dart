@@ -279,7 +279,6 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       syncTimeout: syncTimeout ?? this.syncTimeout,
       // Only copy the resolver if the new type E is assignable from the old type T.
       // This is safe when copyWith is called without a new generic type.
-      // This is safe when copyWith is called without a new generic type.
       defaultConflictResolver: defaultConflictResolver ?? (this.defaultConflictResolver is DatumConflictResolver<E> ? this.defaultConflictResolver as DatumConflictResolver<E> : null),
       defaultUserSwitchStrategy: defaultUserSwitchStrategy ?? this.defaultUserSwitchStrategy,
       initialUserId: initialUserId ?? this.initialUserId,
