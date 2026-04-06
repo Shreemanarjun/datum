@@ -438,37 +438,85 @@ class DatumGenerator extends GeneratorForAnnotation<DatumSerializable> {
     List<dynamic> fields,
   ) {
     buffer.writeln(
-      '\n  Map<String, dynamic>? datumDiff(DatumEntityInterface oldVersion) {',
+      '\n  Map<String, dynamic>? datumDiff(DatumEntityInterface oldVersion, {MapTarget target = MapTarget.local}) {',
     );
+
+    final excludedFields = {
+      'id',
+      'userId',
+      'createdAt',
+      'modifiedAt',
+      'version',
+      'isDeleted',
+    };
+
     final diffableFields = fields.where((f) {
       final fieldName = _getElementName(f);
-      return ![
-        'id',
-        'userId',
-        'createdAt',
-        'modifiedAt',
-        'version',
-        'isDeleted',
-      ].contains(fieldName);
+      return !excludedFields.contains(fieldName);
     }).toList();
 
     if (diffableFields.isNotEmpty) {
       buffer.writeln('    final old = oldVersion as $className;');
     }
+
     buffer.writeln('    final changes = <String, dynamic>{};');
+
+    // Detect if deep equality is needed
+    final needsDeepEqual = diffableFields.any((f) {
+      final type = f.type.getDisplayString();
+      return type.startsWith('List') ||
+            type.startsWith('Map') ||
+            type.startsWith('Set');
+    });
+
+    // Deep equality helper (only if needed)
+    if (needsDeepEqual) {
+      buffer.writeln('''
+        bool _isEqual(dynamic a, dynamic b) {
+          if (a == b) return true;
+
+          if (a is Map && b is Map) {
+            if (a.length != b.length) return false;
+            for (final key in a.keys) {
+              if (!b.containsKey(key) || !_isEqual(a[key], b[key])) {
+                return false;
+              }
+            }
+            return true;
+          }
+
+          if (a is List && b is List) {
+            if (a.length != b.length) return false;
+            for (int i = 0; i < a.length; i++) {
+              if (!_isEqual(a[i], b[i])) return false;
+            }
+            return true;
+          }
+
+          if (a is Set && b is Set) {
+            if (a.length != b.length) return false;
+
+            // Ensure each element is matched exactly once (prevents duplicate matching)
+            final unmatched = b.toList();
+            for (final item in a) {
+              final matchIndex = unmatched.indexWhere(
+                (other) => _isEqual(item, other),
+              );
+              if (matchIndex == -1) return false;
+              unmatched.removeAt(matchIndex);
+            }
+
+            return unmatched.isEmpty;
+          }
+
+          return a == b;
+        }
+      ''');
+    }
 
     for (final field in fields) {
       final fieldName = _getElementName(field);
-      if ([
-        'id',
-        'userId',
-        'createdAt',
-        'modifiedAt',
-        'version',
-        'isDeleted',
-      ].contains(fieldName)) {
-        continue;
-      }
+      if (excludedFields.contains(fieldName)) continue;
 
       final mapKey = _getMapKey(field);
       final type = field.type.getDisplayString();
@@ -476,7 +524,17 @@ class DatumGenerator extends GeneratorForAnnotation<DatumSerializable> {
       final isEnum = typeElement != null && typeElement.kind.name == 'ENUM';
       final toGenerator = _getToGenerator(field);
 
-      buffer.writeln("    if ($fieldName != old.$fieldName) {");
+      // Decide comparison strategy
+      final isCollection =
+          type.startsWith('List') ||
+          type.startsWith('Map') ||
+          type.startsWith('Set');
+
+      final compareExpr = (needsDeepEqual && isCollection)
+          ? '!_isEqual($fieldName, old.$fieldName)'
+          : '$fieldName != old.$fieldName';
+
+      buffer.writeln('    if ($compareExpr) {');
 
       if (toGenerator != null) {
         final code = toGenerator.replaceAll('%DATA_PROPERTY%', fieldName);
@@ -518,9 +576,7 @@ class DatumGenerator extends GeneratorForAnnotation<DatumSerializable> {
 
     if (fields.any((f) => _getElementName(f) == 'modifiedAt')) {
       buffer.writeln('    if (changes.isNotEmpty) {');
-      buffer.writeln(
-        "      changes['modifiedAt'] = modifiedAt.toIso8601String();",
-      );
+      buffer.writeln("      changes['modifiedAt'] = modifiedAt.toIso8601String();");
       buffer.writeln("      changes['version'] = version;");
       buffer.writeln('    }');
     }
