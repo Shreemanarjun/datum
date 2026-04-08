@@ -1,6 +1,7 @@
 import 'package:build/build.dart';
 import 'core/annotations.dart';
 import 'package:source_gen/source_gen.dart';
+import 'package:analyzer/dart/element/element.dart';
 
 const _ignoreChecker = TypeChecker.fromUrl(
   'package:datum_generator/src/core/annotations.dart#DatumIgnore',
@@ -608,10 +609,16 @@ class DatumGenerator extends GeneratorForAnnotation<DatumSerializable> {
     String className,
     List<dynamic> allFields,
   ) {
-    // Only fields that are NOT ignored and NOT relations are parameters
+    // Resolve constructor from class
+    final classElement = allFields.first.enclosingElement as ClassElement;
+    final constructor = classElement.unnamedConstructor;
+    final constructorParamNames = constructor?.formalParameters.map((p) => p.name).toSet() ?? {};
+
+    // Only fields that are NOT ignored, NOT relations, and exist in constructor
     final copyableFields = allFields
         .where(
           (f) =>
+              constructorParamNames.contains(_getElementName(f)) &&
               !_hasRelationAnnotationOnField(f) &&
               !_isIgnored(f, property: 'copyWith'),
         )
@@ -643,9 +650,7 @@ class DatumGenerator extends GeneratorForAnnotation<DatumSerializable> {
     buffer.writeln(';');
 
     buffer.writeln('    return $className(');
-    for (final field in allFields) {
-      if (_hasRelationAnnotationOnField(field)) continue;
-
+    for (final field in copyableFields) {
       final fieldName = _getElementName(field);
       final isParam = copyableFields.any(
         (f) => _getElementName(f) == fieldName,
@@ -720,9 +725,18 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
 ''');
     }
 
+    // Get constructor parameters so we only pass fields that actually exist in the constructor
+    final classElement = allFields.first.enclosingElement as ClassElement;
+    final constructor = classElement.unnamedConstructor;
+    final constructorParamMap = {
+      for (final p in constructor?.formalParameters ?? []) p.name: p
+    };
+    final constructorParams = constructor?.formalParameters.map((p) => p.name).toSet() ?? {};
+
     final deserializableFields = allFields
         .where(
           (f) =>
+              constructorParams.contains(_getElementName(f)) &&
               !_hasRelationAnnotationOnField(f) &&
               !_isIgnored(f, property: 'fromMap'),
         )
@@ -732,7 +746,7 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
       '\n$className _\$${className}FromMap(Map<String, dynamic> map) {',
     );
     buffer.writeln('  return $className(');
-    for (final field in allFields) {
+    for (final field in deserializableFields) {
       // Relations are handled by the RelationalDatumEntity logic, not constructor
       if (_hasRelationAnnotationOnField(field)) continue;
 
@@ -750,7 +764,8 @@ bool _${_toLowerCamelCase(className)}ListEquals<T>(List<T>? a, List<T>? b) {
       }
 
       final mapKey = _getMapKey(field);
-      final type = field.type.getDisplayString();
+      final param = constructorParamMap[fieldName];
+      final type = (param?.type ?? field.type).getDisplayString(withNullability: true);
       final fromGenerator = _getFromGenerator(field);
 
       if (fromGenerator != null) {
