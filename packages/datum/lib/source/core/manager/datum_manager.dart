@@ -787,8 +787,13 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     final entity = await localAdapter.read(id, userId: userId);
 
     // Cache the existence result
-    _entityExistenceCache[cacheKey] = entity != null;
-    _logger.debug('Cached entity existence for key: $cacheKey (exists: ${entity != null})');
+    if (entity != null) {
+      _entityExistenceCache[cacheKey] = true;
+      _logger.debug('Cached entity existence (exists: true) for key: $cacheKey');
+    } else {
+      _entityExistenceCache.remove(cacheKey);
+      _logger.debug('Removed entity existence cache (not found) for key: $cacheKey');
+    }
 
     if (entity == null) return null;
 
