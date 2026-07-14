@@ -12,10 +12,9 @@ final paintCanvasesStreamProvider =
   if (userId == null) return Stream.value([]);
 
   return Datum.manager<PaintCanvas>()
-          .watchAll(userId: userId, includeInitialData: true)
-          ?.map((canvases) => canvases.where((c) => !c.isDeleted).toList()
-            ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt))) ??
-      Stream.value([]);
+      .watchAll(userId: userId, includeInitialData: true)
+      .map((canvases) => canvases.where((c) => !c.isDeleted).toList()
+        ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt)));
 });
 
 class PaintCanvasList extends ConsumerWidget {

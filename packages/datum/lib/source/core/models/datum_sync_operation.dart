@@ -16,6 +16,15 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
   /// The ID of the entity this operation targets.
   final String entityId;
 
+  /// The entity table/type this operation belongs to (e.g. the entity type name
+  /// or configured table name).
+  ///
+  /// Lets consumers safely filter and deterministically deserialize operations
+  /// when multiple entity types share one pending-operations store, instead of
+  /// guessing via fragile try/catch. Nullable for backward compatibility with
+  /// operations persisted before this field existed.
+  final String? entityTable;
+
   /// The type of operation (create, update, delete).
   final DatumOperationType type;
 
@@ -47,6 +56,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
     required this.entityId,
     required this.type,
     required this.timestamp,
+    this.entityTable,
     this.data,
     this.delta,
     this.retryCount = 0,
@@ -64,6 +74,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       id: map['id'] as String,
       userId: map['userId'] as String,
       entityId: map['entityId'] as String,
+      entityTable: map['entityTable'] as String?,
       type: DatumOperationType.values.byName(map['type'] as String),
       data: map['data'] == null
           ? null
@@ -86,6 +97,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
     String? id,
     String? userId,
     String? entityId,
+    String? entityTable,
     DatumOperationType? type,
     T? data,
     Map<String, dynamic>? delta,
@@ -97,6 +109,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       entityId: entityId ?? this.entityId,
+      entityTable: entityTable ?? this.entityTable,
       type: type ?? this.type,
       data: data ?? this.data,
       delta: delta ?? this.delta,
@@ -112,6 +125,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       'id': id,
       'userId': userId,
       'entityId': entityId,
+      'entityTable': entityTable,
       'type': type.name,
       'data': data?.toDatumMap(),
       'delta': delta,
@@ -129,6 +143,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
         id,
         userId,
         entityId,
+        entityTable,
         type,
         timestamp,
         data,

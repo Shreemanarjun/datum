@@ -1,5 +1,63 @@
 import 'package:datum/source/core/query/datum_query.dart';
 
+/// A **type-safe field descriptor** for an entity of type [E] whose value type
+/// is [V].
+///
+/// Used with [DatumQueryBuilder.whereField] / [DatumQueryBuilder.orderByField]
+/// to get compile-time checking of both the field's existence (it must belong to
+/// `E`) and the comparison value's type (it must be a [V]). The `datum_generator`
+/// emits one descriptor per serializable field, e.g.:
+///
+/// ```dart
+/// abstract class TaskFields {
+///   static const title = DatumQueryField<Task, String>('title');
+///   static const priority = DatumQueryField<Task, int>('priority');
+/// }
+///
+/// // priority must be compared to an int — `isGreaterThan: 'x'` won't compile:
+/// query.whereField(TaskFields.priority, isGreaterThan: 2);
+/// ```
+///
+/// Named `DatumQueryField` (not `DatumField`) to avoid clashing with the
+/// `@DatumField` annotation from `datum_generator`.
+class DatumQueryField<E, V> {
+  /// Creates a descriptor for the serialized [name] of a field on `E`.
+  const DatumQueryField(this.name);
+
+  /// The serialized field name (map key / column), supporting dot notation.
+  final String name;
+
+  /// `field == value`
+  Filter equalTo(V value) => Filter(name, FilterOperator.equals, value);
+
+  /// `field != value`
+  Filter notEqualTo(V value) => Filter(name, FilterOperator.notEquals, value);
+
+  /// `field > value`
+  Filter greaterThan(V value) => Filter(name, FilterOperator.greaterThan, value);
+
+  /// `field >= value`
+  Filter greaterThanOrEqual(V value) => Filter(name, FilterOperator.greaterThanOrEqual, value);
+
+  /// `field < value`
+  Filter lessThan(V value) => Filter(name, FilterOperator.lessThan, value);
+
+  /// `field <= value`
+  Filter lessThanOrEqual(V value) => Filter(name, FilterOperator.lessThanOrEqual, value);
+
+  /// `field IN values`
+  Filter isIn(List<V> values) => Filter(name, FilterOperator.isIn, values);
+
+  /// `field NOT IN values`
+  Filter isNotIn(List<V> values) => Filter(name, FilterOperator.isNotIn, values);
+
+  /// `field IS NULL`
+  Filter get isNull => Filter(name, FilterOperator.isNull, null);
+
+  /// `field IS NOT NULL`
+  Filter get isNotNull => Filter(name, FilterOperator.isNotNull, null);
+}
+
 /// A fluent builder for creating [DatumQuery] objects with type-safe field access.
 class DatumQueryBuilder<T> {
   final List<FilterCondition> _filters = [];
@@ -103,6 +161,71 @@ class DatumQueryBuilder<T> {
     }
     return this;
   }
+
+  /// Type-safe variant of [where] using a [DatumQueryField] descriptor.
+  ///
+  /// The [field] must belong to entity `T`, and equality/ordering values must
+  /// match the field's value type `V` — both checked at compile time. String
+  /// operators ([contains]/[startsWith]/…) and [matches] remain `String?`
+  /// because they are only meaningful for string fields.
+  DatumQueryBuilder<T> whereField<V>(
+    DatumQueryField<T, V> field, {
+    V? isEqualTo,
+    V? isNotEqualTo,
+    V? isGreaterThan,
+    V? isGreaterThanOrEqualTo,
+    V? isLessThan,
+    V? isLessThanOrEqualTo,
+    String? contains,
+    String? containsIgnoreCase,
+    String? startsWith,
+    String? endsWith,
+    List<V>? isIn,
+    List<V>? isNotIn,
+    V? arrayContains,
+    List<V>? arrayContainsAny,
+    String? matches,
+    List<V>? between,
+  }) {
+    return where(
+      field.name,
+      isEqualTo: isEqualTo,
+      isNotEqualTo: isNotEqualTo,
+      isGreaterThan: isGreaterThan,
+      isGreaterThanOrEqualTo: isGreaterThanOrEqualTo,
+      isLessThan: isLessThan,
+      isLessThanOrEqualTo: isLessThanOrEqualTo,
+      contains: contains,
+      containsIgnoreCase: containsIgnoreCase,
+      startsWith: startsWith,
+      endsWith: endsWith,
+      isIn: isIn,
+      isNotIn: isNotIn,
+      arrayContains: arrayContains,
+      arrayContainsAny: arrayContainsAny,
+      matches: matches,
+      between: between,
+    );
+  }
+
+  /// Type-safe variant of [orderBy] using a [DatumQueryField] descriptor.
+  DatumQueryBuilder<T> orderByField<V>(
+    DatumQueryField<T, V> field, {
+    bool descending = false,
+    NullSortOrder nullSortOrder = NullSortOrder.last,
+  }) {
+    return orderBy(
+      field.name,
+      descending: descending,
+      nullSortOrder: nullSortOrder,
+    );
+  }
+
+  /// Type-safe null-check using a [DatumQueryField] descriptor.
+  DatumQueryBuilder<T> whereFieldNull<V>(DatumQueryField<T, V> field) => whereNull(field.name);
+
+  /// Type-safe not-null-check using a [DatumQueryField] descriptor.
+  DatumQueryBuilder<T> whereFieldNotNull<V>(DatumQueryField<T, V> field) => whereNotNull(field.name);
 
   /// Adds a null check filter.
   DatumQueryBuilder<T> whereNull(String field) {

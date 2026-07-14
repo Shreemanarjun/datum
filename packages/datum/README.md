@@ -84,7 +84,7 @@ Future<void> main() async {
     ],
   );
 
-  if (datumEither.isFailure) {
+  if (datumEither.isFailure()) {
     // Handle initialization failure
     throw datumEither.failure!;
   }

@@ -138,6 +138,26 @@ class DatumSyncResult<T extends DatumEntityInterface> {
     return 'DatumSyncResult(userId: $userId, synced: $syncedCount/$totalOperations ($successRate%), failed: $failedCount, conflicts: $conflictsResolved, pushed: $bytesPushedInCycle bytes, pulled: $bytesPulledInCycle bytes, duration: ${formatDuration(duration)})';
   }
 
+  /// A human-readable, multi-line summary suitable for logging/debugging.
+  ///
+  /// ```dart
+  /// print((await manager.synchronize(userId)).describe());
+  /// ```
+  String describe() {
+    if (wasSkipped) return 'Sync skipped for $userId${skipReason != null ? ' — $skipReason' : ''}';
+    if (wasCancelled) return 'Sync cancelled for $userId';
+    String kb(int bytes) => '${(bytes / 1024).toStringAsFixed(2)} KB';
+    return (StringBuffer()
+          ..writeln('Sync for $userId — ${isSuccess ? 'OK' : 'issues'} (${successPercentage.toStringAsFixed(1)}%)')
+          ..writeln('  synced:    $syncedCount/$totalOperations')
+          ..writeln('  failed:    $failedCount')
+          ..writeln('  conflicts: $conflictsResolved')
+          ..writeln('  pushed:    ${kb(bytesPushedInCycle)} (total ${kb(totalBytesPushed)})')
+          ..writeln('  pulled:    ${kb(bytesPulledInCycle)} (total ${kb(totalBytesPulled)})')
+          ..write('  duration:  ${formatDuration(duration)}'))
+        .toString();
+  }
+
   /// Converts the result to a map for serialization.
   ///
   /// Note: `pendingOperations` and `error` are not serialized.

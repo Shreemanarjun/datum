@@ -479,7 +479,13 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     final remoteItemsStream = _streamRemoteItems(userId, scope);
     final remoteBatch = <T>[];
 
+    // Track every remote id seen so we can detect remote deletions (entities
+    // present locally but absent remotely) after the pull, when enabled.
+    final detectDeletions = config.detectRemoteDeletions && scope == null && (options?.query == null || options!.query.filters.isEmpty);
+    final seenRemoteIds = detectDeletions ? <String>{} : null;
+
     await for (final remoteItem in remoteItemsStream) {
+      seenRemoteIds?.add(remoteItem.id);
       remoteBatch.add(remoteItem);
 
       // Process batch when it reaches the batch size
@@ -516,7 +522,70 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       cumulativeBytesPulled += batchBytes;
     }
 
+    // After a full pull, reconcile local entities that no longer exist remotely.
+    if (seenRemoteIds != null && statusSubject.value.status == DatumSyncStatus.syncing) {
+      await _detectRemoteDeletions(userId, seenRemoteIds, options, generatedEvents);
+    }
+
     return bytesPulled;
+  }
+
+  /// Detects and resolves remote deletions: entities that still exist locally
+  /// but were absent from a full remote pull. Each is routed through the
+  /// conflict resolver as a [DatumConflictType.deletionConflict] (remote null).
+  /// Only a resolver that returns [DatumResolutionStrategy.takeRemote] deletes
+  /// the local copy; the default last-write-wins keeps it. Entities with pending
+  /// local operations or already soft-deleted locally are skipped.
+  Future<void> _detectRemoteDeletions(
+    String userId,
+    Set<String> seenRemoteIds,
+    DatumSyncOptions<T>? options,
+    List<DatumSyncEvent<T>> generatedEvents,
+  ) async {
+    final localItems = await localAdapter.readAll(userId: userId);
+    if (localItems.isEmpty) return;
+
+    final pending = await localAdapter.getPendingOperations(userId);
+    final pendingIds = pending.map((op) => op.entityId).toSet();
+    final resolver = options?.conflictResolver ?? conflictResolver;
+
+    for (final local in localItems) {
+      if (seenRemoteIds.contains(local.id)) continue; // still exists remotely
+      if (pendingIds.contains(local.id)) continue; // unsynced local change
+      if (local.isDeleted) continue; // already gone locally
+
+      final context = DatumConflictContext(
+        userId: userId,
+        entityId: local.id,
+        type: DatumConflictType.deletionConflict,
+        detectedAt: DateTime.now(),
+      );
+
+      final conflictEvent = ConflictDetectedEvent<T>(
+        userId: userId,
+        context: context,
+        localData: local,
+        remoteData: null,
+      );
+      generatedEvents.add(conflictEvent);
+      _notifyObservers(conflictEvent);
+
+      final resolution = await resolver.resolve(local: local, remote: null, context: context);
+      if (resolution.strategy == DatumResolutionStrategy.takeRemote) {
+        await localAdapter.delete(local.id, userId: userId);
+        logger.info('Applied remote deletion for ${local.id} (resolver: ${resolver.name}).');
+      } else {
+        logger.debug('Kept local ${local.id} despite remote deletion (resolver: ${resolver.name}).');
+      }
+
+      final resolvedEvent = ConflictResolvedEvent<T>(
+        userId: userId,
+        entityId: context.entityId,
+        resolution: resolution,
+      );
+      generatedEvents.add(resolvedEvent);
+      _notifyObservers(resolvedEvent);
+    }
   }
 
   // Stream remote items instead of loading all at once
@@ -536,6 +605,26 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // Allow other async operations to proceed
       await Future.delayed(Duration.zero);
     }
+  }
+
+  /// Whether [remote] should replace [local] during a pull, when no conflict
+  /// was detected.
+  ///
+  /// Prefers vector clocks when both are present (update only if remote is
+  /// strictly newer — i.e. not an ancestor of or equal to local). Concurrent
+  /// clocks never reach here (the detector routes them to the resolver). When
+  /// clock info is incomplete, falls back to version then `modifiedAt`, so an
+  /// equal/older remote is not needlessly written back.
+  bool _isRemoteStrictlyNewer(T local, T remote) {
+    final localVC = local.vectorClock;
+    final remoteVC = remote.vectorClock;
+    if (localVC != null && remoteVC != null) {
+      return !remoteVC.isLessThanOrEqualTo(localVC);
+    }
+    if (remote.version != local.version) {
+      return remote.version > local.version;
+    }
+    return remote.modifiedAt.isAfter(local.modifiedAt);
   }
 
   // Process a batch of remote items
@@ -572,24 +661,19 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
           final size = jsonEncode(remoteItem.toDatumMap()).length;
           batchBytes += size;
         } else {
-          // Check if remote is actually newer based on vector clocks
-          final localVC = localItem.vectorClock;
-          final remoteVC = remoteItem.vectorClock;
-
-          bool shouldUpdate = true;
-          if (localVC != null && remoteVC != null) {
-            // Only update if remote is strictly newer
-            if (remoteVC.isLessThanOrEqualTo(localVC)) {
-              shouldUpdate = false;
-              logger.debug('Skipping remote update for ${remoteItem.id} because local version is newer or same.');
-            }
-          }
-
-          if (shouldUpdate) {
-            // This is an update from remote for an existing item.
+          // Existing item with no detected conflict: apply the remote version
+          // only if it is *actually* newer. Previously `shouldUpdate` defaulted
+          // to true and the check was skipped whenever a vector clock was null,
+          // so local was always overwritten — even when versions were equal,
+          // producing redundant update() calls, spurious change events and sync
+          // noise/loops. Concurrent edits are already routed to the conflict
+          // resolver by the detector, so here we just need a strict newer-check.
+          if (_isRemoteStrictlyNewer(localItem, remoteItem)) {
             await localAdapter.update(remoteItem);
             final size = jsonEncode(remoteItem.toDatumMap()).length;
             batchBytes += size;
+          } else {
+            logger.debug('Skipping remote update for ${remoteItem.id}: local is newer or identical.');
           }
         }
 

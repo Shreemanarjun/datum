@@ -72,7 +72,9 @@ class PaintCanvas extends RelationalDatumEntity with _$PaintCanvasMixin {
   @override
   final int version;
 
-  const PaintCanvas({
+  // Not const: the generated relational mixin caches relations in an instance
+  // field, which a const constructor cannot initialize.
+  PaintCanvas({
     required this.id,
     required this.userId,
     required this.title,

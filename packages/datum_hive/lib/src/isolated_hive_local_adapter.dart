@@ -298,15 +298,41 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
   // These can be implemented by extending this class if needed.
 
   @override
-  Future<PaginatedResult<T>> readAllPaginated(PaginationConfig config, {String? userId}) {
-    throw UnimplementedError('Pagination is not implemented in this generic Hive adapter.');
+  Future<PaginatedResult<T>> readAllPaginated(PaginationConfig config, {String? userId}) async {
+    final all = await readAll(userId: userId);
+    final totalCount = all.length;
+    final totalPages = config.pageSize == 0 ? 0 : (totalCount / config.pageSize).ceil();
+    final currentPage = config.currentPage ?? 1;
+    final start = (currentPage - 1) * config.pageSize;
+    if (start >= totalCount) {
+      return PaginatedResult(
+        items: const [],
+        totalCount: totalCount,
+        currentPage: currentPage,
+        totalPages: totalPages,
+        hasMore: false,
+      );
+    }
+    final end = (start + config.pageSize > totalCount) ? totalCount : start + config.pageSize;
+    return PaginatedResult(
+      items: all.sublist(start, end),
+      totalCount: totalCount,
+      currentPage: currentPage,
+      totalPages: totalPages,
+      hasMore: currentPage < totalPages,
+    );
   }
 
   @override
-  Future<List<T>> query(DatumQuery query, {String? userId}) {
-    // A proper implementation would parse the DatumQuery and apply it to the
-    // Hive box. For now, we fall back to readAll.
-    return readAll(userId: userId);
+  Future<List<T>> query(DatumQuery query, {String? userId}) async {
+    // Evaluate the DatumQuery in memory over the user-scoped box contents.
+    final all = await readAll(userId: userId);
+    return DatumQueryMatcher.apply(all, query);
+  }
+
+  @override
+  Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) {
+    return watchAll(userId: userId)?.map((items) => DatumQueryMatcher.apply(items, query));
   }
 
   @override

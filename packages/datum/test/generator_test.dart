@@ -23,7 +23,7 @@ class TestEntity extends DatumEntity {
 
   @DatumField(name: 'custom_field')
   final String customField;
-  
+
   final DateTime customDate;
 
   @DatumIgnore()

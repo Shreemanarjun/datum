@@ -1,8 +1,6 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/cascade_delete.dart';
-import 'package:datum/source/core/models/datum_either.dart';
 import 'package:datum/source/core/persistence/datum_persistence.dart';
 import 'package:datum/source/core/persistence/in_memory_datum_persistence.dart';
 import 'package:meta/meta.dart';
@@ -154,6 +152,14 @@ class TypeSafeManagerRegistry {
     _managers[T] = manager;
   }
 
+  /// Registers a manager under a runtime [type] key (internal use).
+  ///
+  /// Prefer the generic [register] when the static type is known. This exists
+  /// for the engine's type-erased initialization path.
+  void registerByType(Type type, DatumManager<DatumEntityInterface> manager) {
+    _managers[type] = manager;
+  }
+
   /// Retrieves a type-safe manager for the specified entity type.
   DatumManager<T> get<T extends DatumEntityInterface>() {
     // Prevent using DatumEntityInterface directly as it is the base interface
@@ -170,6 +176,24 @@ class TypeSafeManagerRegistry {
     }
     // This cast is safe because registration ensures type correctness
     return manager as DatumManager<T>;
+  }
+
+  /// Non-throwing variant of [get]: returns the manager for `T`, or `null` if
+  /// no manager is registered for that type.
+  DatumManager<T>? tryGet<T extends DatumEntityInterface>() {
+    if (T == DatumEntityInterface) return null;
+    final manager = _managers[T];
+    if (manager == null) return null;
+    return manager as DatumManager<T>;
+  }
+
+  /// Non-throwing variant of [getByType]: returns the manager for [type], or
+  /// `null` if none is registered.
+  DatumManager<DatumEntityInterface>? getByTypeOrNull(Type type) {
+    if (type == DatumEntityInterface) return null;
+    final manager = _managers[type];
+    if (manager == null) return null;
+    return manager as DatumManager<DatumEntityInterface>;
   }
 
   /// Retrieves a manager by Type, returning the base type.
@@ -205,7 +229,13 @@ class TypeSafeManagerRegistry {
   Iterable<Object> get values => _managers.values;
   Iterable<MapEntry<Type, Object>> get entries => _managers.entries;
   bool containsKey(Type key) => _managers.containsKey(key);
+
+  @Deprecated('Use get<T>()/tryGet<T>()/getByTypeOrNull(type) instead. '
+      'This untyped accessor will be removed in a future release.')
   Object? operator [](Type key) => _managers[key];
+
+  @Deprecated('Use register<T>(manager) or registerByType(type, manager) instead. '
+      'This untyped setter bypasses type safety and will be removed in a future release.')
   void operator []=(Type key, Object value) => _managers[key] = value;
 }
 
@@ -277,7 +307,11 @@ class Datum {
   }) : logger = logger ?? DatumLogger(enabled: config.enableLogging);
 
   /// Initializes the central Datum engine as a singleton.
-  static Future<DatumEither<Object, Datum>> initialize({
+  ///
+  /// Returns a [DatumEither] whose failure side is a typed [DatumError], so
+  /// callers can pattern-match initialization failures (or `throw` the error
+  /// directly — [DatumError] is an [Exception]).
+  static Future<DatumEither<DatumError, Datum>> initialize({
     required DatumConfig config,
     required DatumConnectivityChecker connectivityChecker,
     DatumPersistence? persistence,
@@ -333,10 +367,7 @@ class Datum {
       _instance = datum;
       return Success(datum);
     } catch (e, s) {
-      if (e is Exception) {
-        return Failure(e, s);
-      }
-      return Failure(e, s);
+      return Failure(DatumError.from(e, s), s);
     }
   }
 
@@ -630,7 +661,7 @@ class Datum {
 
     final manager = adapters.createManager(this);
     logBuffer.writeln('│  └─ ✨ Manager for ${_cyan(type)} ready.');
-    _managers[type] = manager;
+    _managers.registerByType(type, manager);
 
     final subscription = manager.eventStream.listen(
       _eventController.add,
@@ -649,7 +680,7 @@ class Datum {
 
     final manager = adapters.createManager(this);
     logBuffer.writeln('│  └─ ✨ Manager for ${_cyan(type)} ready.');
-    _managers[type] = manager;
+    _managers.registerByType(type, manager);
 
     final subscription = manager.eventStream.listen(
       _eventController.add,
@@ -769,11 +800,11 @@ class Datum {
       );
     }
 
-    final manager = instance._managers[T];
+    final manager = instance._managers.tryGet<T>();
     if (manager == null) {
       throw StateError('Entity type $T is not registered.');
     }
-    return manager as DatumManager<T>;
+    return manager;
   }
 
   /// Provides access to a manager for a given entity [Type].
@@ -785,9 +816,9 @@ class Datum {
       );
     }
 
-    final manager = instance._managers[type];
+    final manager = instance._managers.getByTypeOrNull(type);
     if (manager != null) {
-      return manager as DatumManager<DatumEntityInterface>;
+      return manager;
     }
     throw StateError('Entity type $type is not registered or has a manager of the wrong type.');
   }

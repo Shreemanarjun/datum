@@ -21,13 +21,11 @@ final paintStrokesStreamProvider =
     }
 
     yield* Datum.manager<PaintStroke>()
-            .watchAll(userId: userId, includeInitialData: true)
-            ?.map((allStrokes) => allStrokes
-                .where((stroke) =>
-                    stroke.canvasId == canvasId && !stroke.isDeleted)
-                .toList()
-              ..sort((a, b) => a.order.compareTo(b.order))) ??
-        const Stream.empty();
+        .watchAll(userId: userId, includeInitialData: true)
+        .map((allStrokes) => allStrokes
+            .where((stroke) => stroke.canvasId == canvasId && !stroke.isDeleted)
+            .toList()
+          ..sort((a, b) => a.order.compareTo(b.order)));
   },
   name: 'paintStrokesStreamProvider',
 );

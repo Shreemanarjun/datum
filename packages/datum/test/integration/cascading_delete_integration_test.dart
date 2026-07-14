@@ -1,5 +1,4 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
-import 'package:datum/source/core/cascade_delete.dart';
 import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -7,7 +6,6 @@ import 'package:datum/datum.dart';
 
 import '../mocks/mock_adapters.dart';
 import '../mocks/mock_connectivity_checker.dart';
-import 'package:datum/source/core/models/datum_either.dart';
 
 /// A simple User entity for testing cascading delete relationships.
 class User extends RelationalDatumEntity {

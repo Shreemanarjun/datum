@@ -8,7 +8,6 @@ import 'package:datum/source/core/persistence/datum_persistence.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
 
-import '../cascade_delete.dart';
 import '../engine/error_boundary.dart';
 
 import 'cold_start_manager.dart';
@@ -367,7 +366,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       }
     }
 
-    final userIds = evaluatedInitialUserId != null ? [evaluatedInitialUserId] : await localAdapter.getAllUserIds();
+    final discovered = evaluatedInitialUserId != null ? [evaluatedInitialUserId] : await localAdapter.getAllUserIds();
+    // Exclude local-only/system users (e.g. 'automatic-system') from auto-sync.
+    final userIds = discovered.where((id) => !config.excludedSyncUserIds.contains(id)).toList();
 
     for (final userId in userIds) {
       if (userId.isNotEmpty) {
@@ -567,6 +568,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     bool forceRemoteSync = false,
   }) async {
     _ensureInitialized();
+    _registerRelationSchema(item);
     // Check for user switch before proceeding.
     await _syncEngineInstance.checkForUserSwitch(userId);
 
@@ -786,9 +788,15 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
     final entity = await localAdapter.read(id, userId: userId);
 
-    // Cache the existence result
-    _entityExistenceCache[cacheKey] = entity != null;
-    _logger.debug('Cached entity existence for key: $cacheKey (exists: ${entity != null})');
+    // Only cache POSITIVE existence. Caching a negative (absent) result caused
+    // stale reads in offline-first/realtime scenarios: once an entity was cached
+    // as "does not exist", data that later arrived via sync or a realtime push
+    // was never observed, breaking delete/conflict resolution and reactive
+    // reads. A positive entry is safe because reads always re-fetch the row.
+    if (entity != null) {
+      _entityExistenceCache[cacheKey] = true;
+      _logger.debug('Cached entity existence for key: $cacheKey (exists: true)');
+    }
 
     if (entity == null) return null;
 
@@ -825,19 +833,53 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     return transformedEntities;
   }
 
+  /// Returns whether an entity with [id] exists in local storage.
+  ///
+  /// A convenience for `await read(id) != null` that skips relation loading and
+  /// post-fetch transforms.
+  Future<bool> exists(String id, {String? userId}) async {
+    _ensureInitialized();
+    return (await localAdapter.read(id, userId: userId)) != null;
+  }
+
+  /// Counts entities matching an optional [query].
+  ///
+  /// Convenience for the common `readAll()/query().length` pattern. Note it
+  /// hydrates the matching entities; for large datasets prefer a native count
+  /// via [rawQuery] with a `COUNT(*)` on a `RawQueryCapable` adapter.
+  Future<int> count({
+    DatumQuery? query,
+    DataSource source = DataSource.local,
+    String? userId,
+  }) async {
+    _ensureInitialized();
+    if (query == null) {
+      final all = source == DataSource.local ? await localAdapter.readAll(userId: userId) : await remoteAdapter.readAll(userId: userId);
+      return all.length;
+    }
+    return (await this.query(query, source: source, userId: userId)).length;
+  }
+
   /// Watches all entities from the local adapter, emitting a new list on any change.
   ///
   /// The [includeInitialData] parameter controls whether the stream should
   /// immediately emit the current list of all items. Defaults to `true`.
   /// If `false`, the stream will only emit when a change occurs.
   /// Returns null if the adapter does not support reactive queries.
-  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) {
+  Stream<List<T>> watchAll({String? userId, bool includeInitialData = true, List<String> withRelated = const []}) {
     _ensureInitialized();
     final adapterStream = localAdapter.watchAll(userId: userId, includeInitialData: includeInitialData);
-    if (adapterStream == null) return null;
+    if (adapterStream == null) {
+      _logger.debug('${localAdapter.name} is not watchable; watchAll returns an empty stream. Mix in WatchableAdapter for reactivity.');
+      return Stream<List<T>>.empty();
+    }
 
     return adapterStream.asyncMap((list) async {
       try {
+        // Eagerly load requested relations on every emission (reactive #UX).
+        if (withRelated.isNotEmpty && list.isNotEmpty) {
+          await _fetchAndStitchRelations(list, withRelated, DataSource.local, userId);
+        }
         // Apply post-fetch transforms with error handling
         final transformedList = <T>[];
         for (final entity in list) {
@@ -864,10 +906,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
   /// Watches a single entity by its ID, emitting the item on change or null if deleted.
   /// Returns null if the adapter does not support reactive queries.
-  Stream<T?>? watchById(String id, String? userId) {
+  Stream<T?> watchById(String id, String? userId) {
     _ensureInitialized();
     final adapterStream = localAdapter.watchById(id, userId: userId);
-    if (adapterStream == null) return null;
+    if (adapterStream == null) return Stream<T?>.empty();
 
     return adapterStream.asyncMap((item) async {
       if (item == null) {
@@ -886,24 +928,28 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   }
 
   /// Watches a paginated list of items.
-  /// Returns null if the adapter does not support reactive queries.
-  Stream<PaginatedResult<T>>? watchAllPaginated(
+  /// Emits an empty stream if the adapter does not support reactive queries.
+  Stream<PaginatedResult<T>> watchAllPaginated(
     PaginationConfig config, {
     String? userId,
   }) {
     _ensureInitialized();
-    return localAdapter.watchAllPaginated(config, userId: userId);
+    return localAdapter.watchAllPaginated(config, userId: userId) ?? Stream<PaginatedResult<T>>.empty();
   }
 
   /// Watches a subset of items matching a query.
-  /// Returns null if the adapter does not support reactive queries.
-  Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) {
+  /// Emits an empty stream if the adapter does not support reactive queries.
+  Stream<List<T>> watchQuery(DatumQuery query, {String? userId, List<String> withRelated = const []}) {
     _ensureInitialized();
     final adapterStream = localAdapter.watchQuery(query, userId: userId);
-    if (adapterStream == null) return null;
+    if (adapterStream == null) return Stream<List<T>>.empty();
 
     return adapterStream.asyncMap((list) async {
       try {
+        // Eagerly load requested relations on every emission (reactive #UX).
+        if (withRelated.isNotEmpty && list.isNotEmpty) {
+          await _fetchAndStitchRelations(list, withRelated, DataSource.local, userId);
+        }
         // Apply post-fetch transforms with error handling
         final transformedList = <T>[];
         for (final entity in list) {
@@ -932,9 +978,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   ///
   /// This provides a powerful way to fetch filtered and sorted data directly
   /// from either the local or remote adapter without relying on reactive streams.
+  /// [source] defaults to [DataSource.local] (the common offline-first case).
   Future<List<T>> query(
     DatumQuery query, {
-    required DataSource source,
+    DataSource source = DataSource.local,
     String? userId,
   }) async {
     _ensureInitialized();
@@ -942,8 +989,12 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     // Create a cache key for this query
     final cacheKey = _createQueryCacheKey(query, source, userId);
 
-    // Check cache first (only for local queries without related entities for simplicity)
-    if (source == DataSource.local && query.withRelated.isEmpty) {
+    // Local query caching is opt-in (config.enableQueryCache, default false):
+    // the local DB is already fast, and caching returned shared, mutable
+    // instances that could go stale (external sync/realtime writes) and break
+    // reactive updates. Only for local queries without related entities.
+    final useQueryCache = config.enableQueryCache && source == DataSource.local && query.withRelated.isEmpty;
+    if (useQueryCache) {
       final cached = _getCachedQuery(cacheKey);
       if (cached != null) {
         _logger.debug('Using cached query results for key: $cacheKey');
@@ -958,8 +1009,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       await _fetchAndStitchRelations(entities, query.withRelated, source, userId);
     }
 
-    // Cache the results (only for local queries without related entities)
-    if (source == DataSource.local && query.withRelated.isEmpty) {
+    // Cache the results (only when query caching is enabled).
+    if (useQueryCache) {
       _cacheQuery(cacheKey, entities);
     }
 
@@ -978,12 +1029,150 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     return transformedEntities;
   }
 
+  /// Runs [query] using a [DataFetchStrategy], removing the repetitive
+  /// "try local, then fall back to remote" boilerplate (#17).
+  ///
+  /// - [DataFetchStrategy.localOnly] / [DataFetchStrategy.remoteOnly]: single source.
+  /// - [DataFetchStrategy.localFirst]: local first; if empty, fetch remote
+  ///   (and, when [persistRemoteResults] is true, best-effort save them locally).
+  /// - [DataFetchStrategy.remoteFirst]: remote first; on error, fall back to local.
+  Future<List<T>> fetch(
+    DatumQuery query, {
+    DataFetchStrategy strategy = DataFetchStrategy.localFirst,
+    String? userId,
+    bool persistRemoteResults = false,
+  }) async {
+    _ensureInitialized();
+    switch (strategy) {
+      case DataFetchStrategy.localOnly:
+        return this.query(query, source: DataSource.local, userId: userId);
+      case DataFetchStrategy.remoteOnly:
+        return this.query(query, source: DataSource.remote, userId: userId);
+      case DataFetchStrategy.localFirst:
+        final local = await this.query(query, source: DataSource.local, userId: userId);
+        if (local.isNotEmpty) return local;
+        final remote = await this.query(query, source: DataSource.remote, userId: userId);
+        if (persistRemoteResults && remote.isNotEmpty) {
+          await _persistFetchedLocally(remote);
+        }
+        return remote;
+      case DataFetchStrategy.remoteFirst:
+        try {
+          final remote = await this.query(query, source: DataSource.remote, userId: userId);
+          if (persistRemoteResults && remote.isNotEmpty) {
+            await _persistFetchedLocally(remote);
+          }
+          return remote;
+        } catch (e) {
+          _logger.warn('remoteFirst fetch failed, falling back to local: $e');
+          return this.query(query, source: DataSource.local, userId: userId);
+        }
+    }
+  }
+
+  /// Reads a single entity by [id] using a [DataFetchStrategy].
+  Future<T?> fetchById(
+    String id, {
+    DataFetchStrategy strategy = DataFetchStrategy.localFirst,
+    String? userId,
+    List<String> withRelated = const [],
+    bool persistRemoteResults = false,
+  }) async {
+    _ensureInitialized();
+
+    Future<T?> readLocal() => read(id, userId: userId, withRelated: withRelated);
+    Future<T?> readRemote() => remoteAdapter.read(id, userId: userId);
+
+    switch (strategy) {
+      case DataFetchStrategy.localOnly:
+        return readLocal();
+      case DataFetchStrategy.remoteOnly:
+        return readRemote();
+      case DataFetchStrategy.localFirst:
+        final local = await readLocal();
+        if (local != null) return local;
+        final remote = await readRemote();
+        if (persistRemoteResults && remote != null) {
+          await _persistFetchedLocally([remote]);
+        }
+        return remote;
+      case DataFetchStrategy.remoteFirst:
+        try {
+          final remote = await readRemote();
+          if (remote != null) {
+            if (persistRemoteResults) await _persistFetchedLocally([remote]);
+            return remote;
+          }
+          return readLocal();
+        } catch (e) {
+          _logger.warn('remoteFirst read failed, falling back to local: $e');
+          return readLocal();
+        }
+    }
+  }
+
+  /// Executes an adapter-aware raw query for projections/aggregations without
+  /// hydrating entities (#11), dispatching to the local or remote adapter.
+  ///
+  /// Returns raw rows. Throws [UnsupportedError] if the target adapter does not
+  /// mix in `RawQueryCapable` — check `manager.localAdapter is RawQueryCapable`
+  /// first if unsure.
+  Future<List<DatumRawRow>> rawQuery(
+    DatumRawQuery query, {
+    DataSource source = DataSource.local,
+    String? userId,
+  }) {
+    _ensureInitialized();
+    if (source == DataSource.local) {
+      final a = localAdapter;
+      if (a is RawQueryCapable) return (a as RawQueryCapable).rawQuery(query, userId: userId);
+      throw UnsupportedError('${a.name} does not support raw queries. Mix in RawQueryCapable to enable.');
+    } else {
+      final a = remoteAdapter;
+      if (a is RawQueryCapable) return (a as RawQueryCapable).rawQuery(query, userId: userId);
+      throw UnsupportedError('${a.name} does not support raw queries. Mix in RawQueryCapable to enable.');
+    }
+  }
+
+  /// Best-effort local persistence of remotely-fetched entities (cache fill).
+  /// Failures are logged, not thrown — the fetched data is still returned.
+  Future<void> _persistFetchedLocally(List<T> items) async {
+    try {
+      await localAdapter.updateAll(items);
+    } catch (e) {
+      _logger.debug('Could not persist fetched results locally: $e');
+    }
+  }
+
+  /// Registers a relational entity's schema in [DatumRelationSchema] the first
+  /// time an instance is seen, enabling instance-free relation traversal (#21).
+  void _registerRelationSchema(DatumEntityInterface entity) {
+    if (entity is RelationalDatumEntity && !DatumRelationSchema.isRegistered(entity.runtimeType)) {
+      DatumRelationSchema.register(entity.runtimeType, entity.relationSchema);
+    }
+  }
+
   Future<void> _fetchAndStitchRelations(List<T> entities, List<String> relations, DataSource source, String? userId) async {
     if (entities.isEmpty || entities.first is! RelationalDatumEntity) {
       return;
     }
+    _registerRelationSchema(entities.first);
 
-    for (final relationName in relations) {
+    // Support nested relations via dot notation, e.g. 'posts.comments'. Group
+    // paths by their top-level segment so each relation is fetched once, then
+    // recurse into the remaining sub-paths on the fetched related entities (#22).
+    final nested = <String, List<String>>{};
+    for (final path in relations) {
+      final dot = path.indexOf('.');
+      final head = dot == -1 ? path : path.substring(0, dot);
+      final tail = dot == -1 ? null : path.substring(dot + 1);
+      final subPaths = nested.putIfAbsent(head, () => <String>[]);
+      if (tail != null && tail.isNotEmpty) subPaths.add(tail);
+    }
+
+    for (final entry in nested.entries) {
+      final relationName = entry.key;
+      final subPaths = entry.value;
       final firstEntity = entities.first as RelationalDatumEntity;
       final relation = firstEntity.relations[relationName];
 
@@ -993,6 +1182,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       }
 
       final relatedManager = relation.getRelatedManager();
+      var fetchedRelated = const <DatumEntityInterface>[];
 
       if (relation is BelongsTo) {
         final foreignKeyName = relation.foreignKey;
@@ -1012,6 +1202,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
             final relatedEntity = relatedEntitiesById[foreignKeyValue];
             relationalEntity.relations[relationName]?.setRaw(relatedEntity);
           }
+          fetchedRelated = relatedEntities;
         }
       } else if (relation is HasMany) {
         final foreignKeyName = relation.foreignKey;
@@ -1026,7 +1217,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
           final relatedEntitiesByParentId = <String, List<DatumEntityInterface>>{};
           for (final relatedEntity in relatedEntities) {
-            final parentId = (relatedEntity as RelationalDatumEntity).toDatumMap()[foreignKeyName];
+            // toDatumMap is on the base interface — related entities need not be relational.
+            final parentId = relatedEntity.toDatumMap()[foreignKeyName];
             (relatedEntitiesByParentId[parentId] ??= []).add(relatedEntity);
           }
 
@@ -1034,7 +1226,77 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
             final related = relatedEntitiesByParentId[entity.id] ?? [];
             (entity as RelationalDatumEntity).relations[relationName]?.setRaw(related);
           }
+          fetchedRelated = relatedEntities;
         }
+      } else if (relation is HasOne) {
+        // 1:1 where the related entity holds the foreign key.
+        final foreignKeyName = relation.foreignKey;
+        final localKeyName = relation.localKey;
+        final localKeyValues = entities.map((e) => e.toDatumMap()[localKeyName]).nonNulls.toSet().toList();
+
+        if (localKeyValues.isNotEmpty) {
+          final relatedEntities = await relatedManager.query(
+            DatumQuery(filters: [Filter(foreignKeyName, FilterOperator.isIn, localKeyValues)]),
+            source: source,
+            userId: userId,
+          );
+          final byForeignKey = <Object?, DatumEntityInterface>{};
+          for (final r in relatedEntities) {
+            final fk = r.toDatumMap()[foreignKeyName];
+            byForeignKey.putIfAbsent(fk, () => r); // first wins for a 1:1
+          }
+          for (final entity in entities) {
+            final lk = entity.toDatumMap()[localKeyName];
+            (entity as RelationalDatumEntity).relations[relationName]?.setRaw(byForeignKey[lk]);
+          }
+          fetchedRelated = relatedEntities;
+        }
+      } else if (relation is ManyToMany) {
+        // Traverse the pivot entity to resolve the many-to-many targets.
+        final pivotManager = Datum.managerByType(relation.pivotType);
+        final thisLocalKeyName = relation.thisLocalKey;
+        final localKeyValues = entities.map((e) => e.toDatumMap()[thisLocalKeyName]).nonNulls.toSet().toList();
+
+        if (localKeyValues.isNotEmpty) {
+          final pivotEntries = await pivotManager.query(
+            DatumQuery(filters: [Filter(relation.thisForeignKey, FilterOperator.isIn, localKeyValues)]),
+            source: source,
+            userId: userId,
+          );
+
+          final otherIdsByParent = <Object?, List<Object?>>{};
+          final allOtherIds = <Object?>{};
+          for (final pe in pivotEntries) {
+            final m = pe.toDatumMap();
+            final thisFk = m[relation.thisForeignKey];
+            final otherFk = m[relation.otherForeignKey];
+            if (otherFk != null) {
+              (otherIdsByParent[thisFk] ??= []).add(otherFk);
+              allOtherIds.add(otherFk);
+            }
+          }
+
+          var related = const <DatumEntityInterface>[];
+          if (allOtherIds.isNotEmpty) {
+            related = await relatedManager.query(
+              DatumQuery(filters: [Filter(relation.otherLocalKey, FilterOperator.isIn, allOtherIds.toList())]),
+              source: source,
+              userId: userId,
+            );
+          }
+          final relatedByOtherLocalKey = {for (final r in related) r.toDatumMap()[relation.otherLocalKey]: r};
+          for (final entity in entities) {
+            final lk = entity.toDatumMap()[thisLocalKeyName];
+            final ids = otherIdsByParent[lk] ?? const [];
+            (entity as RelationalDatumEntity).relations[relationName]?.setRaw(ids.map((id) => relatedByOtherLocalKey[id]).nonNulls.toList());
+          }
+          fetchedRelated = related;
+        }
+      }
+
+      // Recurse into nested relations on the fetched related entities.
+      if (subPaths.isNotEmpty && fetchedRelated.isNotEmpty) {
+        await relatedManager._fetchAndStitchRelations(fetchedRelated, subPaths, source, userId);
       }
     }
   }
@@ -2018,6 +2280,15 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   }) async {
     _ensureInitialized();
 
+    if (config.excludedSyncUserIds.contains(userId)) {
+      _logger.info('Sync for user $userId skipped: user is excluded from sync.');
+      return DatumSyncResult.skipped(
+        userId,
+        await getPendingCount(userId),
+        reason: 'User is excluded from sync',
+      );
+    }
+
     _logger.info('🔄 [${T.toString()}] Starting sync for user: $userId');
 
     return _syncRequestStrategy.execute(
@@ -2288,6 +2559,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       return;
     }
 
+    if (config.excludedSyncUserIds.contains(userId)) {
+      _logger.debug('Skipping auto-sync for excluded user: $userId');
+      return;
+    }
+
     stopAutoSync(userId: userId);
 
     final syncInterval = interval ?? config.autoSyncInterval;
@@ -2346,16 +2622,22 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       return;
     }
 
+    _cancelAllAutoSyncTimers();
+    // An explicit `stopAutoSync()` while paused means the caller does not want
+    // these users' auto-sync restored on resume, so forget them.
+    if (_isSyncPaused) {
+      _pausedAutoSyncUserIds.clear();
+    }
+  }
+
+  /// Cancels and clears all auto-sync timers WITHOUT touching
+  /// [_pausedAutoSyncUserIds]. Used by [pauseSync] so pausing never wipes the
+  /// set of users to resume — independent of the `_isSyncPaused` flag ordering.
+  void _cancelAllAutoSyncTimers() {
     for (final timer in _autoSyncTimers.values) {
       timer.cancel();
     }
     _autoSyncTimers.clear();
-    // If we are stopping all timers, clear the list of users to resume.
-    if (_isSyncPaused) {
-      _pausedAutoSyncUserIds.clear();
-    }
-
-    // Update the global next sync time after stopping all timers
     _updateNextSyncTime();
   }
 
@@ -2631,6 +2913,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       data: data,
       delta: delta,
       entityId: entityId,
+      // Deterministic per-entity identifier so operations can be safely filtered
+      // and deserialized when multiple entity types share one pending store (#16).
+      entityTable: T.toString(),
       timestamp: DateTime.now(),
     );
   }
@@ -2706,9 +2991,12 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// This also stops any running auto-sync timers for this manager.
   void pauseSync() {
     _prePauseStatus = currentStatus.status;
-    // Remember which users had active auto-sync timers.
+    // Remember which users had active auto-sync timers, then cancel the timers
+    // WITHOUT going through stopAutoSync() (which would clear the very list we
+    // just populated once _isSyncPaused is set). This makes pause/resume robust
+    // regardless of statement ordering.
     _pausedAutoSyncUserIds.addAll(_autoSyncTimers.keys);
-    stopAutoSync();
+    _cancelAllAutoSyncTimers();
     _isSyncPaused = true;
     if (!_statusSubject.isClosed) {
       _statusSubject.add(currentStatus.copyWith(status: DatumSyncStatus.paused));
@@ -2753,6 +3041,148 @@ extension DatumManagerAutoSyncInfo<T extends DatumEntityInterface> on DatumManag
     final nextTime = await getNextSyncTime();
     if (nextTime == null) return null;
     return nextTime.difference(DateTime.now());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Result-returning ("tryX") API.
+  //
+  // These mirror the throwing CRUD/query/sync methods but return a
+  // [DatumEither] with a typed, pattern-matchable [DatumError] on failure,
+  // so callers can handle errors exhaustively without try/catch. They delegate
+  // to the throwing methods, so behavior is identical on the success path.
+  // ---------------------------------------------------------------------------
+
+  /// Runs [action] and wraps the outcome in a [DatumEither], converting any
+  /// thrown error into a [DatumError] via [DatumError.from].
+  Future<DatumEither<DatumError, R>> _guard<R>(Future<R> Function() action) async {
+    try {
+      return Success(await action());
+    } catch (e, s) {
+      return Failure(DatumError.from(e, s), s);
+    }
+  }
+
+  /// Non-throwing variant of [read]. Returns `Success(null)` when the entity is
+  /// simply absent, and `Failure` only on an actual error (storage, network…).
+  Future<DatumEither<DatumError, T?>> tryRead(
+    String id, {
+    String? userId,
+    List<String> withRelated = const [],
+  }) =>
+      _guard(() => read(id, userId: userId, withRelated: withRelated));
+
+  /// Non-throwing variant of [readAll].
+  Future<DatumEither<DatumError, List<T>>> tryReadAll({
+    String? userId,
+    List<String> withRelated = const [],
+  }) =>
+      _guard(() => readAll(userId: userId, withRelated: withRelated));
+
+  /// Non-throwing variant of [push].
+  Future<DatumEither<DatumError, T>> tryPush({
+    required T item,
+    required String userId,
+    DataSource source = DataSource.local,
+    bool forceRemoteSync = false,
+  }) =>
+      _guard(() => push(
+            item: item,
+            userId: userId,
+            source: source,
+            forceRemoteSync: forceRemoteSync,
+          ));
+
+  /// Non-throwing variant of [query].
+  Future<DatumEither<DatumError, List<T>>> tryQuery(
+    DatumQuery query, {
+    required DataSource source,
+    String? userId,
+  }) =>
+      _guard(() => this.query(query, source: source, userId: userId));
+
+  /// Non-throwing variant of [delete].
+  Future<DatumEither<DatumError, bool>> tryDelete({
+    required String id,
+    required String userId,
+    DataSource source = DataSource.local,
+    bool forceRemoteSync = false,
+    DeleteBehavior? behavior,
+  }) =>
+      _guard(() => delete(
+            id: id,
+            userId: userId,
+            source: source,
+            forceRemoteSync: forceRemoteSync,
+            behavior: behavior,
+          ));
+
+  /// Non-throwing variant of [synchronize].
+  Future<DatumEither<DatumError, DatumSyncResult<T>>> trySynchronize(
+    String userId, {
+    DatumSyncOptions<DatumEntityInterface>? options,
+    DatumSyncScope? scope,
+  }) =>
+      _guard(() => synchronize(userId, options: options, scope: scope));
+
+  /// Non-throwing variant of [saveMany].
+  Future<DatumEither<DatumError, List<T>>> trySaveMany({
+    required List<T> items,
+    required String userId,
+    bool andSync = false,
+    DataSource source = DataSource.local,
+    bool forceRemoteSync = false,
+    DatumSyncOptions<T>? syncOptions,
+    DatumSyncScope? scope,
+  }) =>
+      _guard(() => saveMany(
+            items: items,
+            userId: userId,
+            andSync: andSync,
+            source: source,
+            forceRemoteSync: forceRemoteSync,
+            syncOptions: syncOptions,
+            scope: scope,
+          ));
+
+  /// Non-throwing variant of [switchUser].
+  Future<DatumEither<DatumError, DatumUserSwitchResult>> trySwitchUser({
+    required String? oldUserId,
+    required String newUserId,
+    UserSwitchStrategy? strategy,
+  }) =>
+      _guard(() => switchUser(oldUserId: oldUserId, newUserId: newUserId, strategy: strategy));
+
+  /// Non-throwing variant of [cascadeDelete].
+  Future<DatumEither<DatumError, CascadeDeleteResult<T>>> tryCascadeDelete({
+    required String id,
+    required String userId,
+    DataSource source = DataSource.local,
+    bool forceRemoteSync = false,
+  }) =>
+      _guard(() => cascadeDelete(id: id, userId: userId, source: source, forceRemoteSync: forceRemoteSync));
+
+  /// Deletes multiple entities by [ids] in one call, returning the ids that
+  /// were actually removed (a batch convenience over [delete]).
+  Future<List<String>> deleteMany(
+    List<String> ids, {
+    required String userId,
+    DataSource source = DataSource.local,
+    bool forceRemoteSync = false,
+    DeleteBehavior? behavior,
+  }) async {
+    _ensureInitialized();
+    final deleted = <String>[];
+    for (final id in ids) {
+      final ok = await delete(
+        id: id,
+        userId: userId,
+        source: source,
+        forceRemoteSync: forceRemoteSync,
+        behavior: behavior,
+      );
+      if (ok) deleted.add(id);
+    }
+    return deleted;
   }
 }
 

@@ -32,7 +32,9 @@ void main() {
       manager = DatumManager<TestEntity>(
         localAdapter: localAdapter,
         remoteAdapter: remoteAdapter,
-        datumConfig: const DatumConfig(),
+        // This suite exercises query-cache clearing via refreshStreams, so it
+        // opts into the (otherwise default-off) local query cache.
+        datumConfig: const DatumConfig(enableQueryCache: true),
         connectivity: connectivityChecker,
       );
       // Wire up the manager's data change events to the mock adapter's stream.
@@ -54,7 +56,7 @@ void main() {
       final completer = Completer<List<List<TestEntity>>>();
       final receivedEvents = <List<TestEntity>>[];
 
-      final subscription = stream?.listen((items) {
+      final subscription = stream.listen((items) {
         receivedEvents.add(items);
         if (receivedEvents.length == 4) {
           completer.complete(receivedEvents);
@@ -74,7 +76,7 @@ void main() {
       expect(allEvents[3], hasLength(1));
       expect(allEvents[3].first.id, 'entity2');
 
-      await subscription?.cancel();
+      await subscription.cancel();
     });
 
     test('watchById emits updated entity and null on deletion', () async {
@@ -86,7 +88,7 @@ void main() {
       final completer = Completer<List<TestEntity?>>();
       final receivedEvents = <TestEntity?>[];
 
-      final subscription = stream?.listen((item) {
+      final subscription = stream.listen((item) {
         receivedEvents.add(item);
         if (receivedEvents.length == 4) {
           completer.complete(receivedEvents);
@@ -104,7 +106,7 @@ void main() {
       expect(allEvents[2]?.name, 'Updated Item');
       expect(allEvents[3], isNull);
 
-      await subscription?.cancel();
+      await subscription.cancel();
     });
 
     test('watchAllPaginated emits updated paginated results', () async {
@@ -119,7 +121,7 @@ void main() {
       final completer = Completer<List<PaginatedResult<TestEntity>>>();
       final receivedEvents = <PaginatedResult<TestEntity>>[];
 
-      final subscription = stream?.listen((result) {
+      final subscription = stream.listen((result) {
         receivedEvents.add(result);
         if (receivedEvents.length == 5) {
           completer.complete(receivedEvents);
@@ -142,7 +144,7 @@ void main() {
       expect(allEvents[4].items, hasLength(2));
       expect(allEvents[4].hasMore, isFalse);
 
-      await subscription?.cancel();
+      await subscription.cancel();
     });
 
     test('watchQuery emits filtered lists on data changes', () async {
@@ -159,7 +161,7 @@ void main() {
       final completer = Completer<List<List<TestEntity>>>();
       final receivedEvents = <List<TestEntity>>[];
 
-      final subscription = stream?.listen((items) {
+      final subscription = stream.listen((items) {
         receivedEvents.add(items);
         if (receivedEvents.length == 4) {
           completer.complete(receivedEvents);
@@ -180,7 +182,7 @@ void main() {
       expect(allEvents[2], hasLength(1));
       expect(allEvents[3], isEmpty);
 
-      await subscription?.cancel();
+      await subscription.cancel();
     });
 
     test('watchQuery with sorting emits correctly ordered lists', () async {
@@ -355,7 +357,7 @@ void main() {
       final completer = Completer<List<List<TestEntity>>>();
       final receivedEvents = <List<TestEntity>>[];
 
-      final subscription = stream?.listen((items) {
+      final subscription = stream.listen((items) {
         receivedEvents.add(items);
         // We expect 2 events: initial data + refresh event
         if (receivedEvents.length == 2) {
@@ -380,7 +382,7 @@ void main() {
       final newCacheStats = manager.getCacheStats();
       expect(newCacheStats['queries'], 0);
 
-      await subscription?.cancel();
+      await subscription.cancel();
     });
 
     test('userChangeStream emits when users switch', () async {
@@ -422,7 +424,7 @@ void main() {
       final receivedEvents = <List<TestEntity>>[];
       final completer = Completer<List<List<TestEntity>>>();
 
-      final subscription = stream?.listen((items) {
+      final subscription = stream.listen((items) {
         receivedEvents.add(items);
         if (receivedEvents.length == 6) {
           // Initial + 5 operations
@@ -440,7 +442,7 @@ void main() {
       expect(allEvents.length, 6);
       expect(allEvents.last.length, 5); // Final state should have all entities
 
-      await subscription?.cancel();
+      await subscription.cancel();
     });
 
     test('rapid successive operations are handled correctly', () async {
@@ -448,7 +450,7 @@ void main() {
       final receivedEvents = <List<TestEntity>>[];
       final completer = Completer<List<List<TestEntity>>>();
 
-      final subscription = stream?.listen((items) {
+      final subscription = stream.listen((items) {
         receivedEvents.add(items);
         if (receivedEvents.length == 6) {
           // Initial + 5 operations
@@ -470,7 +472,7 @@ void main() {
       expect(allEvents.length, 6);
       expect(allEvents.last.length, 5); // All entities should be present
 
-      await subscription?.cancel();
+      await subscription.cancel();
     });
 
     test('query streams handle dynamic filter changes', () async {
@@ -486,7 +488,7 @@ void main() {
       final stream = manager.watchQuery(highPriorityQuery, userId: 'user1');
       final receivedEvents = <List<TestEntity>>[];
 
-      final subscription = stream?.listen((items) => receivedEvents.add(items));
+      final subscription = stream.listen((items) => receivedEvents.add(items));
 
       // Add entities
       for (final entity in entities) {
@@ -499,7 +501,7 @@ void main() {
       expect(receivedEvents.last.length, 1);
       expect(receivedEvents.last.first.value, 10);
 
-      await subscription?.cancel();
+      await subscription.cancel();
     });
   });
 }

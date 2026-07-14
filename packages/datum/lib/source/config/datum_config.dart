@@ -175,6 +175,37 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
   /// Defines the behavior for delete operations. Defaults to [DeleteBehavior.hardDelete].
   final DeleteBehavior deleteBehavior;
 
+  /// User IDs that must never be auto-discovered for synchronization.
+  ///
+  /// When [autoStartSync] is enabled and no [initialUserId] is provided, Datum
+  /// discovers every user that has local data and starts syncing them. Add
+  /// local-only/system user IDs here (e.g. `automatic-system` used for default
+  /// ownership) so they are skipped by auto-discovery and auto-sync. Explicit
+  /// `synchronize(userId)` / `startAutoSync(userId)` calls still honor this list
+  /// and skip excluded users, so a system user is never pushed to the remote.
+  final Set<String> excludedSyncUserIds;
+
+  /// Whether a full pull should treat entities that exist locally but are
+  /// absent remotely as **remote deletions**, routing each through the conflict
+  /// resolver (as a [DatumConflictType.deletionConflict] with a null remote).
+  ///
+  /// Defaults to **false** (previous behavior: remote deletions were invisible
+  /// during pull). When enabled, detection runs only on a *full* pull (no scope
+  /// and no query filter — a filtered pull legitimately returns a subset) and
+  /// skips entities with pending local operations or already soft-deleted
+  /// locally. The default [LastWriteWinsResolver] keeps local data (safe); use a
+  /// remote-priority resolver to actually propagate deletions.
+  final bool detectRemoteDeletions;
+
+  /// Whether to cache the results of local [DatumManager.query] calls.
+  ///
+  /// Defaults to **false**. The local database is already a fast cache, and
+  /// caching query results returned shared, mutable entity instances that could
+  /// go stale (e.g. when data changed via sync/realtime outside the manager) and
+  /// break reactive UI updates (unchanged object references). Enable this only
+  /// if you have measured a need and understand those trade-offs.
+  final bool enableQueryCache;
+
   /// The maximum size of the query cache.
   final int maxQueryCacheSize;
 
@@ -226,6 +257,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     this.syncDirectionResolver,
     this.coldStartConfig = const ColdStartConfig(),
     this.deleteBehavior = DeleteBehavior.hardDelete,
+    this.excludedSyncUserIds = const {},
+    this.detectRemoteDeletions = false,
+    this.enableQueryCache = false,
     this.maxQueryCacheSize = 100,
     this.maxRelationshipQueryCacheSize = 200,
     this.maxEntityExistenceCacheSize = 500,
@@ -268,6 +302,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     SyncDirectionResolver? syncDirectionResolver,
     ColdStartConfig? coldStartConfig,
     DeleteBehavior? deleteBehavior,
+    Set<String>? excludedSyncUserIds,
+    bool? detectRemoteDeletions,
+    bool? enableQueryCache,
     int? maxQueryCacheSize,
     int? maxRelationshipQueryCacheSize,
     int? maxEntityExistenceCacheSize,
@@ -277,10 +314,12 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       autoSyncInterval: autoSyncInterval ?? this.autoSyncInterval,
       autoStartSync: autoStartSync ?? this.autoStartSync,
       syncTimeout: syncTimeout ?? this.syncTimeout,
-      // Only copy the resolver if the new type E is assignable from the old type T.
-      // This is safe when copyWith is called without a new generic type.
-      // This is safe when copyWith is called without a new generic type.
-      defaultConflictResolver: defaultConflictResolver ?? (this.defaultConflictResolver is DatumConflictResolver<E> ? this.defaultConflictResolver as DatumConflictResolver<E> : null),
+      // Preserve the resolver across the generic boundary. Because generics are
+      // invariant, a `DatumConflictResolver<T>` (e.g. a global
+      // `<DatumEntityInterface>` default) is not directly a
+      // `DatumConflictResolver<E>`; rather than dropping it to null (the old
+      // bug), wrap it in a [TypeAdaptedConflictResolver] when the types differ.
+      defaultConflictResolver: defaultConflictResolver ?? _adaptResolver<E>(),
       defaultUserSwitchStrategy: defaultUserSwitchStrategy ?? this.defaultUserSwitchStrategy,
       initialUserId: initialUserId ?? this.initialUserId,
       enableLogging: enableLogging ?? this.enableLogging,
@@ -306,11 +345,25 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       syncDirectionResolver: syncDirectionResolver ?? this.syncDirectionResolver,
       coldStartConfig: coldStartConfig ?? this.coldStartConfig,
       deleteBehavior: deleteBehavior ?? this.deleteBehavior,
+      excludedSyncUserIds: excludedSyncUserIds ?? this.excludedSyncUserIds,
+      detectRemoteDeletions: detectRemoteDeletions ?? this.detectRemoteDeletions,
+      enableQueryCache: enableQueryCache ?? this.enableQueryCache,
       maxQueryCacheSize: maxQueryCacheSize ?? this.maxQueryCacheSize,
       maxRelationshipQueryCacheSize: maxRelationshipQueryCacheSize ?? this.maxRelationshipQueryCacheSize,
       maxEntityExistenceCacheSize: maxEntityExistenceCacheSize ?? this.maxEntityExistenceCacheSize,
       useIsolateSync: useIsolateSync ?? this.useIsolateSync,
     );
+  }
+
+  /// Returns [defaultConflictResolver] re-typed for [E], preserving the value
+  /// across Dart's invariant generics instead of dropping it to null.
+  DatumConflictResolver<E>? _adaptResolver<E extends DatumEntityInterface>() {
+    final resolver = defaultConflictResolver;
+    if (resolver == null) return null;
+    if (resolver is DatumConflictResolver<E>) {
+      return resolver as DatumConflictResolver<E>;
+    }
+    return TypeAdaptedConflictResolver<E, T>(resolver);
   }
 
   @override
@@ -350,6 +403,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       syncDirectionResolver,
       coldStartConfig,
       deleteBehavior,
+      excludedSyncUserIds,
+      detectRemoteDeletions,
+      enableQueryCache,
       maxQueryCacheSize,
       maxRelationshipQueryCacheSize,
       maxEntityExistenceCacheSize,

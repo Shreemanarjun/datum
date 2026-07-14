@@ -205,6 +205,9 @@ abstract class DatumConfigPresets {
     int? remoteStreamBatchSize,
     int? progressEventFrequency,
     Duration? remoteEventDebounceTime,
+    bool? enableQueryCache,
+    bool? detectRemoteDeletions,
+    Set<String>? excludedSyncUserIds,
   }) {
     return base.copyWith(
       autoSyncInterval: autoSyncInterval,
@@ -221,6 +224,9 @@ abstract class DatumConfigPresets {
       remoteStreamBatchSize: remoteStreamBatchSize,
       progressEventFrequency: progressEventFrequency,
       remoteEventDebounceTime: remoteEventDebounceTime,
+      enableQueryCache: enableQueryCache,
+      detectRemoteDeletions: detectRemoteDeletions,
+      excludedSyncUserIds: excludedSyncUserIds,
     );
   }
 }

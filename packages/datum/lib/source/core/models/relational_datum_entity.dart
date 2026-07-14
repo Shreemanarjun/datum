@@ -45,6 +45,29 @@ sealed class Relation<T extends DatumEntityInterface> {
 
   /// Sets the value of the relation from a raw dynamic value (e.g. from generic query results).
   void setRaw(dynamic value);
+
+  /// The related entity type for this relation.
+  Type get targetType => T;
+
+  /// Builds an instance-free [RelationDescriptor] for this relation under [name].
+  RelationDescriptor describe(String name) {
+    final self = this;
+    return switch (self) {
+      BelongsTo() => RelationDescriptor(name: name, kind: RelationKind.belongsTo, targetType: targetType, foreignKey: self.foreignKey, localKey: self.localKey),
+      HasMany() => RelationDescriptor(name: name, kind: RelationKind.hasMany, targetType: targetType, foreignKey: self.foreignKey, localKey: self.localKey),
+      HasOne() => RelationDescriptor(name: name, kind: RelationKind.hasOne, targetType: targetType, foreignKey: self.foreignKey, localKey: self.localKey),
+      ManyToMany() => RelationDescriptor(
+          name: name,
+          kind: RelationKind.manyToMany,
+          targetType: targetType,
+          foreignKey: self.thisForeignKey,
+          localKey: self.thisLocalKey,
+          pivotType: self.pivotType,
+          otherForeignKey: self.otherForeignKey,
+          otherLocalKey: self.otherLocalKey,
+        ),
+    };
+  }
 }
 
 class BelongsTo<T extends DatumEntityInterface> extends Relation<T> {
@@ -391,6 +414,61 @@ abstract class RelationalDatumEntity extends DatumEntity with RelationalDatumEnt
   @override
   Map<String, Relation> get relations => {};
 
+  /// An instance-free description of this entity's relations (#21).
+  ///
+  /// Registered globally via [DatumRelationSchema] the first time the engine
+  /// sees an instance, so adapters can traverse relation chains by type alone.
+  Map<String, RelationDescriptor> get relationSchema => {
+        for (final e in relations.entries) e.key: e.value.describe(e.key),
+      };
+
+  /// Copies all currently-loaded in-memory relation values from [source] onto
+  /// this entity, so a rebuilt (`copyWith`) instance keeps its relation
+  /// references instead of losing them (#34).
+  ///
+  /// Datum entities are immutable, so updating a field produces a new instance
+  /// whose relations start empty. Rather than re-fetching or re-linking, carry
+  /// the already-loaded relations across with a cascade:
+  ///
+  /// ```dart
+  /// final updated = user.copyWith(name: 'New')..preserveRelationsFrom(user);
+  /// // updated.relations['posts'].value is the same list as user's — no refetch.
+  /// ```
+  ///
+  /// Only relations that are already loaded on [source] are copied.
+  void preserveRelationsFrom(RelationalDatumEntity source) {
+    for (final entry in source.relations.entries) {
+      final loaded = entry.value.value;
+      if (loaded != null) {
+        relations[entry.key]?.setRaw(loaded);
+      }
+    }
+  }
+
+  /// Returns the loaded value of a to-many relation ([HasMany] / [ManyToMany])
+  /// as a typed `List<R>`, or `null` if the relation is absent or not loaded.
+  ///
+  /// Ergonomic replacement for `(entity.relations['posts'] as HasMany).value`:
+  ///
+  /// ```dart
+  /// final posts = blog.relatedList<Post>('posts') ?? const [];
+  /// ```
+  List<R>? relatedList<R extends DatumEntityInterface>(String name) {
+    final value = relations[name]?.value;
+    return value is List ? value.cast<R>() : null;
+  }
+
+  /// Returns the loaded value of a to-one relation ([BelongsTo] / [HasOne]) as
+  /// a typed `R`, or `null` if the relation is absent or not loaded.
+  ///
+  /// ```dart
+  /// final author = post.relatedOne<User>('author');
+  /// ```
+  R? relatedOne<R extends DatumEntityInterface>(String name) {
+    final value = relations[name]?.value;
+    return value is R ? value : null;
+  }
+
   /// Converts the entity to a `Map<String, dynamic>` for persistence.
   ///
   /// The optional [target] parameter dictates which set of fields to include,
@@ -538,4 +616,34 @@ mixin RelationalDatumEntityMixin implements Equatable, DatumEntityInterface {
   /// for value equality checks.
   @override
   List<Object?> get props => [id, userId, modifiedAt, createdAt, version, isDeleted, vectorClock];
+}
+
+/// Memoizes an entity's relations so eager loading (`withRelated`) works
+/// reliably for **hand-written** entities.
+///
+/// Eager loading mutates `Relation` objects in place (via `setRaw`). If your
+/// `relations` getter builds a fresh map on every call, those mutations are
+/// silently lost and `relatedList(...)` always returns `null`. Mix this in and
+/// define [buildRelations] instead of overriding `relations` — the map is built
+/// once, lazily, and reused, so loaded relations persist:
+///
+/// ```dart
+/// class Blog extends RelationalDatumEntity with MemoizedRelations {
+///   @override
+///   Map<String, Relation> buildRelations() => {
+///         'posts': HasMany<Post>(this, 'blogId'),
+///       };
+/// }
+/// ```
+///
+/// (Generated entities already memoize via their generated relations map, so
+/// this is only needed when hand-writing relational entities.)
+mixin MemoizedRelations on RelationalDatumEntity {
+  /// Builds this entity's relation map. Called once, lazily, then cached.
+  Map<String, Relation> buildRelations();
+
+  // `late final` (like the generated `_cachedRelations`) memoizes on first
+  // access and stays compatible with the entity's `@immutable` contract.
+  @override
+  late final Map<String, Relation> relations = buildRelations();
 }

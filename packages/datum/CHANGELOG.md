@@ -1,3 +1,84 @@
+# 1.1.0
+
+All changes below are additive and backward compatible unless noted.
+
+## 🐛 Bug fixes
+
+- **config**: `DatumConfig.copyWith<T>()` no longer drops the global
+  `defaultConflictResolver` (and `defaultSyncOptions`) when deriving a
+  per-entity config. A base-typed resolver is now adapted via
+  `TypeAdaptedConflictResolver` instead of being silently nulled.
+- **read**: `read()` no longer caches negative (absent) results, so data that
+  arrives later via sync/realtime is observed instead of returning a stale null.
+- **query**: local query caching is now **off by default** (`enableQueryCache`),
+  fixing stale/mutated results and broken reactive updates. Opt in if needed.
+- **sync**: the pull phase no longer blindly overwrites local data when a
+  `vectorClock` is null — it falls back to version, then `modifiedAt`, avoiding
+  redundant writes and sync noise.
+- **sync**: `pauseSync()`/`resumeSync()` reliably restore auto-sync timers
+  (hardened against the `stopAutoSync()` clear side-effect).
+- **generator**: fixed `fromMap` timestamp key mismatch (snake_case with a
+  camelCase fallback) and removed the redundant duplicate key lookup.
+- **generator**: `copyWithAll` and `fromMap` now only pass real constructor
+  parameters, so entities with initializer-derived fields (e.g. `: userId = id`)
+  generate valid code.
+
+## ✨ Features
+
+- **query**: `DataFetchStrategy` (`localOnly`/`remoteOnly`/`localFirst`/
+  `remoteFirst`) via `manager.fetch(...)` and `manager.fetchById(...)`, with an
+  optional `persistRemoteResults` cache-fill.
+- **relations**: nested eager loading with dot notation, e.g.
+  `withRelated: ['posts.author']`.
+- **relations**: instance-free relation schema (`DatumRelationSchema` +
+  `RelationDescriptor`) so adapters can traverse relations by type alone.
+- **relations**: `relatedList<R>('posts')` / `relatedOne<R>('author')` typed
+  accessors, and `preserveRelationsFrom(...)` to keep in-memory relation
+  references across a `copyWith`.
+- **query**: adapter-aware raw queries (`DatumRawQuery` + `RawQueryCapable` +
+  `manager.rawQuery(...)`) for projections/aggregations without hydration.
+- **manager**: `exists(id)` and `count({query})` convenience methods.
+- **errors**: sealed `DatumError` type + `tryRead`/`tryPush`/`tryQuery`/
+  `tryDelete`/`trySynchronize` result-returning API (no try/catch needed).
+- **query**: type-safe field selectors (`DatumQueryField` +
+  `whereField`/`orderByField`).
+- **logging**: pluggable `DatumLogSink` (redirect logs without subclassing).
+- **adapters**: shipped `InMemoryLocalAdapter`, a reusable `DatumQueryMatcher`,
+  and capability markers (`WatchableAdapter`, `TransactionalAdapter`,
+  `RawQueryCapable`, …).
+- **sync**: opt-in remote-deletion detection (`detectRemoteDeletions`) with a
+  `DatumConflictResolution.deleteLocal()` resolution.
+- **sync**: `excludedSyncUserIds` to keep local-only/system users out of sync.
+- **sync**: `DatumSyncOperation.entityTable` for deterministic multi-entity
+  pending stores.
+- **generator**: `@DatumSerializable(strictNullChecks: true)` opt-in so missing
+  non-nullable primitives surface instead of being silently defaulted;
+  `generateMixin` now defaults to `true`.
+- **perf**: order-independent `hashEntitiesUnordered` + O(1) incremental
+  `DatumRollingHash` (~420× faster set-hash updates than a full rehash).
+- **relations**: `withRelated` now eager-loads all four relation kinds
+  (`HasOne`/`ManyToMany` added); reactive `watchAll`/`watchQuery` accept
+  `withRelated`; hand-written entities can use the `MemoizedRelations` mixin.
+- **manager**: `exists`, `count`, `deleteMany`, `trySaveMany` conveniences;
+  `query` now defaults to `source: DataSource.local`.
+- **streams**: reactive `watch*` methods return **non-null** streams (empty when
+  the adapter isn't watchable).
+- **errors**: `Datum.initialize` returns `DatumEither<DatumError, Datum>`
+  (typed failure); `DatumError implements Exception`; `DatumEither` gains
+  `success`/`failure` getters.
+- **debug**: `DatumSyncResult.describe()` and `DatumHealth.describe()`
+  for readable logging; `DatumConfigPresets.custom(...)` exposes the newer flags;
+  typed relation accessors `relatedList<R>()` / `relatedOne<R>()`.
+- **manager**: `trySwitchUser` / `tryCascadeDelete` result-returning variants.
+- **exports**: `CascadeDeleteResult` / `CascadeResult` / `CascadeDeleteBuilder`
+  are now exported (public return types were previously unnameable).
+- **docs**: new `doc/API_GUIDE.md` covering querying, relations, results/errors,
+  and configuration.
+
+See `doc/ADAPTERS_AND_MIGRATIONS_GUIDE.md` (Drift/Isar/migrations) and
+`doc/API_DESIGN_AND_TESTING_PLAN.md` for details.
+
+
 # 1.0.5
 
 ## ✨ Features

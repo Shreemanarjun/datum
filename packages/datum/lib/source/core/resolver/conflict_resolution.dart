@@ -71,6 +71,15 @@ class DatumConflictResolution<T extends DatumEntityInterface> extends Equatable 
   /// Creates an aborted resolution.
   const DatumConflictResolution.abort(String reason) : this._(strategy: DatumResolutionStrategy.abort, message: reason);
 
+  /// Creates a resolution that **accepts a remote deletion**, removing the local
+  /// copy of the entity.
+  ///
+  /// Intended for a [DatumConflictType.deletionConflict] where the remote no
+  /// longer has the entity (remote is null). It uses
+  /// [DatumResolutionStrategy.takeRemote] with no resolved data, which the sync
+  /// engine applies as a local delete.
+  const DatumConflictResolution.deleteLocal([String? message]) : this._(strategy: DatumResolutionStrategy.takeRemote, message: message);
+
   /// Creates a copy of the resolution with a different generic type.
   /// This is useful for upcasting to `DatumConflictResolution<DatumEntity>`.
   DatumConflictResolution<E> copyWithNewType<E extends DatumEntityInterface>() {
@@ -122,4 +131,42 @@ abstract class DatumConflictResolver<T extends DatumEntityInterface> {
     T? remote,
     required DatumConflictContext context,
   });
+}
+
+/// Adapts a conflict resolver declared for a broader entity type [S] so it can
+/// be used where a resolver for a more specific type [E] is required
+/// (`E` must be a subtype of `S`).
+///
+/// Dart generics are invariant, so a `DatumConflictResolver<DatumEntityInterface>`
+/// (e.g. a global default set on [DatumConfig]) is **not** directly a
+/// `DatumConflictResolver<Person>`. Casting across that boundary throws at
+/// runtime, and an `is` check silently fails — which previously caused the
+/// global resolver to be dropped when deriving a per-entity config. This wrapper
+/// bridges the two without losing the resolver: it forwards [E] values to the
+/// base resolver and re-types the result via
+/// [DatumConflictResolution.copyWithNewType].
+class TypeAdaptedConflictResolver<E extends DatumEntityInterface, S extends DatumEntityInterface> implements DatumConflictResolver<E> {
+  /// Wraps [base] (a resolver for the broader type [S]).
+  TypeAdaptedConflictResolver(this.base);
+
+  /// The underlying resolver for the broader entity type.
+  final DatumConflictResolver<S> base;
+
+  @override
+  String get name => base.name;
+
+  @override
+  FutureOr<DatumConflictResolution<E>> resolve({
+    E? local,
+    E? remote,
+    required DatumConflictContext context,
+  }) async {
+    // E is a subtype of S, so these upcasts are safe at runtime.
+    final result = await base.resolve(
+      local: local as S?,
+      remote: remote as S?,
+      context: context,
+    );
+    return result.copyWithNewType<E>();
+  }
 }

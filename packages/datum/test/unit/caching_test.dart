@@ -424,6 +424,8 @@ void main() {
         localAdapter: userAdapter,
         remoteAdapter: userRemoteAdapter,
         connectivity: connectivity,
+        // These tests exercise the (opt-in) query cache feature directly.
+        datumConfig: const DatumConfig<TestUser>(enableQueryCache: true),
       );
 
       postManager = DatumManager<TestPost>(

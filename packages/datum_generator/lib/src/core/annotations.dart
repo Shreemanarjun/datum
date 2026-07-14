@@ -15,11 +15,29 @@ class DatumSerializable {
   /// }
   /// ```
   ///
-  /// When false (default), you need to manually implement the required methods.
-  /// Defaults to false to avoid unused mixin warnings.
+  /// When false, you must manually implement the required methods
+  /// (`toDatumMap`, `diff`, `fromMap`, `copyWith`, …).
+  ///
+  /// Defaults to **true** (mixin-by-default): applying `with _$EntityNameMixin`
+  /// removes all serialization boilerplate. The generated mixin is emitted with
+  /// an `// ignore: unused_element` so it is harmless if you do not apply it.
   final bool generateMixin;
 
-  const DatumSerializable({this.tableName, this.generateMixin = false});
+  /// Whether generated `fromMap` should NOT substitute default values for
+  /// non-nullable primitive fields (`String`/`int`/`double`/`bool`).
+  ///
+  /// Defaults to **false** (backward compatible): a missing/`null` value is
+  /// coerced to `''`/`0`/`0.0`/`false`. When **true**, the generator emits a
+  /// plain cast (e.g. `map['name'] as String`), so a `null` surfaces as a clear
+  /// runtime error instead of being silently masked (#29) — matching the
+  /// behavior of `json_serializable`/`freezed`. Nullable fields are unaffected.
+  final bool strictNullChecks;
+
+  const DatumSerializable({
+    this.tableName,
+    this.generateMixin = true,
+    this.strictNullChecks = false,
+  });
 }
 
 /// Annotation for fields that should be excluded from Datum serialization or metadata methods.

@@ -25,8 +25,7 @@ final tasksStreamProvider =
     StreamProvider.autoDispose.family<List<Task>, String>(
   (ref, userId) async* {
     yield* Datum.manager<Task>()
-            .watchAll(userId: userId, includeInitialData: true) ??
-        const Stream.empty();
+        .watchAll(userId: userId, includeInitialData: true);
   },
   name: 'tasksStreamProvider',
 );

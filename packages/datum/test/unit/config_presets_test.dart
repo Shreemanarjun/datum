@@ -141,5 +141,19 @@ void main() {
       expect(customConfig.autoStartSync, baseConfig.autoStartSync);
       expect(customConfig.remoteSyncBatchSize, baseConfig.remoteSyncBatchSize);
     });
+
+    test('custom preset exposes the newer config flags', () {
+      final config = DatumConfigPresets.custom(
+        base: DatumConfigPresets.production(),
+        enableQueryCache: true,
+        detectRemoteDeletions: true,
+        excludedSyncUserIds: {'system'},
+      );
+      expect(config.enableQueryCache, isTrue);
+      expect(config.detectRemoteDeletions, isTrue);
+      expect(config.excludedSyncUserIds, {'system'});
+      // Defaults preserved when not overridden.
+      expect(DatumConfigPresets.production().enableQueryCache, isFalse);
+    });
   });
 }

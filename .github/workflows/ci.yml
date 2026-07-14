@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  datum:
+    name: datum (analyze · format · generate · test · benchmark)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/datum
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install workspace dependencies
+        working-directory: .
+        run: flutter pub get
+
+      - name: Analyze (fatal on infos & warnings)
+        # Scoped to the package sources; the bundled example app is a separate
+        # demo package with its own (looser) lint baseline.
+        run: dart analyze --fatal-infos --fatal-warnings lib test benchmark
+
+      - name: Format check (hand-written sources only)
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          $(find lib test benchmark -name '*.dart' ! -name '*.g.dart')
+
+      - name: Verify generated code is up to date
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          # Generated .g.dart are not format-normalized by the generator; format
+          # them before diffing so only real content changes fail the check.
+          dart format $(find lib test -name '*.g.dart') >/dev/null
+          git diff --exit-code -- '*.g.dart' \
+            || (echo "::error::Generated code is stale. Run build_runner and commit." && exit 1)
+
+      - name: Test
+        run: flutter test
+
+      - name: Benchmark smoke run
+        run: dart run benchmark/datum_benchmark.dart --scale=1
+
+  datum_hive:
+    name: datum_hive (analyze · test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/datum_hive
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install workspace dependencies
+        working-directory: .
+        run: flutter pub get
+      - run: dart analyze --fatal-infos --fatal-warnings
+      - run: flutter test
+
+  datum_generator:
+    name: datum_generator (analyze)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/datum_generator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install workspace dependencies
+        working-directory: .
+        run: flutter pub get
+      - run: dart analyze

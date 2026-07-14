@@ -1,4 +1,4 @@
-import 'package:datum/source/core/models/datum_either.dart';
+import 'package:datum/datum.dart';
 import 'package:test/test.dart';
 
 void main() {

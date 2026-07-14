@@ -19,6 +19,14 @@ class DatumHealth extends Equatable {
 
   @override
   List<Object?> get props => [status, localAdapterStatus, remoteAdapterStatus];
+
+  /// A human-readable, multi-line health summary suitable for logging.
+  ///
+  /// (The default `toString` is Equatable's props representation; use this for a
+  /// friendlier, labeled summary.)
+  String describe() => 'Health: ${status.name}\n'
+      '  local adapter:  ${localAdapterStatus.name}\n'
+      '  remote adapter: ${remoteAdapterStatus.name}';
 }
 
 /// Describes the overall health of a synchronization process.

@@ -180,6 +180,56 @@ class CountBasedSampler implements LogSampler {
   }
 }
 
+/// A pluggable destination for formatted log output.
+///
+/// Implement this to redirect Datum's logs to any sink (a file, a crash
+/// reporter, `dart:developer`, a test buffer…) without subclassing
+/// [DatumLogger]. Pass your sink via `DatumLogger(sink: MySink())`.
+///
+/// The sink receives both the structured [entry] (for routing/filtering on
+/// level, category, metadata) and the [formatted] string the logger produced.
+abstract interface class DatumLogSink {
+  /// Writes a single, already-formatted log [entry].
+  void write(LogEntry entry, String formatted);
+}
+
+/// The default [DatumLogSink], printing to stdout via `print`.
+class ConsoleLogSink implements DatumLogSink {
+  /// Creates a console sink.
+  const ConsoleLogSink();
+
+  @override
+  void write(LogEntry entry, String formatted) {
+    // ignore: avoid_print
+    print(formatted);
+    if (entry.error != null && entry.stackTrace != null) {
+      // ignore: avoid_print
+      print(entry.stackTrace.toString());
+    }
+  }
+}
+
+/// A [DatumLogSink] that collects entries in memory. Useful for tests.
+class CollectingLogSink implements DatumLogSink {
+  /// The entries written so far, in order.
+  final List<LogEntry> entries = [];
+
+  /// The formatted strings written so far, in order.
+  final List<String> messages = [];
+
+  @override
+  void write(LogEntry entry, String formatted) {
+    entries.add(entry);
+    messages.add(formatted);
+  }
+
+  /// Clears all collected output.
+  void clear() {
+    entries.clear();
+    messages.clear();
+  }
+}
+
 /// Enhanced logger for the Datum package with structured logging and performance optimizations.
 class DatumLogger {
   final bool enabled;
@@ -189,6 +239,13 @@ class DatumLogger {
   final bool enablePerformanceLogging;
   final Duration performanceThreshold;
 
+  /// The destination for formatted log output. Defaults to [ConsoleLogSink].
+  ///
+  /// Kept private (with an optional constructor parameter) so that adding sink
+  /// support does not break existing `implements DatumLogger` implementations —
+  /// a private field is not part of the class interface.
+  final DatumLogSink _sink;
+
   DatumLogger({
     this.enabled = true,
     this.colors = true,
@@ -196,7 +253,8 @@ class DatumLogger {
     this.samplers = const {},
     this.enablePerformanceLogging = false,
     this.performanceThreshold = const Duration(milliseconds: 100),
-  });
+    DatumLogSink? sink,
+  }) : _sink = sink ?? const ConsoleLogSink();
 
   /// Logs a structured entry with the specified level.
   void log(LogEntry entry) {
@@ -213,14 +271,9 @@ class DatumLogger {
       sampler.recordLog(entry);
     }
 
-    // Format and output the log entry
+    // Format and output the log entry via the configured sink.
     final formatted = _formatEntry(entry);
-    print(formatted);
-
-    // Handle error stack traces
-    if (entry.error != null && entry.stackTrace != null) {
-      print(entry.stackTrace.toString());
-    }
+    _sink.write(entry, formatted);
   }
 
   /// Logs a performance operation with timing.
@@ -355,6 +408,10 @@ class DatumLogger {
       samplers: samplers ?? this.samplers,
       enablePerformanceLogging: enablePerformanceLogging ?? this.enablePerformanceLogging,
       performanceThreshold: performanceThreshold ?? this.performanceThreshold,
+      // Preserve the sink across copies. Note copyWith deliberately does NOT
+      // expose a `sink` parameter: keeping its signature unchanged means an
+      // `implements DatumLogger` class overriding copyWith stays valid.
+      sink: _sink,
     );
   }
 

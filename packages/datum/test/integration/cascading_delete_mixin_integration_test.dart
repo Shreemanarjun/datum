@@ -3,7 +3,6 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/models/datum_either.dart';
 
 import '../mocks/mock_adapters.dart';
 import '../mocks/mock_connectivity_checker.dart';

@@ -80,7 +80,9 @@ class PaintStroke extends RelationalDatumEntity with _$PaintStrokeMixin {
   @override
   final int version;
 
-  const PaintStroke({
+  // Not const: the generated relational mixin caches relations in an instance
+  // field, which a const constructor cannot initialize.
+  PaintStroke({
     required this.id,
     required this.userId,
     required this.points,

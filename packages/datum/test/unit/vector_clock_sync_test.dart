@@ -149,6 +149,62 @@ void main() {
       // With LWW, remote should win because it is newer
       verify(() => localAdapter.update(any())).called(1);
     });
+
+    // --- Bug fix: no vector clock present ------------------------------------
+    // Previously, when either vector clock was null the newer-check was skipped
+    // and local was ALWAYS overwritten, producing redundant updates / sync noise.
+
+    test('does NOT overwrite when clocks are null and item is identical', () async {
+      final at = DateTime(2024, 1, 1);
+      final localItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'local', version: 1, modifiedAt: at);
+      final remoteItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'remote', version: 1, modifiedAt: at);
+
+      when(() => localAdapter.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {'1': localItem});
+      var readCount = 0;
+      when(() => remoteAdapter.readAll(userId: any(named: 'userId'), scope: any(named: 'scope'))).thenAnswer((_) async {
+        if (readCount++ == 0) return [remoteItem];
+        return [];
+      });
+      when(() => localAdapter.update(any())).thenAnswer((_) async => remoteItem);
+
+      await engine.synchronize('user-1', options: const DatumSyncOptions(direction: SyncDirection.pullOnly));
+
+      verifyNever(() => localAdapter.update(any()));
+    });
+
+    test('does NOT overwrite when clocks are null and local modifiedAt is newer', () async {
+      final localItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'local', version: 1, modifiedAt: DateTime(2024, 1, 2));
+      final remoteItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'remote', version: 1, modifiedAt: DateTime(2024, 1, 1));
+
+      when(() => localAdapter.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {'1': localItem});
+      var readCount = 0;
+      when(() => remoteAdapter.readAll(userId: any(named: 'userId'), scope: any(named: 'scope'))).thenAnswer((_) async {
+        if (readCount++ == 0) return [remoteItem];
+        return [];
+      });
+      when(() => localAdapter.update(any())).thenAnswer((_) async => remoteItem);
+
+      await engine.synchronize('user-1', options: const DatumSyncOptions(direction: SyncDirection.pullOnly));
+
+      verifyNever(() => localAdapter.update(any()));
+    });
+
+    test('DOES overwrite when clocks are null and remote modifiedAt is newer', () async {
+      final localItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'local', version: 1, modifiedAt: DateTime(2024, 1, 1));
+      final remoteItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'remote', version: 1, modifiedAt: DateTime(2024, 1, 2));
+
+      when(() => localAdapter.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {'1': localItem});
+      var readCount = 0;
+      when(() => remoteAdapter.readAll(userId: any(named: 'userId'), scope: any(named: 'scope'))).thenAnswer((_) async {
+        if (readCount++ == 0) return [remoteItem];
+        return [];
+      });
+      when(() => localAdapter.update(any())).thenAnswer((_) async => remoteItem);
+
+      await engine.synchronize('user-1', options: const DatumSyncOptions(direction: SyncDirection.pullOnly));
+
+      verify(() => localAdapter.update(any())).called(1);
+    });
   });
 
   group('VectorClock Manager Integration', () {

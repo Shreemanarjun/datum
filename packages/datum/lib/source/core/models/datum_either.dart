@@ -67,6 +67,14 @@ sealed class DatumEither<L, R> {
       Failure<L, R>(value: final l) => l,
     };
   }
+
+  /// The success value, or `null` if this is a `Failure`. Alias of
+  /// [successOrNull] for a concise `result.success!` style.
+  R? get success => successOrNull;
+
+  /// The failure value, or `null` if this is a `Success`. Alias of
+  /// [errorOrNull] for a concise `result.failure!` style.
+  L? get failure => errorOrNull;
 }
 
 /// Represents the failure case of an `Either`.
