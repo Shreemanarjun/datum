@@ -1,5 +1,4 @@
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/models/cold_start_strategy.dart';
 import 'package:test/test.dart';
 
 import '../mocks/mock_adapters.dart';

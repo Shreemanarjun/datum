@@ -159,3 +159,312 @@ class ORSet<T> extends Equatable implements CRDT<Set<T>> {
   @override
   List<Object?> get props => [_addSet, _removeSet];
 }
+
+/// A single element of an [RgaList], identified by its `(replicaId, counter)`
+/// pair and anchored after its [origin] element.
+///
+/// Deleted elements become **tombstones** (kept so later inserts anchored to
+/// them still order correctly); compact them by snapshotting the visible value
+/// into a fresh list when your app persists a checkpoint.
+class RgaNode<T> extends Equatable {
+  /// Creates an element node.
+  const RgaNode({
+    required this.replicaId,
+    required this.counter,
+    required this.origin,
+    required this.value,
+    this.deleted = false,
+  });
+
+  /// The replica that created this element.
+  final String replicaId;
+
+  /// The Lamport counter at creation time (unique per replica).
+  final int counter;
+
+  /// The id of the element this one was inserted after (`null` = list head).
+  final String? origin;
+
+  /// The element payload.
+  final T value;
+
+  /// Whether this element has been removed (tombstoned).
+  final bool deleted;
+
+  /// The globally unique element id.
+  String get id => '$replicaId:$counter';
+
+  /// Returns a tombstoned copy of this node.
+  RgaNode<T> tombstone() => RgaNode(replicaId: replicaId, counter: counter, origin: origin, value: value, deleted: true);
+
+  @override
+  List<Object?> get props => [replicaId, counter, origin, value, deleted];
+}
+
+/// A **Replicated Growable Array** (RGA) — a convergent ordered-sequence CRDT.
+///
+/// This is the sequence type collaborative editors need: concurrent inserts and
+/// deletes on different devices merge deterministically without dropping
+/// elements. Each element is identified by `(replicaId, counter)` and anchored
+/// *after* the element it was inserted behind; concurrent inserts at the same
+/// anchor are ordered by Lamport counter (newest first), so every replica
+/// arrives at the same order from the same element set.
+///
+/// Like the other CRDTs in this file it is immutable — operations return a new
+/// list — and merging is a state-based union (commutative, associative,
+/// idempotent):
+///
+/// ```dart
+/// var a = RgaList<String>(replicaId: 'device-a').insertAll(0, ['h', 'i']);
+/// var b = RgaList<String>.fromMap(a.toMap(), (v) => v as String, replicaId: 'device-b');
+///
+/// a = a.insert(2, '!');            // device A appends '!'
+/// b = b.insert(0, '>');            // device B prepends '>'
+///
+/// final mergedA = a.merge(b);
+/// final mergedB = b.merge(a);
+/// assert(mergedA.value.join() == mergedB.value.join()); // '>hi!'
+/// ```
+///
+/// Contiguous runs inserted with [insertAll] (or [RgaText.insert]) chain each
+/// element to the previous one, so two devices typing words concurrently at the
+/// same spot do not interleave characters.
+class RgaList<T> extends Equatable implements CRDT<List<T>> {
+  /// Creates an empty sequence owned by [replicaId].
+  const RgaList({required this.replicaId})
+      : _nodes = const {},
+        _counter = 0;
+
+  const RgaList._(this.replicaId, this._nodes, this._counter);
+
+  /// Deserializes a sequence. Pass your own [replicaId] when loading state
+  /// created on another device so new local edits carry this device's identity.
+  factory RgaList.fromMap(
+    Map<String, dynamic> map,
+    T Function(dynamic raw) decoder, {
+    String? replicaId,
+  }) {
+    final nodes = <String, RgaNode<T>>{};
+    var maxCounter = (map['counter'] as num?)?.toInt() ?? 0;
+    for (final raw in (map['nodes'] as List? ?? const [])) {
+      final m = Map<String, dynamic>.from(raw as Map);
+      final node = RgaNode<T>(
+        replicaId: m['r'] as String,
+        counter: (m['c'] as num).toInt(),
+        origin: m['o'] as String?,
+        value: decoder(m['v']),
+        deleted: m['d'] as bool? ?? false,
+      );
+      nodes[node.id] = node;
+      if (node.counter > maxCounter) maxCounter = node.counter;
+    }
+    return RgaList._(replicaId ?? (map['replicaId'] as String? ?? ''), nodes, maxCounter);
+  }
+
+  /// This replica's identity, stamped on locally created elements.
+  final String replicaId;
+
+  final Map<String, RgaNode<T>> _nodes;
+  final int _counter;
+
+  /// The visible (non-tombstoned) elements, in convergent order.
+  @override
+  List<T> get value => _visible().map((n) => n.value).toList();
+
+  /// The visible element ids in order — stable handles for cursor positions.
+  List<String> get idsInOrder => _visible().map((n) => n.id).toList();
+
+  /// Number of visible elements.
+  int get length => _visible().length;
+
+  /// Whether the sequence has no visible elements.
+  bool get isEmpty => length == 0;
+
+  /// The id of the visible element at [index].
+  String elementIdAt(int index) => _visible()[index].id;
+
+  /// The visible index of element [id], or -1 if absent/tombstoned.
+  int indexOfId(String id) => _visible().indexWhere((n) => n.id == id);
+
+  /// Inserts [element] at visible [index] (0 = head, [length] = append).
+  RgaList<T> insert(int index, T element) => insertAll(index, [element]);
+
+  /// Inserts [elements] as a contiguous run at visible [index].
+  RgaList<T> insertAll(int index, Iterable<T> elements) {
+    final visible = _visible();
+    if (index < 0 || index > visible.length) {
+      throw RangeError.range(index, 0, visible.length, 'index');
+    }
+    var origin = index == 0 ? null : visible[index - 1].id;
+    final nodes = Map<String, RgaNode<T>>.from(_nodes);
+    var counter = _counter;
+    for (final element in elements) {
+      counter++;
+      final node = RgaNode<T>(replicaId: replicaId, counter: counter, origin: origin, value: element);
+      nodes[node.id] = node;
+      origin = node.id; // chain the run so it cannot be interleaved
+    }
+    return RgaList._(replicaId, nodes, counter);
+  }
+
+  /// Appends [element] at the end of the sequence.
+  RgaList<T> add(T element) => insert(length, element);
+
+  /// Tombstones the visible element at [index].
+  RgaList<T> removeAt(int index) {
+    final visible = _visible();
+    if (index < 0 || index >= visible.length) {
+      throw RangeError.index(index, visible, 'index');
+    }
+    return removeById(visible[index].id);
+  }
+
+  /// Tombstones [count] visible elements starting at [index].
+  RgaList<T> removeRange(int index, int count) {
+    final visible = _visible();
+    if (index < 0 || count < 0 || index + count > visible.length) {
+      throw RangeError.range(index + count, 0, visible.length, 'index+count');
+    }
+    final nodes = Map<String, RgaNode<T>>.from(_nodes);
+    for (var i = index; i < index + count; i++) {
+      nodes[visible[i].id] = visible[i].tombstone();
+    }
+    return RgaList._(replicaId, nodes, _counter);
+  }
+
+  /// Tombstones the element with [id] (no-op if unknown).
+  RgaList<T> removeById(String id) {
+    final node = _nodes[id];
+    if (node == null || node.deleted) return this;
+    final nodes = Map<String, RgaNode<T>>.from(_nodes);
+    nodes[id] = node.tombstone();
+    return RgaList._(replicaId, nodes, _counter);
+  }
+
+  @override
+  RgaList<T> merge(covariant RgaList<T> other) {
+    final nodes = Map<String, RgaNode<T>>.from(_nodes);
+    for (final node in other._nodes.values) {
+      final existing = nodes[node.id];
+      if (existing == null) {
+        nodes[node.id] = node;
+      } else if (node.deleted && !existing.deleted) {
+        nodes[node.id] = existing.tombstone(); // deletion wins (monotonic)
+      }
+    }
+    final counter = _counter > other._counter ? _counter : other._counter;
+    return RgaList._(replicaId, nodes, counter);
+  }
+
+  @override
+  Map<String, dynamic> toMap() => {
+        'replicaId': replicaId,
+        'counter': _counter,
+        'nodes': [
+          for (final n in _nodes.values)
+            {
+              'r': n.replicaId,
+              'c': n.counter,
+              'o': n.origin,
+              'v': n.value,
+              'd': n.deleted,
+            },
+        ],
+      };
+
+  /// Convergent total order: iterative DFS over the origin tree, visiting
+  /// siblings newest-first (counter desc, then replicaId desc). Pure function
+  /// of the node set, so all replicas order identically. Tombstones are
+  /// traversed (they anchor later inserts) but filtered from the result.
+  List<RgaNode<T>> _visible() {
+    if (_nodes.isEmpty) return const [];
+    final children = <String?, List<RgaNode<T>>>{};
+    for (final node in _nodes.values) {
+      (children[node.origin] ??= []).add(node);
+    }
+    for (final siblings in children.values) {
+      siblings.sort((a, b) {
+        final byCounter = b.counter.compareTo(a.counter);
+        if (byCounter != 0) return byCounter;
+        return b.replicaId.compareTo(a.replicaId);
+      });
+    }
+    final out = <RgaNode<T>>[];
+    final stack = <RgaNode<T>>[...?children[null]?.reversed];
+    while (stack.isNotEmpty) {
+      final node = stack.removeLast();
+      if (!node.deleted) out.add(node);
+      final kids = children[node.id];
+      if (kids != null) stack.addAll(kids.reversed);
+    }
+    return out;
+  }
+
+  @override
+  List<Object?> get props => [_nodes];
+
+  @override
+  String toString() => 'RgaList(replicaId: $replicaId, value: $value)';
+}
+
+/// A convergent collaborative **text** CRDT for editors, built on [RgaList].
+///
+/// ```dart
+/// var doc = RgaText(replicaId: 'device-a').insert(0, 'hello');
+/// doc = doc.insert(5, ' world');
+/// doc = doc.delete(0, 1).insert(0, 'H');   // 'Hello world'
+///
+/// // Another device edits concurrently, then both merge to the same string:
+/// final merged = doc.merge(otherDeviceDoc);
+/// ```
+class RgaText extends Equatable implements CRDT<String> {
+  /// Creates an empty document owned by [replicaId].
+  RgaText({required String replicaId}) : _chars = RgaList<String>(replicaId: replicaId);
+
+  const RgaText._(this._chars);
+
+  /// Deserializes a document; pass this device's [replicaId] for local edits.
+  factory RgaText.fromMap(Map<String, dynamic> map, {String? replicaId}) => RgaText._(RgaList<String>.fromMap(map, (v) => v as String, replicaId: replicaId));
+
+  final RgaList<String> _chars;
+
+  /// The current text.
+  @override
+  String get value => _chars.value.join();
+
+  /// The text length.
+  int get length => _chars.length;
+
+  /// This replica's identity.
+  String get replicaId => _chars.replicaId;
+
+  /// Inserts [text] at character [index] as one contiguous, non-interleavable run.
+  RgaText insert(int index, String text) {
+    if (text.isEmpty) return this;
+    return RgaText._(_chars.insertAll(index, text.split('')));
+  }
+
+  /// Deletes [count] characters starting at [index].
+  RgaText delete(int index, int count) {
+    if (count == 0) return this;
+    return RgaText._(_chars.removeRange(index, count));
+  }
+
+  /// A stable id for the character at [index] (anchor for remote cursors).
+  String characterIdAt(int index) => _chars.elementIdAt(index);
+
+  /// The current index of the character with [id], or -1 if deleted.
+  int indexOfCharacter(String id) => _chars.indexOfId(id);
+
+  @override
+  RgaText merge(covariant RgaText other) => RgaText._(_chars.merge(other._chars));
+
+  @override
+  Map<String, dynamic> toMap() => _chars.toMap();
+
+  @override
+  List<Object?> get props => [_chars];
+
+  @override
+  String toString() => 'RgaText(replicaId: $replicaId, value: "$value")';
+}

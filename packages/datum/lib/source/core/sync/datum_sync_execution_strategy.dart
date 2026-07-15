@@ -103,13 +103,18 @@ class ParallelStrategy implements DatumSyncExecutionStrategy {
     final totalOps = operations.length;
     final errors = <Object>[];
 
-    for (var i = 0; i < totalOps; i += batchSize) {
+    // Guard against misconfiguration: batchSize <= 0 previously never advanced
+    // `i`, spinning forever on empty sublists (or throwing RangeError when
+    // negative).
+    final effectiveBatchSize = batchSize < 1 ? 1 : batchSize;
+
+    for (var i = 0; i < totalOps; i += effectiveBatchSize) {
       if (isCancelled()) break;
 
       // If we already have errors and failFast is enabled, stop processing
       if (failFast && errors.isNotEmpty) break;
 
-      final end = (i + batchSize < totalOps) ? i + batchSize : totalOps;
+      final end = (i + effectiveBatchSize < totalOps) ? i + effectiveBatchSize : totalOps;
       final batch = operations.sublist(i, end);
 
       if (failFast) {

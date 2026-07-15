@@ -41,25 +41,26 @@ class SyncErrorHandler {
   /// Handles sync errors at the manager level.
   ///
   /// Processes events from SyncExceptionWithEvents and re-throws the original error.
-  static void handleManagerSyncErrorSync<T extends DatumEntityInterface>(
+  static Never handleManagerSyncErrorSync<T extends DatumEntityInterface>(
     Object error,
     StackTrace stack,
     List<DatumSyncEvent<T>> events,
     void Function(List<DatumSyncEvent<T>> events) eventProcessor,
   ) {
-    // Process any events that were captured
+    // A SyncExceptionWithEvents carries its own events payload — process THOSE
+    // (like every sibling handler in this class does). Previously only the
+    // passed-in `events` list was processed, so the events captured inside the
+    // exception were silently dropped when the local list was empty.
+    if (error is SyncExceptionWithEvents<T>) {
+      eventProcessor(error.events);
+      // Preserve the original stack trace instead of discarding it.
+      Error.throwWithStackTrace(error.originalError, error.originalStackTrace);
+    }
+
     if (events.isNotEmpty) {
       eventProcessor(events);
     }
-
-    // If it's already a SyncExceptionWithEvents, extract and re-throw the original error
-    if (error is SyncExceptionWithEvents<T>) {
-      // Re-throw the original error with the original stack trace
-      throw error.originalError;
-    }
-
-    // For other errors, re-throw as-is
-    throw error;
+    Error.throwWithStackTrace(error, stack);
   }
 
   /// Handles sync errors at the engine level.

@@ -1,6 +1,5 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/models/cold_start_strategy.dart';
 import 'package:example/features/tasks/data/entities/task.dart';
 import 'package:example/data/paint/entity/paint_stroke.dart';
 import 'package:example/data/paint/entity/paint_canvas.dart';

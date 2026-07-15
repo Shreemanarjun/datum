@@ -355,6 +355,58 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     );
   }
 
+  /// Returns a copy of this config with the callback fields that commonly
+  /// capture unsendable state (`initialUserId`, `onMigrationError`,
+  /// `syncDirectionResolver`) **removed**, re-typed for entity type [E].
+  ///
+  /// Used by the `useIsolateSync` path before sending the config to a
+  /// background isolate. This exists because `copyWith(x: null)` keeps the
+  /// existing value (null means "unchanged"), so the previous sanitization via
+  /// `copyWith` silently left the callbacks in place and `Isolate.run` failed
+  /// whenever they captured unsendable objects.
+  DatumConfig<E> sanitizedForIsolate<E extends DatumEntityInterface>() {
+    return DatumConfig<E>(
+      autoSyncInterval: autoSyncInterval,
+      autoStartSync: autoStartSync,
+      syncTimeout: syncTimeout,
+      defaultConflictResolver: _adaptResolver<E>(),
+      defaultUserSwitchStrategy: defaultUserSwitchStrategy,
+      // Callbacks are cleared: they are not needed inside the sync isolate and
+      // frequently capture unsendable state (auth clients, BuildContexts, …).
+      initialUserId: null,
+      onMigrationError: null,
+      syncDirectionResolver: null,
+      enableLogging: enableLogging,
+      defaultSyncDirection: defaultSyncDirection,
+      schemaVersion: schemaVersion,
+      migrations: migrations,
+      syncExecutionStrategy: syncExecutionStrategy,
+      syncRequestStrategy: syncRequestStrategy,
+      errorRecoveryStrategy: errorRecoveryStrategy,
+      remoteEventDebounceTime: remoteEventDebounceTime,
+      changeCacheDuration: changeCacheDuration,
+      defaultSyncOptions: defaultSyncOptions is DatumSyncOptions<E> ? defaultSyncOptions as DatumSyncOptions<E> : null,
+      maxChangeCacheSize: maxChangeCacheSize,
+      changeCacheCleanupInterval: changeCacheCleanupInterval,
+      remoteSyncBatchSize: remoteSyncBatchSize,
+      remoteStreamBatchSize: remoteStreamBatchSize,
+      progressEventFrequency: progressEventFrequency,
+      logLevel: logLevel,
+      enablePerformanceLogging: enablePerformanceLogging,
+      performanceLogThreshold: performanceLogThreshold,
+      logSamplers: logSamplers,
+      coldStartConfig: coldStartConfig,
+      deleteBehavior: deleteBehavior,
+      excludedSyncUserIds: excludedSyncUserIds,
+      detectRemoteDeletions: detectRemoteDeletions,
+      enableQueryCache: enableQueryCache,
+      maxQueryCacheSize: maxQueryCacheSize,
+      maxRelationshipQueryCacheSize: maxRelationshipQueryCacheSize,
+      maxEntityExistenceCacheSize: maxEntityExistenceCacheSize,
+      useIsolateSync: useIsolateSync,
+    );
+  }
+
   /// Returns [defaultConflictResolver] re-typed for [E], preserving the value
   /// across Dart's invariant generics instead of dropping it to null.
   DatumConflictResolver<E>? _adaptResolver<E extends DatumEntityInterface>() {

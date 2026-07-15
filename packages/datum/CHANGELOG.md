@@ -2,6 +2,58 @@
 
 All changes below are additive and backward compatible unless noted.
 
+## ✨ Realtime / collaborative editing
+
+- **crdt**: added `RgaList<T>` — a Replicated Growable Array (convergent
+  ordered-sequence CRDT) — and `RgaText`, a collaborative text type built on
+  it. Concurrent inserts/deletes on different devices merge deterministically
+  (commutative, associative, idempotent), contiguous runs never interleave,
+  and element/character ids provide stable anchors for remote cursors.
+  Combine with `CRDTResolver`, per-device `deviceId`, and vector clocks for
+  editor-grade multi-device sync; see
+  `test/integration/collaborative_editor_test.dart` for the end-to-end
+  reference pattern (two devices editing offline and converging, including
+  the backend).
+
+## 🐛 Bug fixes (sync-engine hardening)
+
+- **metadata**: replaced the hardcoded `'testhash'` placeholder with a real
+  order-independent content hash. The sync-skip check had degraded to a bare
+  count comparison, so a remote content change that kept the entity count
+  identical was never pulled and devices diverged permanently.
+- **request strategy**: rewrote `SequentialRequestStrategy` without
+  `async_queue`. The old implementation assumed `queue.retry()` throws on
+  exhaustion (it doesn't), could hang `synchronize()` futures forever, shared
+  one global queue across every default-config manager (const canonicalization)
+  and stopped it for everyone on `dispose()`. `retryCount` now actually works
+  and defaults to 0 (matching real shipped behavior).
+- **cancellation**: pausing mid-sync now returns `wasCancelled: true`, keeps
+  the `paused` status, and skips the metadata stamp — a truncated cycle was
+  previously reported as a fully successful sync.
+- **timeout**: `config.syncTimeout` / `options.timeout` is now enforced (it was
+  configured everywhere but never applied); a hung remote surfaces a typed
+  `DatumExceptionCode.timeout` and fails the status.
+- **conflicts**: `takeLocal`/`merge` resolutions now queue a push of the winner
+  so the remote converges (the same conflict previously re-fired forever and
+  merged values never reached other devices); `takeRemote` honors a
+  resolver-transformed `resolvedData`; `abort`/`askUser` are no longer counted
+  and reported as resolved; deletion-conflict resolutions increment
+  `conflictsResolved`.
+- **batching**: a retryable batch failure re-queues its operations with
+  `retryCount + 1` instead of permanently dropping the whole batch (a single
+  offline blip during a batched push previously lost every operation in it).
+- **isolate sync**: `useIsolateSync` config sanitization actually clears
+  unsendable callbacks now (`copyWith(x: null)` keeps the old value) via
+  `DatumConfig.sanitizedForIsolate`.
+- **misc**: global sync result accumulates pull failures/conflicts uniformly
+  across directions; `DatumSyncStartedEvent` reports the fresh pending count;
+  global observers receive `onSyncEnd` on failed syncs; `ExponentialBackoff`
+  clamps instead of overflowing negative; `ParallelStrategy(batchSize <= 0)` no
+  longer loops forever; cold-start guard is claimed before its awaited check
+  (TOCTOU); `pauseSync`/`resumeSync` hardened; `CascadeDeleteResult`/
+  `ColdStartConfig`/`ColdStartStrategy` are now exported (public API types that
+  were unnameable).
+
 ## 🐛 Bug fixes
 
 - **config**: `DatumConfig.copyWith<T>()` no longer drops the global

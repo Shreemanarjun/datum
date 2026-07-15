@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:datum/source/core/manager/datum_sync_request_strategy.dart';
-import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -79,31 +78,27 @@ void main() {
       });
 
       test('queues multiple actions sequentially', () async {
-        fakeAsync((async) async {
-          final executionOrder = <int>[];
+        // (Previously wrapped in fakeAsync with an async callback, which never
+        // actually ran the assertions and left the shared chain frozen in a
+        // dead zone — poisoning later tests.)
+        final executionOrder = <int>[];
+        final futures = <Future<String>>[];
 
-          final futures = <Future<String>>[];
+        for (var i = 0; i < 3; i++) {
+          futures.add(strategy.execute(
+            () async {
+              executionOrder.add(i);
+              await Future<void>.delayed(const Duration(milliseconds: 10));
+              return 'result_$i';
+            },
+            isSyncInProgress: () => false,
+            onSkipped: () => 'skipped',
+          ));
+        }
 
-          // Start 3 concurrent requests
-          for (var i = 0; i < 3; i++) {
-            final future = strategy.execute(
-              () async {
-                executionOrder.add(i);
-                async.elapse(const Duration(milliseconds: 10));
-                return 'result_$i';
-              },
-              isSyncInProgress: () => false,
-              onSkipped: () => 'skipped',
-            );
-            futures.add(future);
-          }
-
-          final results = await Future.wait(futures);
-
-          // Should execute in order
-          expect(executionOrder, [0, 1, 2]);
-          expect(results, ['result_0', 'result_1', 'result_2']);
-        });
+        final results = await Future.wait(futures);
+        expect(executionOrder, [0, 1, 2]);
+        expect(results, ['result_0', 'result_1', 'result_2']);
       });
 
       test('handles exceptions by propagating them', () async {
@@ -118,12 +113,11 @@ void main() {
         await expectLater(future, throwsException);
       });
 
-      test('dispose stops the queue and prevents new jobs', () async {
-        // Dispose first
+      test('dispose is non-destructive: the strategy keeps working', () async {
+        // The default strategy is a canonicalized const instance shared by all
+        // managers, so dispose must never tear down the shared chain.
         strategy.dispose();
 
-        // Try to execute after dispose - should still work since dispose just stops the queue
-        // but doesn't prevent new jobs from being added
         final result = await strategy.execute(
           () async => 'success',
           isSyncInProgress: () => false,
@@ -131,6 +125,39 @@ void main() {
         );
 
         expect(result, 'success');
+      });
+
+      test('retries the action retryCount times then surfaces the error', () async {
+        const retrying = SequentialRequestStrategy(retryCount: 2);
+        var attempts = 0;
+        final future = retrying.execute<int>(
+          () async {
+            attempts++;
+            throw StateError('always fails');
+          },
+          isSyncInProgress: () => false,
+          onSkipped: () => -1,
+        );
+        // Previously this future NEVER completed (async_queue.retry() does not
+        // throw on exhaustion), hanging synchronize() forever.
+        await expectLater(future, throwsStateError);
+        expect(attempts, 3); // 1 initial + 2 retries
+      });
+
+      test('a failing job does not wedge the chain for later jobs', () async {
+        const s = SequentialRequestStrategy(retryCount: 0);
+        final failing = s.execute<int>(
+          () async => throw StateError('boom'),
+          isSyncInProgress: () => false,
+          onSkipped: () => -1,
+        );
+        final following = s.execute<int>(
+          () async => 42,
+          isSyncInProgress: () => false,
+          onSkipped: () => -1,
+        );
+        await expectLater(failing, throwsStateError);
+        expect(await following, 42);
       });
     });
   });

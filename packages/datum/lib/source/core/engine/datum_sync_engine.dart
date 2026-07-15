@@ -134,17 +134,19 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     final stopwatch = Stopwatch()..start();
 
     // Reset the snapshot for the new sync cycle, preserving only the user ID.
+    final pendingAtStart = (await queueManager.getPending(userId)).length;
     statusSubject.add(
       DatumSyncStatusSnapshot.initial(userId).copyWith(
         status: DatumSyncStatus.syncing,
         health: const DatumHealth(status: DatumSyncHealth.syncing),
-        // Carry over pending operations count for the start event.
-        pendingOperations: (await queueManager.getPending(userId)).length,
+        pendingOperations: pendingAtStart,
       ),
     );
     final startEvent = DatumSyncStartedEvent<T>(
       userId: userId,
-      pendingOperations: snapshot.pendingOperations,
+      // Use the freshly fetched count — `snapshot` was captured before this
+      // cycle and reported a stale (often zero) pending count in the event.
+      pendingOperations: pendingAtStart,
     );
     generatedEvents.add(startEvent);
     _notifyObservers(startEvent);
@@ -165,11 +167,13 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
           bytesPulledThisCycle += await _pullChanges(userId, options, scope, generatedEvents);
       }
 
-      // Update metadata after sync operations
-      await _updateMetadata(userId);
-
-      // After operations, check if the sync was cancelled by a dispose call.
-      // The status subject would be closed in this case.
+      // Before stamping metadata, check whether the cycle actually ran to
+      // completion. The push/pull loops break early when the status is flipped
+      // away from `syncing` (pause) or the subject is closed (dispose).
+      // Previously this fell through to the success path: metadata was stamped
+      // as fully synced, the caller's `paused` status was overwritten with
+      // `idle`, and a DatumSyncCompletedEvent was emitted for a truncated
+      // cycle.
       if (statusSubject.isClosed) {
         logger.warn(
           'Sync for user $userId was cancelled mid-process due to manager disposal.',
@@ -179,6 +183,31 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
           generatedEvents,
         );
       }
+      if (statusSubject.value.status != DatumSyncStatus.syncing) {
+        logger.warn(
+          'Sync for user $userId was interrupted (status: ${statusSubject.value.status.name}); reporting a cancelled result.',
+        );
+        final pendingAfterInterrupt = await queueManager.getPending(userId);
+        return (
+          DatumSyncResult<T>(
+            userId: userId,
+            duration: stopwatch.elapsed,
+            syncedCount: statusSubject.value.syncedCount,
+            failedCount: statusSubject.value.failedOperations,
+            conflictsResolved: statusSubject.value.conflictsResolved,
+            pendingOperations: pendingAfterInterrupt,
+            bytesPushedInCycle: bytesPushedThisCycle,
+            bytesPulledInCycle: bytesPulledThisCycle,
+            totalBytesPushed: (lastSyncResult?.totalBytesPushed ?? 0) + bytesPushedThisCycle,
+            totalBytesPulled: (lastSyncResult?.totalBytesPulled ?? 0) + bytesPulledThisCycle,
+            wasCancelled: true,
+          ),
+          generatedEvents,
+        );
+      }
+
+      // Update metadata after a genuinely completed sync cycle.
+      await _updateMetadata(userId);
 
       final finalPending = await queueManager.getPending(userId);
       final result = DatumSyncResult(
@@ -571,11 +600,19 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       _notifyObservers(conflictEvent);
 
       final resolution = await resolver.resolve(local: local, remote: null, context: context);
-      if (resolution.strategy == DatumResolutionStrategy.takeRemote) {
-        await localAdapter.delete(local.id, userId: userId);
-        logger.info('Applied remote deletion for ${local.id} (resolver: ${resolver.name}).');
-      } else {
-        logger.debug('Kept local ${local.id} despite remote deletion (resolver: ${resolver.name}).');
+      switch (resolution.strategy) {
+        case DatumResolutionStrategy.takeRemote:
+          await localAdapter.delete(local.id, userId: userId);
+          logger.info('Applied remote deletion for ${local.id} (resolver: ${resolver.name}).');
+        case DatumResolutionStrategy.takeLocal || DatumResolutionStrategy.merge:
+          // Local survives: push it so the remote converges instead of the
+          // same deletion conflict re-firing on every full pull.
+          final winner = resolution.resolvedData ?? local;
+          await _enqueueResolutionPush(userId, winner);
+          logger.debug('Kept local ${local.id} despite remote deletion (resolver: ${resolver.name}); queued push to converge.');
+        case DatumResolutionStrategy.abort || DatumResolutionStrategy.askUser:
+          logger.debug('Deletion conflict for ${local.id} left unresolved (resolver: ${resolver.name}).');
+          continue; // no resolved event / counter for unresolved conflicts
       }
 
       final resolvedEvent = ConflictResolvedEvent<T>(
@@ -585,6 +622,13 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       );
       generatedEvents.add(resolvedEvent);
       _notifyObservers(resolvedEvent);
+      if (!statusSubject.isClosed) {
+        statusSubject.add(
+          statusSubject.value.copyWith(
+            conflictsResolved: statusSubject.value.conflictsResolved + 1,
+          ),
+        );
+      }
     }
   }
 
@@ -712,38 +756,75 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         context: context,
       );
 
+      var wasResolved = true;
       switch (resolution.strategy) {
         case DatumResolutionStrategy.takeLocal:
-          break;
+          // Local wins, but the remote copy is still divergent: queue a push
+          // of the winning local state so the remote converges. Previously
+          // nothing was propagated, so the very same conflict re-fired on
+          // every subsequent sync and the winner never reached other devices.
+          final winner = resolution.resolvedData ?? localItem;
+          if (winner != null) {
+            await _enqueueResolutionPush(userId, winner);
+          }
         case DatumResolutionStrategy.takeRemote:
-          await localAdapter.update(remoteItem);
+          // Honor a resolver-transformed value (`useRemote(tweaked)`); the raw
+          // remoteItem was previously written unconditionally, silently
+          // discarding resolvedData.
+          await localAdapter.update(resolution.resolvedData ?? remoteItem);
         case DatumResolutionStrategy.merge:
           if (resolution.resolvedData == null) {
             throw StateError('Merge resolution must provide a merged item.');
           }
-          await localAdapter.update(resolution.resolvedData!);
+          final merged = resolution.resolvedData!;
+          await localAdapter.update(merged);
+          // The merged value must also reach the remote, or the merge repeats
+          // forever and never propagates to other devices.
+          await _enqueueResolutionPush(userId, merged);
         case DatumResolutionStrategy.abort:
           logger.warn('Conflict resolution aborted for ${context.entityId}');
+          wasResolved = false;
         case DatumResolutionStrategy.askUser:
           logger.warn(
             'Conflict resolution requires user input for ${context.entityId}',
           );
+          wasResolved = false;
       }
-      final resolvedEvent = ConflictResolvedEvent<T>(
-        userId: userId,
-        entityId: context.entityId,
-        resolution: resolution,
-      );
-      generatedEvents.add(resolvedEvent);
-      _notifyObservers(resolvedEvent);
-      statusSubject.add(
-        statusSubject.value.copyWith(
-          conflictsResolved: statusSubject.value.conflictsResolved + 1,
-        ),
-      );
+      // abort/askUser change nothing — reporting them as "resolved" both
+      // inflated conflictsResolved and emitted a misleading resolved event.
+      if (wasResolved) {
+        final resolvedEvent = ConflictResolvedEvent<T>(
+          userId: userId,
+          entityId: context.entityId,
+          resolution: resolution,
+        );
+        generatedEvents.add(resolvedEvent);
+        _notifyObservers(resolvedEvent);
+        statusSubject.add(
+          statusSubject.value.copyWith(
+            conflictsResolved: statusSubject.value.conflictsResolved + 1,
+          ),
+        );
+      }
     }
 
     return batchBytes;
+  }
+
+  /// Queues a push of a conflict-resolution winner so the remote (and other
+  /// devices) converge on the resolved state.
+  Future<void> _enqueueResolutionPush(String userId, T item) async {
+    final payload = item.toDatumMap(target: MapTarget.remote);
+    await queueManager.enqueue(DatumSyncOperation<T>(
+      id: 'conflict-${item.id}-${DateTime.now().microsecondsSinceEpoch}',
+      userId: userId,
+      entityId: item.id,
+      entityTable: T.toString(),
+      type: DatumOperationType.update,
+      timestamp: DateTime.now(),
+      data: item,
+      sizeInBytes: jsonEncode(payload).length,
+    ));
   }
 
   void _notifyPreOperationObservers(DatumSyncOperation<T> operation) {
@@ -869,6 +950,12 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         for (final observer in localObservers) {
           observer.onSyncEnd(errorResult);
         }
+        // Global observers must also learn the sync ended — previously only
+        // the success path notified them, so a failed sync left them thinking
+        // a sync was still in progress.
+        for (final observer in globalObservers) {
+          observer.onSyncEnd(errorResult);
+        }
       case _:
         // Other events like progress, conflict, etc.
         break;
@@ -886,17 +973,25 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         updatedDevices[deviceId!] = DateTime.now();
       }
 
+      // Compute a real, order-independent content hash. This is what the
+      // skip-check at the top of synchronize() compares between local and
+      // remote metadata — the previous hardcoded 'testhash' placeholder made
+      // that check degrade to a bare entity-count comparison, so a remote
+      // content change that kept the count identical was never pulled and
+      // devices diverged permanently.
+      final contentHash = const DatumHashGenerator().hashEntitiesUnordered(items);
+
       // Preserve existing entity counts and update only the current entity type
       final updatedEntityCounts = Map<String, DatumEntitySyncDetails>.from(existingMetadata?.entityCounts ?? {});
       updatedEntityCounts[entityName] = DatumEntitySyncDetails(
         count: items.length,
-        hash: 'testhash', // Placeholder for hash
+        hash: contentHash,
       );
 
       final newMetadata = DatumSyncMetadata(
         userId: userId,
         lastSyncTime: DateTime.now(),
-        dataHash: 'testhash', // Placeholder for now
+        dataHash: contentHash,
         deviceId: deviceId, // Use the current deviceId for this sync
         devices: updatedDevices.isEmpty ? null : updatedDevices,
         entityCounts: updatedEntityCounts,
@@ -1058,21 +1153,39 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     } on Object catch (e, stackTrace) {
       logger.error('Batch operation ${batch.id} failed: $e', stackTrace);
 
-      if (!statusSubject.isClosed) {
+      // Mirror the single-operation retry semantics: a retryable failure must
+      // re-queue the operations with an incremented retryCount, not silently
+      // discard them. Previously every batch failure — including transient
+      // network errors — dequeued ALL operations permanently, so a single
+      // offline blip during a batched push lost the entire batch.
+      final canRetry = e is DatumException && await config.errorRecoveryStrategy.shouldRetry(e);
+      var requeued = 0;
+      var failed = 0;
+
+      for (final op in batch.operations) {
+        if (canRetry && op.retryCount < config.errorRecoveryStrategy.maxRetries) {
+          await queueManager.update(op.copyWith(retryCount: op.retryCount + 1));
+          requeued++;
+        } else {
+          await queueManager.dequeue(op.id);
+          _notifyPostOperationObservers(op, success: false);
+          failed++;
+        }
+      }
+
+      if (failed > 0 && !statusSubject.isClosed) {
         statusSubject.add(
           statusSubject.value.copyWith(
-            failedOperations: statusSubject.value.failedOperations + batch.operations.length,
+            failedOperations: statusSubject.value.failedOperations + failed,
             errors: [...statusSubject.value.errors, e],
           ),
         );
       }
 
-      for (final op in batch.operations) {
-        // Dequeue failed ops for now to prevent blocking future syncs
-        await queueManager.dequeue(op.id);
-        _notifyPostOperationObservers(op, success: false);
+      if (requeued > 0) {
+        logger.warn('Batch ${batch.id}: $requeued operation(s) re-queued for retry, $failed failed permanently.');
+        return 0; // retryable — same non-throwing contract as the single-op path
       }
-
       throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
     }
   }

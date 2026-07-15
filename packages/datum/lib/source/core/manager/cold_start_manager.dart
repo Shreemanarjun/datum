@@ -91,21 +91,31 @@ class ColdStartManager {
       return false;
     }
 
-    // Check if a cold start sync is already in progress for this user
+    // Check if a cold start sync is already in progress for this user.
     if (_isColdStartInProgress[userId] == true) {
       _logger.debug('Cold start sync already in progress for user: $userId$entityInfo');
       return false;
     }
 
-    final shouldSync = await _shouldPerformColdStartSync(userId);
+    // Claim the in-progress slot BEFORE the awaited strategy evaluation.
+    // Previously the flag was set only after `await _shouldPerformColdStartSync`,
+    // so two callers racing through that suspension point both passed the guard
+    // and launched two concurrent cold-start syncs for the same user (TOCTOU).
+    _isColdStartInProgress[userId] = true;
+
+    final bool shouldSync;
+    try {
+      shouldSync = await _shouldPerformColdStartSync(userId);
+    } catch (_) {
+      _isColdStartInProgress[userId] = false;
+      rethrow;
+    }
     if (!shouldSync) {
+      _isColdStartInProgress[userId] = false;
       _logger.debug('Cold start sync not needed based on strategy evaluation$entityInfo');
       _isColdStart[userId] = false;
       return false;
     }
-
-    // Mark that a cold start sync is now in progress
-    _isColdStartInProgress[userId] = true;
 
     if (synchronous) {
       // For testing: execute synchronously

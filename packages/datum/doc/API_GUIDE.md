@@ -113,6 +113,35 @@ final updated = blog.copyWith(name: 'New')..preserveRelationsFrom(blog); // keep
 final target = DatumRelationSchema.descriptor(Blog, 'posts')!.targetType; // Post
 ```
 
+## Collaborative editing (realtime multi-device)
+
+`RgaText` (built on the `RgaList<T>` sequence CRDT) gives editors convergent
+concurrent text editing:
+
+```dart
+class CollabNote extends DatumEntity {
+  final RgaText body;                       // serialized via body.toMap()
+  @override
+  CollabNote merge(covariant DatumEntityInterface other) => CollabNote(
+        body: body.merge((other as CollabNote).body),   // both edits survive
+        vectorClock: vectorClock!.merge(other.vectorClock!),
+        ...);
+}
+
+DatumManager<CollabNote>(
+  deviceId: myDeviceId,                     // auto-increments vector clocks
+  datumConfig: const DatumConfig(defaultConflictResolver: CRDTResolver()),
+  ...);
+```
+
+- **Vector clocks are required** — they let the engine detect that two
+  same-version copies are *concurrent* and route them into the CRDT merge.
+- Contiguous runs (`RgaText.insert`) never interleave with concurrent typing.
+- `characterIdAt`/`indexOfCharacter` are stable anchors for remote cursors.
+- Resolved merge winners are pushed automatically, so all devices and the
+  backend converge. Full walkthrough:
+  `test/integration/collaborative_editor_test.dart`.
+
 ## Results & errors
 
 ### Result-returning (`tryX`) API — no try/catch

@@ -1,5 +1,4 @@
 import 'package:datum/datum.dart' hide IsolateStrategy;
-import 'package:datum/source/core/models/cold_start_strategy.dart';
 
 import 'package:example/const/secrets.dart';
 import 'package:example/custom_connectivity_checker.dart';

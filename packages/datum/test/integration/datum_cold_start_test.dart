@@ -1,5 +1,4 @@
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/models/cold_start_strategy.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';

@@ -645,7 +645,9 @@ void main() {
       final metadata = await futureMetadata;
       expect(metadata, isNotNull);
       expect(metadata.userId, 'user-1');
-      expect(metadata.dataHash, 'testhash');
+      expect(metadata.dataHash, isNotNull);
+      expect(metadata.dataHash, isNot('testhash'), reason: 'must be a real content hash, not the old placeholder');
+      expect(metadata.dataHash, hasLength(64), reason: 'SHA-256 hex digest');
 
       final entityCounts = metadata.entityCounts;
       expect(entityCounts, isNotNull);
@@ -660,7 +662,7 @@ void main() {
       );
       expect(
         testEntityDetails.hash,
-        'testhash',
+        metadata.dataHash,
         reason: 'Entity-specific hash should be generated',
       );
 
@@ -719,7 +721,7 @@ void main() {
         );
         expect(
           entityDetails.hash,
-          'testhash',
+          allOf(isNot('testhash'), hasLength(64)),
           reason: 'A new hash should be computed based on the new local state.',
         );
       },

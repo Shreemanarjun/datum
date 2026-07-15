@@ -847,52 +847,30 @@ class Datum {
 
     try {
       final direction = options?.direction ?? config.defaultSyncDirection;
-      final pushResults = <DatumSyncResult<DatumEntityInterface>>[];
-      final pullResults = <DatumSyncResult<DatumEntityInterface>>[];
+
+      // Uniform accumulation for every phase/direction. The previous per-branch
+      // loops drifted out of sync (e.g. pushThenPull dropped pull failures and
+      // no branch counted conflicts resolved during push).
+      void accumulate(Iterable<DatumSyncResult<DatumEntityInterface>> results) {
+        for (final res in results) {
+          totalSynced += res.syncedCount;
+          totalFailed += res.failedCount;
+          totalConflicts += res.conflictsResolved;
+          allPending.addAll(res.pendingOperations);
+        }
+      }
 
       switch (direction) {
         case SyncDirection.pushThenPull:
-          pushResults.addAll(await _pushChanges(userId, options));
-          pullResults.addAll(await _pullChanges(userId, options));
-          for (final res in pushResults) {
-            totalSynced += res.syncedCount;
-            totalFailed += res.failedCount;
-            allPending.addAll(res.pendingOperations);
-          }
-          for (final res in pullResults) {
-            totalSynced += res.syncedCount;
-            totalConflicts += res.conflictsResolved;
-            allPending.addAll(res.pendingOperations);
-          }
+          accumulate(await _pushChanges(userId, options));
+          accumulate(await _pullChanges(userId, options));
         case SyncDirection.pullThenPush:
-          pullResults.addAll(await _pullChanges(userId, options));
-          for (final res in pullResults) {
-            totalSynced += res.syncedCount;
-            totalFailed += res.failedCount;
-            totalConflicts += res.conflictsResolved;
-            allPending.addAll(res.pendingOperations);
-          }
-          pushResults.addAll(await _pushChanges(userId, options));
-          for (final res in pushResults) {
-            totalSynced += res.syncedCount;
-            totalFailed += res.failedCount;
-            allPending.addAll(res.pendingOperations);
-          }
+          accumulate(await _pullChanges(userId, options));
+          accumulate(await _pushChanges(userId, options));
         case SyncDirection.pushOnly:
-          pushResults.addAll(await _pushChanges(userId, options));
-          for (final res in pushResults) {
-            totalSynced += res.syncedCount;
-            totalFailed += res.failedCount;
-            allPending.addAll(res.pendingOperations);
-          }
+          accumulate(await _pushChanges(userId, options));
         case SyncDirection.pullOnly:
-          pullResults.addAll(await _pullChanges(userId, options));
-          for (final res in pullResults) {
-            totalSynced += res.syncedCount;
-            totalFailed += res.failedCount;
-            totalConflicts += res.conflictsResolved;
-            allPending.addAll(res.pendingOperations);
-          }
+          accumulate(await _pullChanges(userId, options));
       }
 
       final result = DatumSyncResult<DatumEntityInterface>(

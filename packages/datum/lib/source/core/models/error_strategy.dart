@@ -31,8 +31,15 @@ class ExponentialBackoff implements DatumBackoffStrategy {
   @override
   Duration getDelay(int attemptNumber) {
     final delayMs = baseDelay.inMilliseconds * pow(multiplier, attemptNumber - 1);
-    final delay = Duration(milliseconds: delayMs.round());
-    return delay < maxDelay ? delay : maxDelay;
+    // Clamp BEFORE constructing the Duration: for large attempt numbers the
+    // exponential grows unbounded — the int64 microsecond field wrapped
+    // negative (a negative delay defeats the cap and collapses backoff into a
+    // tight retry loop) and at even larger exponents `round()` on Infinity
+    // throws.
+    if (!delayMs.isFinite || delayMs >= maxDelay.inMilliseconds) {
+      return maxDelay;
+    }
+    return Duration(milliseconds: delayMs.round());
   }
 }
 

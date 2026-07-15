@@ -43,6 +43,7 @@ const _expectedExports = <String>{
   'source/core/middleware/datum_middleware.dart',
   'source/core/migration/migration_executor.dart',
   'source/core/migration/migration.dart',
+  'source/core/models/cold_start_strategy.dart',
   'source/core/models/conflict_context.dart',
   'source/core/models/crdt.dart',
   'source/core/models/data_fetch_strategy.dart',

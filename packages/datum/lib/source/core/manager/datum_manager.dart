@@ -2378,12 +2378,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
             final queueManagerCaptured = _queueManager;
             final conflictDetectorCaptured = _conflictDetector;
             final loggerCaptured = _logger.getWorkerLogger();
-            // Sanitize config to remove unsendable callbacks
-            final configCaptured = config.copyWith<T>(
-              initialUserId: _dummyInitialUserId,
-              onMigrationError: null,
-              syncDirectionResolver: null,
-            );
+            // Sanitize config to remove unsendable callbacks. Note: copyWith
+            // cannot clear a field (null means "unchanged"), so this must use
+            // the dedicated sanitizer.
+            final configCaptured = config.sanitizedForIsolate<T>();
             final connectivityCaptured = _connectivity;
             final isolateHelperCaptured = _isolateHelper;
             final deviceIdCaptured = deviceId;
@@ -2408,11 +2406,39 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
                   scopeCaptured,
                 ));
           } else {
-            (result, events) = await _syncEngineInstance.synchronize(
-              userId,
-              options: typedOptions,
-              scope: effectiveScope,
+            // Enforce the configured sync timeout (config.syncTimeout /
+            // options.timeout) — previously it was configured everywhere but
+            // never applied, so a hung remote call blocked syncs forever (the
+            // "already syncing" guard then rejected all future syncs too).
+            final effectiveTimeout = typedOptions?.timeout ?? config.syncTimeout;
+            final engineFuture = Future.sync(() => _syncEngineInstance.synchronize(
+                  userId,
+                  options: typedOptions,
+                  scope: effectiveScope,
+                ));
+            var timedOut = false;
+            (result, events) = await engineFuture.timeout(
+              effectiveTimeout,
+              onTimeout: () {
+                timedOut = true;
+                return (DatumSyncResult<T>.cancelled(userId, 0), <DatumSyncEvent<T>>[]);
+              },
             );
+            if (timedOut) {
+              // Silence the still-running engine future (its loops halt once
+              // the status leaves `syncing`) and surface a typed timeout.
+              unawaited(engineFuture.then((_) {}, onError: (_, __) {}));
+              if (!_statusSubject.isClosed) {
+                _statusSubject.add(currentStatus.copyWith(
+                  status: DatumSyncStatus.failed,
+                  health: const DatumHealth(status: DatumSyncHealth.error),
+                ));
+              }
+              throw DatumException(
+                code: DatumExceptionCode.timeout,
+                message: 'Synchronization for user $userId timed out after ${effectiveTimeout.inMilliseconds}ms.',
+              );
+            }
           }
 
           _processSyncEvents(events);
@@ -3185,9 +3211,6 @@ extension DatumManagerAutoSyncInfo<T extends DatumEntityInterface> on DatumManag
     return deleted;
   }
 }
-
-/// A dummy function for the initial user ID to avoid closure capture issues.
-Future<String?> _dummyInitialUserId() async => null;
 
 /// Executes the sync process in a separate isolate.
 Future<(DatumSyncResult<T>, List<DatumSyncEvent<T>>)> _runSyncInIsolate<T extends DatumEntityInterface>(
