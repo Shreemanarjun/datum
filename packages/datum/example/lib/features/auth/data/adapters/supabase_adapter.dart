@@ -164,7 +164,7 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
       // We use the secrets directly since they are constants.
       Supabase.initialize(
         url: Secrets.SUPABASE_URL,
-        anonKey: Secrets.SUPABASE_ANON_KEY,
+        publishableKey: Secrets.SUPABASE_ANON_KEY,
       );
       return Supabase.instance.client;
     }

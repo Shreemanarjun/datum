@@ -52,7 +52,7 @@ final futureInitializerPod = FutureProvider<ProviderContainer>((
 
   await Supabase.initialize(
     url: Secrets.SUPABASE_URL,
-    anonKey: Secrets.SUPABASE_ANON_KEY,
+    publishableKey: Secrets.SUPABASE_ANON_KEY,
   );
   final encryptionCipher = await Platform.I.when(
     mobile: () async {
