@@ -102,8 +102,18 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       logger.info('Sync for user $userId forced: forceFullSync option is true.');
     } else {
       // Fetch local and remote metadata to determine if a sync is necessary.
-      final localMetadata = await localAdapter.getSyncMetadata(userId);
-      final remoteMetadata = await remoteAdapter.getSyncMetadata(userId);
+      // This pre-check is an OPTIMIZATION — if the metadata fetch fails (e.g. a
+      // transient network blip on the remote call), degrade to running the sync
+      // rather than failing the whole cycle before it even started; the actual
+      // push/pull phases have their own retry/error handling.
+      DatumSyncMetadata? localMetadata;
+      DatumSyncMetadata? remoteMetadata;
+      try {
+        localMetadata = await localAdapter.getSyncMetadata(userId);
+        remoteMetadata = await remoteAdapter.getSyncMetadata(userId);
+      } on Object catch (e) {
+        logger.warn('Metadata pre-check failed for user $userId ($e); proceeding with a full sync.');
+      }
 
       // Check if there are any pending local operations.
       final pendingLocalOperations = await queueManager.getPendingCount(userId);
@@ -207,7 +217,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       }
 
       // Update metadata after a genuinely completed sync cycle.
-      await _updateMetadata(userId);
+      await _updateMetadata(userId, pulledRemote: direction != SyncDirection.pushOnly);
 
       final finalPending = await queueManager.getPending(userId);
       final result = DatumSyncResult(
@@ -962,7 +972,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     }
   }
 
-  Future<void> _updateMetadata(String userId) async {
+  Future<void> _updateMetadata(String userId, {bool pulledRemote = true}) async {
     try {
       final items = await localAdapter.readAll(userId: userId);
       final existingMetadata = await localAdapter.getSyncMetadata(userId);
@@ -1006,10 +1016,49 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         retryCount: existingMetadata?.retryCount ?? 0,
         syncDuration: existingMetadata?.syncDuration,
       );
-      await localAdapter.updateSyncMetadata(newMetadata, userId);
-      await remoteAdapter.updateSyncMetadata(newMetadata, userId);
+
+      // A push-only cycle never observed the remote's content, so stamping the
+      // LOCAL metadata with our own hash would fabricate the "local == remote"
+      // invariant: if the remote held unpulled changes, both sides would carry
+      // our hash, the skip-check would see a match, and those remote changes
+      // would never be pulled. Instead: write the remote metadata (a change
+      // beacon so other devices pull our push), but keep the local hash and
+      // counts describing the last state we actually reconciled — the next
+      // pull-inclusive sync then sees the difference and runs.
+      final localMetadata = pulledRemote
+          ? newMetadata
+          : DatumSyncMetadata(
+              userId: userId,
+              lastSyncTime: DateTime.now(),
+              dataHash: existingMetadata?.dataHash,
+              deviceId: deviceId,
+              devices: updatedDevices.isEmpty ? null : updatedDevices,
+              entityCounts: existingMetadata?.entityCounts,
+              lastSuccessfulSyncTime: DateTime.now(),
+              customMetadata: existingMetadata?.customMetadata,
+              syncStatus: SyncStatus.synced,
+              syncVersion: existingMetadata?.syncVersion ?? 1,
+              serverTimestamp: existingMetadata?.serverTimestamp,
+              conflictCount: existingMetadata?.conflictCount ?? 0,
+              errorMessage: existingMetadata?.errorMessage,
+              retryCount: existingMetadata?.retryCount ?? 0,
+              syncDuration: existingMetadata?.syncDuration,
+            );
+
+      await localAdapter.updateSyncMetadata(localMetadata, userId);
+      try {
+        await remoteAdapter.updateSyncMetadata(newMetadata, userId);
+      } on Object catch (e) {
+        // The remote metadata write is a change *beacon* for other devices —
+        // an optimization, not sync state. Failing it (e.g. the connection
+        // dropped right after the data phases completed and re-queued their
+        // ops gracefully) must not fail the whole cycle; the next successful
+        // sync rewrites it. Local metadata failures still rethrow below:
+        // broken local storage is a real error.
+        logger.warn('Remote metadata beacon update failed for user $userId ($e); continuing — the next successful sync will rewrite it.');
+      }
       if (!metadataSubject.isClosed) {
-        metadataSubject.add(newMetadata);
+        metadataSubject.add(localMetadata);
       }
     } on Object catch (e, stack) {
       logger.error(

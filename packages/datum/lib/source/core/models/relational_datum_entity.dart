@@ -233,10 +233,20 @@ class HasOne<T extends DatumEntityInterface> extends Relation<T> {
       return null;
     }
     final manager = getRelatedManager();
-    final related = await manager.read(localKeyValue, userId: _parent.userId);
-    _value = related;
+    // The related (child) entity holds the foreign key — query for it, exactly
+    // like HasMany and the eager-loading stitcher do. The previous
+    // implementation called `manager.read(localKeyValue)`, i.e. looked the
+    // child up by PRIMARY id equal to the parent's key, which only returned
+    // the right entity when the child's id coincidentally equalled it.
+    final related = await manager.query(
+      DatumQuery(filters: [Filter(foreignKey, FilterOperator.equals, localKeyValue)]),
+      source: DataSource.local,
+      userId: _parent.userId,
+    );
+    final result = related.isEmpty ? null : related.first;
+    _value = result;
     _isLoaded = true;
-    return related;
+    return result;
   }
 
   @override

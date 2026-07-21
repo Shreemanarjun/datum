@@ -111,6 +111,14 @@ class TestEntity extends RelationalDatumEntity {
           if (value != oldVersion.value) diffMap['value'] = value;
           if (completed != oldVersion.completed) diffMap['completed'] = completed;
 
+          // Generator parity: real generated diffs carry the ordering metadata
+          // whenever content changed, so a remote PATCH advances version /
+          // modifiedAt and other devices accept the change.
+          if (diffMap.isNotEmpty) {
+            diffMap['modifiedAt'] = modifiedAt.toIso8601String();
+            diffMap['version'] = version;
+          }
+
           return diffMap.isEmpty ? null : diffMap;
         }(),
       _ => toDatumMap(target: MapTarget.remote),

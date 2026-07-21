@@ -174,6 +174,49 @@ void main() {
       expect(third.wasSkipped, isTrue, reason: 'no changes anywhere -> metadata matches');
     });
 
+    test('pushOnly does not fabricate local==remote metadata (unpulled changes still pulled)', () async {
+      final local = InMemoryLocalAdapter<TestEntity>(fromMap: TestEntity.fromJson);
+      final remote = MockRemoteAdapter<TestEntity>(fromJson: TestEntity.fromJson);
+      final manager = DatumManager<TestEntity>(
+        localAdapter: local,
+        remoteAdapter: remote,
+        connectivity: _connected(),
+        datumConfig: const DatumConfig<TestEntity>(),
+      );
+      await manager.initialize();
+      addTearDown(manager.dispose);
+
+      // 1. Fully synced baseline.
+      await manager.push(item: TestEntity.create('e1', 'u1', 'mine'), userId: 'u1');
+      await manager.synchronize('u1');
+
+      // 2. Device B pushes e2 and stamps the remote metadata with ITS hash.
+      final external = TestEntity.create('e2', 'u1', 'from-device-b');
+      remote.addRemoteItem('u1', external);
+      final bHash = const DatumHashGenerator().hashEntitiesUnordered([external]);
+      remote.setRemoteMetadata(
+        'u1',
+        DatumSyncMetadata(
+          userId: 'u1',
+          dataHash: bHash,
+          entityCounts: {'TestEntity': DatumEntitySyncDetails(count: 2, hash: bHash)},
+        ),
+      );
+
+      // 3. Device A makes a local edit and runs a PUSH-ONLY sync. Previously
+      //    _updateMetadata stamped BOTH sides with A's local hash, fabricating
+      //    "local == remote" — so the next default sync skipped and B's e2 was
+      //    never pulled.
+      await manager.push(item: TestEntity.create('e3', 'u1', 'local-edit'), userId: 'u1');
+      await manager.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pushOnly));
+
+      // 4. The next default (pull-inclusive) sync must NOT be skipped and must
+      //    bring in e2.
+      final followUp = await manager.synchronize('u1');
+      expect(followUp.wasSkipped, isFalse, reason: 'push-only must not fake a metadata match');
+      expect(await manager.read('e2', userId: 'u1'), isNotNull, reason: "device B's change must be pulled");
+    });
+
     test('merge resolution converges: winner is pushed to remote, conflict does not re-fire', () async {
       final local = InMemoryLocalAdapter<TestEntity>(fromMap: TestEntity.fromJson);
       final remote = MockRemoteAdapter<TestEntity>(fromJson: TestEntity.fromJson);
@@ -324,6 +367,37 @@ void main() {
         expect(delay <= const Duration(minutes: 5), isTrue, reason: 'attempt $attempt must respect maxDelay');
       }
       expect(backoff.getDelay(2000), const Duration(minutes: 5));
+    });
+
+    test('failFast quiesces in-flight siblings before rethrowing (no background writes)', () async {
+      const strategy = ParallelStrategy(batchSize: 3, failFast: true);
+      final ops = List.generate(
+        3,
+        (i) => DatumSyncOperation<TestEntity>(
+          id: 'op$i',
+          userId: 'u1',
+          entityId: 'e$i',
+          type: DatumOperationType.create,
+          timestamp: DateTime(2024),
+          data: TestEntity.create('e$i', 'u1', 'N$i'),
+        ),
+      );
+      var slowOpsFinished = 0;
+      Future<void> process(DatumSyncOperation<TestEntity> op) async {
+        if (op.id == 'op0') throw StateError('boom');
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        slowOpsFinished++;
+      }
+
+      await expectLater(
+        strategy.execute<TestEntity>(ops, process, () => false, (d, t) {}),
+        throwsStateError,
+      );
+      // Previously eagerError rethrew immediately while op1/op2 were still
+      // running and mutating adapters in the background — a retry started by
+      // the caller could then double-process. Now the failure is only reported
+      // once every dispatched sibling has settled.
+      expect(slowOpsFinished, 2, reason: 'no operation may still be running after execute() fails');
     });
 
     test('ParallelStrategy(batchSize: 0) terminates and processes every operation', () async {

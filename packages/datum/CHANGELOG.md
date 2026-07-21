@@ -45,6 +45,32 @@ All changes below are additive and backward compatible unless noted.
 - **isolate sync**: `useIsolateSync` config sanitization actually clears
   unsendable callbacks now (`copyWith(x: null)` keeps the old value) via
   `DatumConfig.sanitizedForIsolate`.
+- **testing**: added a real local HTTP sync-server harness
+  (`test/harness/local_sync_server.dart` + reference `HttpRemoteAdapter`) with
+  fault injection (latency, 5xx/4xx, severed sockets, offline, version
+  conflicts, corrupted payloads) and 28 scenarios covering transport edge
+  cases, multi-stream consistency, leak/timer hygiene, cache boundedness, and
+  soak/lifecycle-churn stability.
+- **sync**: the metadata skip pre-check now degrades to a full sync when the
+  remote metadata fetch fails transiently (previously an unprotected read
+  failed the whole cycle before it started).
+- **sync**: a failed **remote** metadata beacon write no longer fails an
+  otherwise-successful cycle (it is an optimization rewritten by the next
+  successful sync); a failed **local** metadata write still surfaces.
+- **relations**: `HasOne.fetch()` now queries the child by its **foreign key**
+  (mirroring `HasMany` and the eager-loading stitcher); it previously looked
+  the child up by primary id equal to the parent's key, returning null unless
+  the ids coincidentally matched.
+- **metadata**: a push-only sync no longer stamps the local metadata with its
+  own content hash (which fabricated a "local == remote" match and caused the
+  next sync to skip unpulled remote changes); the remote still receives the
+  change beacon so other devices pull.
+- **strategy**: `ParallelStrategy(failFast: true)` now waits for
+  already-dispatched sibling operations to settle before rethrowing, so no
+  writes continue in the background after a sync reports failure.
+- **errors**: the manager's sync error path delegates to
+  `SyncErrorHandler.handleManagerSyncErrorSync`, preserving the original stack
+  trace (previously dropped by a bare `throw e.originalError`).
 - **misc**: global sync result accumulates pull failures/conflicts uniformly
   across directions; `DatumSyncStartedEvent` reports the fresh pending count;
   global observers receive `onSyncEnd` on failed syncs; `ExponentialBackoff`

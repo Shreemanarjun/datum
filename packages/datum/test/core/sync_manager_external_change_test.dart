@@ -467,8 +467,11 @@ void main() {
 
         // CRITICAL: Assert that the operation contains the delta, not the full data.
         // This confirms the delta-sync optimization is working for external changes.
+        // (Deltas also carry the ordering metadata — modifiedAt/version — like
+        // real generated diffs, so remote PATCHes advance entity ordering.)
         expect(capturedOp.delta, isNotNull);
-        expect(capturedOp.delta, {'name': 'Locally Updated'});
+        expect(capturedOp.delta, containsPair('name', 'Locally Updated'));
+        expect(capturedOp.delta!.keys.toSet(), {'name', 'modifiedAt', 'version'});
       },
     );
 
@@ -534,7 +537,7 @@ void main() {
       when(
         () => localAdapter.patch(
           id: externalV3.id,
-          delta: any(named: 'delta', that: equals({'name': 'Version 3'})),
+          delta: any(named: 'delta', that: containsPair('name', 'Version 3')),
           userId: userId,
         ),
       ).thenAnswer((_) async {
@@ -577,7 +580,7 @@ void main() {
       verify(
         () => localAdapter.patch(
           id: externalV3.id,
-          delta: any(named: 'delta', that: equals({'name': 'Version 3'})),
+          delta: any(named: 'delta', that: containsPair('name', 'Version 3')),
           userId: userId,
         ),
       ).called(1);

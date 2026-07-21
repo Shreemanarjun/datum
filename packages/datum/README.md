@@ -4,7 +4,7 @@
 
 # 🧠 **Datum** — Offline-First Data Synchronization Framework for Dart & Flutter
 
-<a href="https://pub.dev/packages/datum"><img src="https://img.shields.io/pub/v/datum.svg" alt="Pub"></a> <a href="https://github.com/shreemanarjun/datum/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a> <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Code Coverage"> <img src="https://img.shields.io/badge/tests-1000%2B-brightgreen" alt="Tests"> <img src="https://img.shields.io/badge/version-1.0.3-blue" alt="Version">
+<a href="https://pub.dev/packages/datum"><img src="https://img.shields.io/pub/v/datum.svg" alt="Pub"></a> <a href="https://github.com/shreemanarjun/datum/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a> <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Code Coverage"> <img src="https://img.shields.io/badge/tests-1500%2B-brightgreen" alt="Tests"> <img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version">
 
 > **Smart ⚡ Reactive 🔄 Universal 🌍**
 >
@@ -43,7 +43,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  datum: ^1.0.3
+  datum: ^1.1.0
 ```
 
 Then run `flutter pub get`.
@@ -190,7 +190,7 @@ Add `datum_generator` to your `pubspec.yaml`. It is required as a regular depend
 
 ```yaml
 dependencies:
-  datum: ^1.0.3
+  datum: ^1.1.0
   datum_generator: ^1.0.0
 
 dev_dependencies:

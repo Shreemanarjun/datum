@@ -175,6 +175,18 @@ void main() {
     expect(bio!.text, 'about Ada');
   });
 
+  test('HasOne.fetch() queries by foreign key, not by primary id (fetch bug)', () async {
+    // The Bio's id ('bio1') differs from the Writer's key ('w1'). The old
+    // implementation did `manager.read('w1')` — a primary-id lookup on Bio —
+    // which returned null unless the child's id coincidentally equalled the
+    // parent's. It must query `writerId == 'w1'` like every other HasOne path.
+    final w = await writers.read('w1', userId: 'u1');
+    final bio = await (w!.relations['bio'] as HasOne<Bio>).fetch();
+    expect(bio, isNotNull, reason: 'lazy fetch must find the child via its foreign key');
+    expect(bio!.id, 'bio1');
+    expect(bio.text, 'about Ada');
+  });
+
   test('ManyToMany is eager-loaded via withRelated (pivot traversal)', () async {
     final w = await writers.read('w1', userId: 'u1', withRelated: ['tags']);
     final tags = w!.relatedList<Tag>('tags');

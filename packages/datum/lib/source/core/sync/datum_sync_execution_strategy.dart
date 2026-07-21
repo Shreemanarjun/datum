@@ -119,15 +119,23 @@ class ParallelStrategy implements DatumSyncExecutionStrategy {
 
       if (failFast) {
         // Use Future.wait with eagerError for fail-fast behavior
+        final futures = batch.map((op) => processOperation(op)).toList();
         try {
-          await Future.wait(
-            batch.map((op) => processOperation(op)),
-            eagerError: failFast,
-          );
+          await Future.wait(futures, eagerError: true);
           // Report progress only on successful batch completion
           onProgress(end, totalOps);
         } catch (e) {
-          // When failing fast, we rethrow immediately. Progress for this batch is not reported.
+          // Fail fast, but QUIESCE first: eagerError rethrows as soon as one
+          // operation fails while its already-dispatched siblings keep running
+          // and mutating the adapters in the background. If we rethrew
+          // immediately, the caller would see the sync as failed (and possibly
+          // start a retry) while those writes were still in flight —
+          // double-processing races. Waiting for every future to settle (their
+          // own errors swallowed; the first error is what propagates)
+          // guarantees no work continues after the failure is reported.
+          await Future.wait<void>(
+            futures.map((f) => f.then<void>((_) {}, onError: (_, __) {})),
+          );
           rethrow;
         }
       } else {

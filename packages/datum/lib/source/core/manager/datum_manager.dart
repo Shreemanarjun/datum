@@ -9,6 +9,7 @@ import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
 
 import '../engine/error_boundary.dart';
+import '../engine/sync_error_handler.dart';
 
 import 'cold_start_manager.dart';
 import '../utils/lru_cache.dart';
@@ -2452,14 +2453,12 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
             }
           }
           return result;
-        } on Object catch (e, _) {
-          // If it's a SyncExceptionWithEvents, process events and throw the original error
-          if (e is SyncExceptionWithEvents<T>) {
-            _processSyncEvents(e.events);
-            throw e.originalError;
-          }
-          // Otherwise, re-throw the original error
-          rethrow;
+        } on Object catch (e, stack) {
+          // Delegate to the shared handler: it processes the events carried
+          // inside a SyncExceptionWithEvents and rethrows the original error
+          // WITH its original stack trace (the previous inline duplicate of
+          // this logic dropped the trace via a bare `throw e.originalError`).
+          SyncErrorHandler.handleManagerSyncErrorSync<T>(e, stack, const [], _processSyncEvents);
         }
       },
       isSyncInProgress: () => _syncEngineInstance.isSyncing,

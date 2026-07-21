@@ -283,8 +283,9 @@ void main() {
           ),
         ).captured.single as Map<String, dynamic>;
 
-        // The delta should only contain the 'name' field.
-        expect(capturedDelta, hasLength(1));
+        // The delta contains the changed 'name' field plus the ordering
+        // metadata (modifiedAt/version) that generated diffs carry.
+        expect(capturedDelta.keys.toSet(), {'name', 'modifiedAt', 'version'});
         expect(capturedDelta['name'], 'Updated Name');
 
         // The observer API has changed. We can verify the DataChangeEvent.

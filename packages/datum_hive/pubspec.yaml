@@ -1,6 +1,6 @@
 name: datum_hive
 description: A Hive-based persistence layer for the Datum ecosystem, enabling efficient local data storage and synchronization for Flutter applications
-version: 0.0.2
+version: 0.1.0
 resolution: workspace
 homepage: https://www.shreeman.dev
 repository: https://github.com/Shreemanarjun/datum
@@ -25,8 +25,7 @@ environment:
 
 dependencies:
   collection: ^1.19.1
-  datum:
-
+  datum: ^1.1.0
   hive_ce_flutter: ^2.3.3
   meta: ^1.16.0
 
