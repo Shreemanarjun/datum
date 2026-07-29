@@ -78,6 +78,14 @@ abstract class LocalAdapter<T extends DatumEntityInterface> {
   /// into a native query for the underlying database (e.g., SQL).
   Future<List<T>> query(DatumQuery query, {String? userId});
 
+  /// Returns the number of locally stored entities that match the given [query].
+  ///
+  /// If [query] is null, all entities in the local data store are counted.
+  ///
+  /// The optional [userId] can be used to restrict the count to entities
+  /// associated with a specific user, if the adapter supports user scoping.
+  Future<int> count({DatumQuery? query, String? userId}) async => 0;
+
   // --- Write Methods ---
 
   /// Create a new entity.

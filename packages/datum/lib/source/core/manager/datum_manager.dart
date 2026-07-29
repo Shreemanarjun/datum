@@ -975,6 +975,19 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     });
   }
 
+  /// Watches the number of entities that match the given [query].
+  ///
+  /// Emits a new count whenever the underlying data changes.
+  ///
+  /// If [query] is null, the count includes all entities.
+  ///
+  /// The optional [userId] can be used to restrict the count to
+  /// entities associated with a specific user.
+  Stream<int>? watchCount({DatumQuery? query, String? userId}) {
+    _ensureInitialized();
+    return localAdapter.watchCount(query: query, userId: userId);
+  }
+
   /// Executes a one-time query against the specified data source.
   ///
   /// This provides a powerful way to fetch filtered and sorted data directly
@@ -1775,6 +1788,25 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       restrictedRelations: plan.restrictedRelations,
       errors: errors,
     );
+  }
+
+  /// Returns the number of entities that match the given [query].
+  ///
+  /// By default the count is performed against the local data source.
+  /// Set [source] to [DataSource.remote] to count items from the remote adapter.
+  ///
+  /// The optional [userId] can be used to scope the count to a specific user
+  /// when the adapter supports user-based filtering.
+  ///
+  /// If no [query] is provided, all entities are counted.
+  Future<int> count({
+    DatumQuery query = const DatumQuery(),
+    DataSource source = DataSource.local,
+    String? userId,
+  }) async {
+    _ensureInitialized();
+    final adapter = (source == DataSource.local ? localAdapter : remoteAdapter) as dynamic;
+    return adapter.count(query: query, userId: userId);
   }
 
   /// Executes a block of code within a single atomic transaction.

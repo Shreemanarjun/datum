@@ -32,6 +32,17 @@ abstract class RemoteAdapter<T extends DatumEntityInterface> {
   /// Return null if the adapter doesn't support reactive queries.
   Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) => null;
 
+  /// Watches the number of remote entities that match the given [query].
+  ///
+  /// Emits a new count whenever the remote data changes, if the backend
+  /// supports realtime updates.
+  ///
+  /// Returns `null` if the remote adapter does not support watching counts.
+  ///
+  /// The optional [userId] can be used to scope the request to a specific
+  /// user's data when supported by the backend.
+  Stream<int>? watchCount({DatumQuery? query, String? userId}) => null;
+
   // --- One-time Read Methods ---
 
   /// Fetch all items, optionally filtered by a scope.
@@ -45,6 +56,18 @@ abstract class RemoteAdapter<T extends DatumEntityInterface> {
   /// This method should be implemented by adapters to translate a [DatumQuery]
   /// into a native query for the underlying service (e.g., a REST API call).
   Future<List<T>> query(DatumQuery query, {String? userId});
+
+  /// Returns the number of remote entities that match the given [query].
+  ///
+  /// If [query] is null, all entities available from the remote data source
+  /// will be counted.
+  ///
+  /// The optional [userId] can be used to scope the request to a specific
+  /// user's data when supported by the backend.
+  ///
+  /// Implementations should override this method to perform an efficient
+  /// remote count operation instead of fetching all records.
+  Future<int> count({DatumQuery? query, String? userId}) async => 0;
 
   // --- Write Methods ---
 
