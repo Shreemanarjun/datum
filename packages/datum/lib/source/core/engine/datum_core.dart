@@ -1105,6 +1105,20 @@ class Datum {
     return Datum.manager<T>().query(query, source: source, userId: userId);
   }
 
+  Future<List<Map<String, dynamic>>> queryRaw(
+    String query, {
+    List<dynamic> variables = const [],
+    DataSource source = DataSource.local,
+    String? userId,
+  }) async {
+    if (_managers.isEmpty) {
+      throw StateError('No managers registered. Cannot execute raw query.');
+    }
+    final manager = _managers.allManagers.first;
+    final adapter = (source == DataSource.local ? manager.localAdapter : manager.remoteAdapter) as dynamic;
+    return adapter.queryRaw(query, variables: variables, userId: userId);
+  }
+
   /// Fetches related entities with proper type checking for [RelationalDatumEntity]
   Future<List<R>> fetchRelated<P extends DatumEntityInterface, R extends DatumEntityInterface>(
     P parent,
