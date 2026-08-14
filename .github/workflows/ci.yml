@@ -23,6 +23,11 @@ jobs:
         working-directory: .
         run: flutter pub get
 
+      - name: Generate code
+        # *.g.dart is gitignored (only test fixtures are generated), so CI must
+        # produce it fresh before analysis can resolve the part files.
+        run: dart run build_runner build --delete-conflicting-outputs
+
       - name: Analyze (fatal on infos & warnings)
         # Scoped to the package sources; the bundled example app is a separate
         # demo package with its own (looser) lint baseline.
@@ -32,15 +37,6 @@ jobs:
         run: >-
           dart format --output=none --set-exit-if-changed
           $(find lib test benchmark -name '*.dart' ! -name '*.g.dart')
-
-      - name: Verify generated code is up to date
-        run: |
-          dart run build_runner build --delete-conflicting-outputs
-          # Generated .g.dart are not format-normalized by the generator; format
-          # them before diffing so only real content changes fail the check.
-          dart format $(find lib test -name '*.g.dart') >/dev/null
-          git diff --exit-code -- '*.g.dart' \
-            || (echo "::error::Generated code is stale. Run build_runner and commit." && exit 1)
 
       - name: Test
         run: flutter test
@@ -59,8 +55,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - name: Install workspace dependencies
-        working-directory: .
+      - name: Install dependencies
+        # datum_hive is not a workspace member (it needs the Flutter SDK, which
+        # the pure-Dart workspace avoids) — resolve it in its own directory.
         run: flutter pub get
       - run: dart analyze --fatal-infos --fatal-warnings
       - run: flutter test

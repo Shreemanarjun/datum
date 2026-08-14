@@ -58,7 +58,32 @@ class ResponsiveDocsLayout extends PageLayoutBase {
         div(classes: 'header-container', attributes: {if (sidebar != null) 'data-has-sidebar': ''}, [header]),
       div(classes: 'main-container', [
         div(classes: 'sidebar-barrier', attributes: {'role': 'button'}, []),
-        if (sidebar case final sidebar?) div(classes: 'sidebar-container', [sidebar]),
+        if (sidebar case final sidebar?) ...[
+          div(classes: 'sidebar-container', [sidebar]),
+          // Each nav click is a full page load (static site), which resets the
+          // sidebar's scroll position. Restore it synchronously before first
+          // paint; on a fresh visit, center the active item instead.
+          script(content: '''
+(function () {
+  var nav = document.querySelector('.sidebar-container');
+  if (!nav) return;
+  var saved = sessionStorage.getItem('datum-sidebar-scroll');
+  if (saved !== null) {
+    nav.scrollTop = +saved;
+  } else {
+    var active = nav.querySelector('.active');
+    if (active) {
+      var n = nav.getBoundingClientRect();
+      var a = active.getBoundingClientRect();
+      nav.scrollTop += a.top - n.top - nav.clientHeight / 2 + a.height / 2;
+    }
+  }
+  window.addEventListener('pagehide', function () {
+    sessionStorage.setItem('datum-sidebar-scroll', nav.scrollTop);
+  });
+})();
+'''),
+        ],
         main_([
           div([
             div(classes: 'content-container', [

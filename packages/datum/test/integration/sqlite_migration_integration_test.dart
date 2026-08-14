@@ -73,8 +73,7 @@ class _CreateEmailDomainIndex extends ColumnOperation implements SqlConvertibleO
   Map<String, dynamic> apply(Map<String, dynamic> row) => row;
 
   @override
-  List<String> toSqlStatements(String table, SqlDialect dialect) =>
-      ['CREATE INDEX idx_users_email_domain ON $table (email_domain)'];
+  List<String> toSqlStatements(String table, SqlDialect dialect) => ['CREATE INDEX idx_users_email_domain ON $table (email_domain)'];
 }
 
 void main() {
@@ -136,11 +135,9 @@ void main() {
         logger: logger,
       );
 
-  List<String> columnsOf(String table) =>
-      db.select('PRAGMA table_info($table)').map((r) => r['name'] as String).toList();
+  List<String> columnsOf(String table) => db.select('PRAGMA table_info($table)').map((r) => r['name'] as String).toList();
 
-  Map<String, dynamic> rowById(String id) =>
-      Map<String, dynamic>.from(db.select('SELECT * FROM users WHERE id = ?', [id]).single);
+  Map<String, dynamic> rowById(String id) => Map<String, dynamic>.from(db.select('SELECT * FROM users WHERE id = ?', [id]).single);
 
   setUp(() {
     db = sqlite3.openInMemory();
@@ -213,8 +210,7 @@ void main() {
     final second = await executor().execute();
 
     expect(second.success, isTrue);
-    expect(db.select('SELECT id, age FROM users ORDER BY id'), agesBefore,
-        reason: 'a second launch must not re-apply transforms');
+    expect(db.select('SELECT id, age FROM users ORDER BY id'), agesBefore, reason: 'a second launch must not re-apply transforms');
   });
 
   test('resuming mid-chain only applies the remaining steps', () async {
