@@ -272,10 +272,13 @@ void main() {
           version: 1,
         );
 
-        // Different timezone representations should result in different props
+        // Different timezone representations should result in different props.
+        // DateTime.== distinguishes UTC from local even when they denote the
+        // same instant (as they do on a UTC test runner, where the hashCodes —
+        // instant-based — would collide), so assert on equality, not hashCode.
         expect(entityUtc.props[2], equals(utcTime));
         expect(entityLocal.props[2], equals(localTime));
-        expect(entityUtc.hashCode, isNot(equals(entityLocal.hashCode)));
+        expect(entityUtc, isNot(equals(entityLocal)));
       });
     });
 
