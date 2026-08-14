@@ -286,6 +286,41 @@ class RgaList<T> extends Equatable implements CRDT<List<T>> {
   /// The visible index of element [id], or -1 if absent/tombstoned.
   int indexOfId(String id) => _visible().indexWhere((n) => n.id == id);
 
+  /// Number of tombstoned elements retained for ordering (see [compacted]).
+  int get tombstoneCount => _nodes.values.where((n) => n.deleted).length;
+
+  /// Returns a copy with every tombstone purged.
+  ///
+  /// Deleted elements normally stay as tombstones so concurrent inserts
+  /// anchored to them keep their position; over the life of a document they
+  /// accumulate without bound. Compaction rebuilds the sequence as a linear
+  /// chain of only the visible elements — **element ids are preserved**, so
+  /// cursor anchors ([elementIdAt]/[indexOfId]) stay valid, order is exactly
+  /// the current visible order, and the Lamport counter continues from where
+  /// it was (new local inserts cannot collide).
+  ///
+  /// ⚠️ **Coordination contract**: compact only at a synchronization barrier
+  /// (all replicas have merged this state — e.g. when persisting a checkpoint
+  /// or when a single writer holds the document). Merging a compacted list
+  /// with a *stale* replica that never observed a deletion resurrects that
+  /// element, because the tombstone that recorded the deletion is gone. Two
+  /// replicas that compact the same synced state remain fully convergent
+  /// with each other.
+  RgaList<T> compacted() {
+    final nodes = <String, RgaNode<T>>{};
+    String? origin;
+    for (final node in _visible()) {
+      nodes[node.id] = RgaNode<T>(
+        replicaId: node.replicaId,
+        counter: node.counter,
+        origin: origin,
+        value: node.value,
+      );
+      origin = node.id;
+    }
+    return RgaList._(replicaId, nodes, _counter);
+  }
+
   /// Inserts [element] at visible [index] (0 = head, [length] = append).
   RgaList<T> insert(int index, T element) => insertAll(index, [element]);
 
@@ -445,6 +480,14 @@ class RgaText extends Equatable implements CRDT<String> {
   }
 
   /// Deletes [count] characters starting at [index].
+  /// Number of tombstoned characters retained for ordering (see [compact]).
+  int get tombstoneCount => _chars.tombstoneCount;
+
+  /// Returns a copy with every tombstone purged — see [RgaList.compacted]
+  /// for the coordination contract (compact only at a sync barrier).
+  /// Character ids, and therefore cursor anchors, are preserved.
+  RgaText compact() => RgaText._(_chars.compacted());
+
   RgaText delete(int index, int count) {
     if (count == 0) return this;
     return RgaText._(_chars.removeRange(index, count));

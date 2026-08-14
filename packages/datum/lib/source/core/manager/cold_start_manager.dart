@@ -307,18 +307,12 @@ class ColdStartManager {
   }
 
   /// Determines if full sync should be forced based on strategy.
-  bool _shouldForceFullSync() {
-    switch (_config.strategy) {
-      case ColdStartStrategy.fullSync:
-      case ColdStartStrategy.adaptive:
-        return true;
-      case ColdStartStrategy.incremental:
-      case ColdStartStrategy.priorityBased:
-        return false;
-      case ColdStartStrategy.disabled:
-        return false;
-    }
-  }
+  bool _shouldForceFullSync() => switch (_config.strategy) {
+        // `disabled` never reaches this switch (handleColdStartIfNeeded
+        // returns early), but exhaustiveness requires it; it shares the arm.
+        ColdStartStrategy.fullSync || ColdStartStrategy.adaptive => true,
+        ColdStartStrategy.incremental || ColdStartStrategy.priorityBased || ColdStartStrategy.disabled => false,
+      };
 
   /// Resets cold start state for a specific user (useful for testing).
   void resetForUser(String userId) {

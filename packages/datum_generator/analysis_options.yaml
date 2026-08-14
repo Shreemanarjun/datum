@@ -13,11 +13,18 @@
 
 include: package:lints/recommended.yaml
 
-# Uncomment the following section to specify additional rules.
-
-# linter:
-#   rules:
-#     - camel_case_types
+linter:
+  rules:
+    # Dart 3 idiom enforcement (see kevmoo/dash_skills dart-modern-features)
+    unnecessary_breaks: true
+    use_super_parameters: true
+    use_enums: true
+    unnecessary_late: true
+    unnecessary_library_name: true
+    use_string_in_part_of_directives: true
+    prefer_final_in_for_each: true
+    matching_super_parameters: true
+    combinators_ordering: true
 
 # analyzer:
 #   exclude:

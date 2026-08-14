@@ -141,14 +141,12 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
 
   @override
   Future<void> clearUserData(String userId) async {
-    final currentKeys = (await entityBox.keys);
-    final keysToDelete = [];
-    for (var key in currentKeys) {
-      final map = await entityBox.get(key);
-      if (map != null && map['userId'] == userId) {
-        keysToDelete.add(map);
-      }
-    }
+    // Collect the box KEYS (not the value maps) whose entity belongs to the
+    // user — deleteAll takes keys.
+    final keysToDelete = [
+      for (final key in await entityBox.keys)
+        if ((await entityBox.get(key))?['userId'] == userId) key,
+    ];
     await Future.wait([
       entityBox.deleteAll(keysToDelete),
       pendingOpsBox.delete(userId),

@@ -233,8 +233,8 @@ BenchTask makeTask(int i) => BenchTask(
       priority: i % 5,
       completed: i.isEven,
       tags: ['tag-${i % 3}', 'tag-${i % 7}', 'priority-${i % 5}'],
-      modifiedAt: DateTime.fromMillisecondsSinceEpoch(1700000000000 + i * 1000),
-      createdAt: DateTime.fromMillisecondsSinceEpoch(1690000000000 + i * 1000),
+      modifiedAt: DateTime.fromMillisecondsSinceEpoch(1_700_000_000_000 + i * 1000),
+      createdAt: DateTime.fromMillisecondsSinceEpoch(1_690_000_000_000 + i * 1000),
       version: 1 + (i % 10),
     );
 

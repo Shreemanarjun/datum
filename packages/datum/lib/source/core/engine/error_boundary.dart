@@ -70,7 +70,6 @@ class ErrorBoundary<T> {
       switch (config.strategy) {
         case ErrorBoundaryStrategy.isolate:
           _logger.error('Error isolated in boundary: $e', stack);
-          break;
         case ErrorBoundaryStrategy.retry:
           if (0 < config.maxRetries) {
             _logger.warn('Retrying operation after error: $e (attempt 1/${config.maxRetries})');
@@ -83,14 +82,11 @@ class ErrorBoundary<T> {
           } else {
             _logger.error('Max retries exceeded for error: $e', stack);
           }
-          break;
         case ErrorBoundaryStrategy.fallback:
           _logger.warn('Using fallback for error: $e');
-          break;
         case ErrorBoundaryStrategy.escalate:
           _logger.debug('Escalating error: $e');
           await Future.error(e, stack);
-          break;
       }
     }
   }
@@ -126,9 +122,8 @@ class ErrorBoundary<T> {
 
       case ErrorBoundaryStrategy.escalate:
         _logger.debug('Escalating error: $error');
-        // Re-throw the original error
-        await Future.error(error, stack);
-        return await _provideFallback(); // This won't be reached, but satisfies the type checker
+        // Re-throw the original error with its original stack.
+        Error.throwWithStackTrace(error, stack);
     }
   }
 

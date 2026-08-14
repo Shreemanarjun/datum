@@ -1,0 +1,10 @@
+name: deslop_duplication_audit
+description: Standalone helper tools for the deslop duplication audit skill.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  args: ^2.4.0

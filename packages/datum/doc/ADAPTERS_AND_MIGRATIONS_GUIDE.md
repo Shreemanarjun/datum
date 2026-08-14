@@ -185,3 +185,146 @@ entity payloads** across model changes — complementary to, not a replacement
 for, storage-engine and server migrations. Provide a `DatumConfig.onMigrationError`
 handler to control what happens if one fails (default: rethrow to avoid running
 on corrupted data).
+
+## 4. Declarative migrations — one chain for SQL *and* schemaless stores
+
+Instead of hand-writing `Migration.migrate` map surgery, declare each step as
+a `SchemaMigration` built from `ColumnOperation`s. The same list then drives
+**both** executors:
+
+- `MigrationExecutor` (Hive, in-memory, any schemaless store) applies the Dart
+  side of each operation to every stored row.
+- `SqlMigrationExecutor` (any `LocalAdapter` mixing in `RawQueryCapable`)
+  translates the operations into real `ALTER TABLE` / `UPDATE` statements and
+  runs them inside the adapter's transaction — the only way columns can
+  actually be added or dropped on a SQL table.
+
+Each operation carries its Dart closure *and* (where needed) its SQL
+counterpart:
+
+```dart
+final migrations = [
+  // v0 -> v1: add a column with a default, rename another.
+  SchemaMigration(fromVersion: 0, toVersion: 1, operations: [
+    ColumnOperation.add('status', defaultValue: 'active'),
+    ColumnOperation.rename('name', to: 'full_name'),
+  ]),
+
+  // v1 -> v2: computed column — Dart compute for schemaless stores,
+  // sqlExpression backfill for SQL stores.
+  SchemaMigration(fromVersion: 1, toVersion: 2, operations: [
+    ColumnOperation.add(
+      'email_domain',
+      sqlType: 'TEXT',
+      compute: (row) => (row['email'] as String? ?? '').split('@').last.toLowerCase(),
+      sqlExpression: "lower(substr(email, instr(email, '@') + 1))",
+    ),
+  ]),
+
+  // v2 -> v3: scoped in-place transform. `where` scopes the map path,
+  // `sqlWhere` scopes the generated UPDATE identically.
+  SchemaMigration(
+    fromVersion: 2,
+    toVersion: 3,
+    where: (row) => (row['age'] as int? ?? 0) >= 18,
+    sqlWhere: 'age >= 18',
+    operations: [
+      ColumnOperation.transform('age', (v, _) => (v as int? ?? 0) + 1,
+          sqlExpression: 'age + 1'),
+    ],
+  ),
+
+  // v3 -> v4: drop a legacy column + arbitrary rewrite with raw SQL twin.
+  SchemaMigration(fromVersion: 3, toVersion: 4, operations: [
+    ColumnOperation.remove('legacy_score'),
+    ColumnOperation.row(
+      (row) => {...row, 'email': (row['email'] as String? ?? '').toLowerCase()},
+      sql: ['UPDATE "users" SET "email" = lower(email)'],
+    ),
+  ]),
+];
+
+// Schemaless store (Hive / in-memory): rewrites rows via the Dart closures.
+await MigrationExecutor<User>(
+  localAdapter: hiveAdapter,
+  migrations: migrations,
+  targetVersion: 4,
+  logger: logger,
+).execute();
+
+// SQL store: emits dialect-aware DDL/DML through RawQueryCapable.rawQuery.
+await SqlMigrationExecutor<User>(
+  localAdapter: sqlAdapter, // must mix in RawQueryCapable
+  table: 'users',
+  migrations: migrations,
+  targetVersion: 4,
+  dialect: SqlDialect.sqlite, // or SqlDialect.postgresql
+  logger: logger,
+).execute();
+```
+
+Guarantees shared by both executors:
+
+- **Fail-fast validation.** `MigrationPlan.resolve` checks the whole chain
+  (gaps, duplicate starting versions, backwards steps, overshoot) before any
+  data is touched; the SQL executor additionally generates every statement up
+  front, so an untranslatable operation in step 3 means steps 1–2 never run.
+- **Atomicity.** The map executor snapshots and restores on failure; the SQL
+  executor relies on the adapter's transaction (SQLite and PostgreSQL roll
+  back DDL and DML together).
+- **Run-once semantics.** The stored schema version is stamped per step, so
+  a relaunch resumes exactly where the chain left off — never re-applies.
+
+Operations that only exist as Dart closures (`compute`/`transform`/`row`
+without their SQL counterpart) are rejected by the SQL generator with a
+message telling you which counterpart to provide. Custom operations can join
+the SQL path by implementing `SqlConvertibleOperation`.
+
+The executable reference for all of this — against a **real** sqlite3
+database, including transactional rollback — is
+`test/integration/sqlite_migration_integration_test.dart`, and the shipping
+implementation is the `datum_sqlite` package (`SqliteLocalAdapter` +
+`SqlMigrationExecutor`).
+
+## 5. Incremental pull (`DeltaSyncCapable`)
+
+By default the pull phase reads the full remote dataset every cycle that
+runs. A remote adapter that can answer "what changed since T?" should mix in
+`DeltaSyncCapable`:
+
+```dart
+class MyRestAdapter<T extends DatumEntityInterface> extends RemoteAdapter<T>
+    with DeltaSyncCapable<T> {
+  @override
+  Future<List<T>> readSince(DateTime since, {String? userId, DatumSyncScope? scope}) async {
+    // e.g. GET /entities?updated_since=<since>  — compare against a
+    // SERVER-maintained received-at column, not the client's modifiedAt.
+    ...
+  }
+}
+```
+
+The engine then pulls incrementally on every cycle except a user's first
+sync and `detectRemoteDeletions` cycles (which need the complete remote id
+set). `DatumConfig.deltaSyncOverlap` (default 5 minutes) widens the
+watermark for clock-skew tolerance — re-delivered rows are dropped by the
+strictly-newer check. Soft deletions ride deltas naturally; hard remote
+deletions do not (keep soft deletes, or use `detectRemoteDeletions`).
+
+## 6. Certifying custom adapters (`datum_test`)
+
+The `datum_test` package runs the same behavioral contract Datum's own
+adapters pass — CRUD, user scoping, `DatumQuery` semantics, pending
+operations, sync state, migration raw-data fidelity, and capability checks —
+against any adapter in one call:
+
+```dart
+runLocalAdapterConformanceTests(
+  name: 'MyAdapter',
+  create: () async => MyAdapter<ConformanceEntity>(fromMap: ConformanceEntity.fromMap)..initialize(),
+);
+```
+
+It also ships `LocalSyncServer` (a real HTTP sync server with fault
+injection) and `HttpRemoteAdapter` (a reference REST adapter) for
+integration-testing sync flows without a backend.

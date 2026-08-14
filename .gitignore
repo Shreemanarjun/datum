@@ -76,3 +76,7 @@ gha-creds-*.json
 .dart_tool/
 
 
+
+# Re-include coverage TEST directories (the rule above is for lcov output dirs).
+!**/test/coverage/
+!**/test/coverage/**

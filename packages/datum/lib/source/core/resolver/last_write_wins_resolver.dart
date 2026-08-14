@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:datum/datum.dart';
 
@@ -30,6 +31,16 @@ class LastWriteWinsResolver<T extends DatumEntityInterface> implements DatumConf
       return local.version > remote.version ? DatumConflictResolution.useLocal(local) : DatumConflictResolution.useRemote(remote);
     }
     // If versions are the same, fall back to the most recent modification time.
-    return remote.modifiedAt.isAfter(local.modifiedAt) ? DatumConflictResolution.useRemote(remote) : DatumConflictResolution.useLocal(local);
+    if (local.modifiedAt != remote.modifiedAt) {
+      return remote.modifiedAt.isAfter(local.modifiedAt) ? DatumConflictResolution.useRemote(remote) : DatumConflictResolution.useLocal(local);
+    }
+    // Exact (version, modifiedAt) tie with divergent content. The tie must
+    // break by a total order every replica computes identically — preferring
+    // `local` would make each device elect itself and the replicas would
+    // ping-pong resolution pushes forever. Comparing serialized payloads
+    // crowns the same winner on both sides.
+    final localEncoded = jsonEncode(local.toDatumMap(target: MapTarget.remote));
+    final remoteEncoded = jsonEncode(remote.toDatumMap(target: MapTarget.remote));
+    return localEncoded.compareTo(remoteEncoded) >= 0 ? DatumConflictResolution.useLocal(local) : DatumConflictResolution.useRemote(remote);
   }
 }

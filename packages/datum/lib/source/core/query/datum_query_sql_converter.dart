@@ -112,13 +112,10 @@ extension DatumQuerySqlConverter on DatumQuery {
         switch (condition.operator) {
           case FilterOperator.contains:
             value = '%$value%';
-            break;
           case FilterOperator.startsWith:
             value = '$value%';
-            break;
           case FilterOperator.endsWith:
             value = '%$value';
-            break;
           case FilterOperator.containsIgnoreCase:
             value = '%$value%';
             if (dialect == SqlDialect.sqlite) {

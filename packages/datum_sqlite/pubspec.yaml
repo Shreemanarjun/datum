@@ -1,0 +1,31 @@
+name: datum_sqlite
+description: A SQLite-backed persistence layer for the Datum ecosystem — native SQL query pushdown, real transactions, and ALTER TABLE schema migrations via SqlMigrationExecutor.
+version: 0.1.0
+resolution: workspace
+homepage: https://www.shreeman.dev
+repository: https://github.com/Shreemanarjun/datum
+issue_tracker: https://github.com/Shreemanarjun/datum/issues
+documentation: https://datum.shreeman.dev/
+funding:
+  - https://buymeacoffee.com/shreemanarjun
+
+topics:
+  - offline-first
+  - synchronization
+  - database
+  - sqlite
+  - flutter
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  datum: ^1.1.0
+  meta: ^1.11.0
+  sqlite3: ^2.4.0
+
+dev_dependencies:
+  datum_test:
+    path: ../datum_test
+  lints: ^4.0.0
+  test: ^1.25.6

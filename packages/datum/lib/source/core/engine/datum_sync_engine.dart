@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:datum/datum.dart';
+import 'package:datum/source/core/engine/metadata_hash_cache.dart';
 
 import 'package:rxdart/rxdart.dart';
 
@@ -48,7 +49,12 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     this.localObservers = const [],
     this.globalObservers = const [],
     this.deviceId,
-  });
+    MetadataHashCache? hashCache,
+  }) : hashCache = hashCache ?? MetadataHashCache();
+
+  /// Cached per-user content hash/count; shared with the owning manager so
+  /// its CRUD chokepoints can invalidate entries.
+  final MetadataHashCache hashCache;
 
   /// Checks if the active user has changed and emits an event if so.
   Future<void> checkForUserSwitch(String newUserId) async {
@@ -514,13 +520,15 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     int bytesPulled = 0;
     int processedCount = 0;
 
-    // Use streaming approach for large datasets to reduce memory usage
-    final remoteItemsStream = _streamRemoteItems(userId, scope);
-    final remoteBatch = <T>[];
-
     // Track every remote id seen so we can detect remote deletions (entities
     // present locally but absent remotely) after the pull, when enabled.
     final detectDeletions = config.detectRemoteDeletions && scope == null && (options?.query == null || options!.query.filters.isEmpty);
+
+    // Use streaming approach for large datasets to reduce memory usage.
+    // Deletion detection needs the COMPLETE remote id set, so those cycles
+    // must never use an incremental (delta) pull.
+    final remoteItemsStream = _streamRemoteItems(userId, scope, allowDelta: !detectDeletions);
+    final remoteBatch = <T>[];
     final seenRemoteIds = detectDeletions ? <String>{} : null;
 
     await for (final remoteItem in remoteItemsStream) {
@@ -613,6 +621,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       switch (resolution.strategy) {
         case DatumResolutionStrategy.takeRemote:
           await localAdapter.delete(local.id, userId: userId);
+          hashCache.invalidate(userId);
           logger.info('Applied remote deletion for ${local.id} (resolver: ${resolver.name}).');
         case DatumResolutionStrategy.takeLocal || DatumResolutionStrategy.merge:
           // Local survives: push it so the remote converges instead of the
@@ -642,11 +651,50 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     }
   }
 
+  /// The reserved key holding the incremental-pull cursor inside sync
+  /// metadata `customMetadata`.
+  static const String syncCursorKey = '__sync_cursor__';
+
+  /// Cursors returned by [CursorSyncCapable.readChanges] this cycle, staged
+  /// per user until [_updateMetadata] persists them.
+  final Map<String, String> _pendingCursors = {};
+
   // Stream remote items instead of loading all at once
-  Stream<T> _streamRemoteItems(String userId, DatumSyncScope? scope) async* {
-    // For adapters that support streaming, use their stream method
-    // For now, fall back to batching the readAll method
-    final allItems = await remoteAdapter.readAll(userId: userId, scope: scope);
+  Stream<T> _streamRemoteItems(String userId, DatumSyncScope? scope, {bool allowDelta = false}) async* {
+    final List<T> allItems;
+    final remote = remoteAdapter;
+    final deltaAllowed = allowDelta && config.enableDeltaSync;
+    if (deltaAllowed && remote is CursorSyncCapable<T>) {
+      // Cursor-based incremental pull — the generalized (v2) path. A null
+      // cursor means "from the beginning", so even the first sync goes
+      // through the feed; the returned cursor persists via sync metadata.
+      final metadata = await localAdapter.getSyncMetadata(userId);
+      final cursor = metadata?.customMetadata?[syncCursorKey] as String?;
+      logger.info('Cursor pull for user $userId (cursor: ${cursor ?? '<start>'}).');
+      // No promotion: CursorSyncCapable is not a RemoteAdapter subtype.
+      final page = await (remote as CursorSyncCapable<T>).readChanges(cursor, userId: userId, scope: scope);
+      _pendingCursors[userId] = page.nextCursor;
+      allItems = page.items;
+    } else if (deltaAllowed && remote is DeltaSyncCapable<T>) {
+      final metadata = await localAdapter.getSyncMetadata(userId);
+      // Prefer the server's own clock when the adapter recorded one; fall
+      // back to the local sync stamp.
+      final watermark = metadata?.serverTimestamp ?? metadata?.lastSyncTime;
+      if (watermark != null) {
+        // Incremental pull: only rows modified since the watermark, widened
+        // by the configured overlap to tolerate clock skew. Re-delivered
+        // rows are dropped by the strictly-newer check, so the overlap is
+        // idempotent.
+        final since = watermark.subtract(config.deltaSyncOverlap);
+        logger.info('Delta pull for user $userId: entities modified since $since.');
+        // No promotion: DeltaSyncCapable is not a RemoteAdapter subtype.
+        allItems = await (remote as DeltaSyncCapable<T>).readSince(since, userId: userId, scope: scope);
+      } else {
+        allItems = await remoteAdapter.readAll(userId: userId, scope: scope);
+      }
+    } else {
+      allItems = await remoteAdapter.readAll(userId: userId, scope: scope);
+    }
 
     for (var i = 0; i < allItems.length; i += config.remoteStreamBatchSize) {
       final end = (i + config.remoteStreamBatchSize < allItems.length) ? i + config.remoteStreamBatchSize : allItems.length;
@@ -712,6 +760,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         if (localItem == null) {
           // This is a new item from remote.
           await localAdapter.create(remoteItem);
+          hashCache.invalidate(userId);
           final size = jsonEncode(remoteItem.toDatumMap()).length;
           batchBytes += size;
         } else {
@@ -724,6 +773,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
           // resolver by the detector, so here we just need a strict newer-check.
           if (_isRemoteStrictlyNewer(localItem, remoteItem)) {
             await localAdapter.update(remoteItem);
+            hashCache.invalidate(userId);
             final size = jsonEncode(remoteItem.toDatumMap()).length;
             batchBytes += size;
           } else {
@@ -782,12 +832,14 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
           // remoteItem was previously written unconditionally, silently
           // discarding resolvedData.
           await localAdapter.update(resolution.resolvedData ?? remoteItem);
+          hashCache.invalidate(userId);
         case DatumResolutionStrategy.merge:
           if (resolution.resolvedData == null) {
             throw StateError('Merge resolution must provide a merged item.');
           }
           final merged = resolution.resolvedData!;
           await localAdapter.update(merged);
+          hashCache.invalidate(userId);
           // The merged value must also reach the remote, or the merge repeats
           // forever and never propagates to other devices.
           await _enqueueResolutionPush(userId, merged);
@@ -974,8 +1026,32 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
 
   Future<void> _updateMetadata(String userId, {bool pulledRemote = true}) async {
     try {
-      final items = await localAdapter.readAll(userId: userId);
+      // Reuse the cached content hash when no write chokepoint invalidated it
+      // since the last computation — the common idle auto-sync cycle then
+      // skips both the O(n) readAll and the O(n) rehash.
+      final String contentHash;
+      final int itemCount;
+      final cached = config.enableMetadataHashCache ? hashCache.peek(userId) : null;
+      if (cached != null) {
+        contentHash = cached.hash;
+        itemCount = cached.count;
+      } else {
+        final items = await localAdapter.readAll(userId: userId);
+        contentHash = const DatumHashGenerator().hashEntitiesUnordered(items);
+        itemCount = items.length;
+        hashCache.store(userId, hash: contentHash, count: itemCount);
+      }
       final existingMetadata = await localAdapter.getSyncMetadata(userId);
+
+      // Persist the cursor staged by a cursor-based pull this cycle. The
+      // cursor is per-DEVICE progress: it lives in the LOCAL metadata only
+      // and is stripped from the remote beacon — if another device ever
+      // adopted a foreign cursor it would silently skip changes it has
+      // never seen.
+      final stagedCursor = _pendingCursors.remove(userId);
+      final localCustomMetadata = stagedCursor == null ? existingMetadata?.customMetadata : {...?existingMetadata?.customMetadata, syncCursorKey: stagedCursor};
+      final strippedCustomMetadata = localCustomMetadata == null ? null : ({...localCustomMetadata}..remove(syncCursorKey));
+      final remoteCustomMetadata = (strippedCustomMetadata?.isEmpty ?? true) ? null : strippedCustomMetadata;
 
       Map<String, DateTime>? updatedDevices = existingMetadata?.devices != null ? Map<String, DateTime>.from(existingMetadata!.devices!) : {};
 
@@ -983,18 +1059,16 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         updatedDevices[deviceId!] = DateTime.now();
       }
 
-      // Compute a real, order-independent content hash. This is what the
-      // skip-check at the top of synchronize() compares between local and
-      // remote metadata — the previous hardcoded 'testhash' placeholder made
-      // that check degrade to a bare entity-count comparison, so a remote
-      // content change that kept the count identical was never pulled and
-      // devices diverged permanently.
-      final contentHash = const DatumHashGenerator().hashEntitiesUnordered(items);
+      // The order-independent content hash is what the skip-check at the top
+      // of synchronize() compares between local and remote metadata — a
+      // placeholder here once degraded that check to a bare count comparison,
+      // so a remote content change that kept the count identical was never
+      // pulled and devices diverged permanently.
 
       // Preserve existing entity counts and update only the current entity type
       final updatedEntityCounts = Map<String, DatumEntitySyncDetails>.from(existingMetadata?.entityCounts ?? {});
       updatedEntityCounts[entityName] = DatumEntitySyncDetails(
-        count: items.length,
+        count: itemCount,
         hash: contentHash,
       );
 
@@ -1007,7 +1081,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         entityCounts: updatedEntityCounts,
         // Preserve other fields from existing metadata or set defaults
         lastSuccessfulSyncTime: DateTime.now(),
-        customMetadata: existingMetadata?.customMetadata,
+        customMetadata: localCustomMetadata,
         syncStatus: SyncStatus.synced,
         syncVersion: existingMetadata?.syncVersion ?? 1,
         serverTimestamp: existingMetadata?.serverTimestamp,
@@ -1035,7 +1109,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
               devices: updatedDevices.isEmpty ? null : updatedDevices,
               entityCounts: existingMetadata?.entityCounts,
               lastSuccessfulSyncTime: DateTime.now(),
-              customMetadata: existingMetadata?.customMetadata,
+              customMetadata: localCustomMetadata,
               syncStatus: SyncStatus.synced,
               syncVersion: existingMetadata?.syncVersion ?? 1,
               serverTimestamp: existingMetadata?.serverTimestamp,
@@ -1047,7 +1121,12 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
 
       await localAdapter.updateSyncMetadata(localMetadata, userId);
       try {
-        await remoteAdapter.updateSyncMetadata(newMetadata, userId);
+        // copyWith(null) would KEEP the cursor-bearing map, so the stripped
+        // beacon passes an empty map when nothing else remains.
+        await remoteAdapter.updateSyncMetadata(
+          newMetadata.copyWith(customMetadata: remoteCustomMetadata ?? const <String, dynamic>{}),
+          userId,
+        );
       } on Object catch (e) {
         // The remote metadata write is a change *beacon* for other devices —
         // an optimization, not sync state. Failing it (e.g. the connection

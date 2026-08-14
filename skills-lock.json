@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "dart-best-practices": {
+      "source": "kevmoo/dash_skills",
+      "sourceType": "github",
+      "skillPath": "skills/dart-best-practices/SKILL.md",
+      "computedHash": "00ee8d524d433b3f867a8b430c4513d765b2edebfcfaf6289a0c344d74f50e16"
+    },
+    "dart-modern-features": {
+      "source": "kevmoo/dash_skills",
+      "sourceType": "github",
+      "skillPath": "skills/dart-modern-features/SKILL.md",
+      "computedHash": "90eade603c21cb473b2151af2e324a6f117a4208b0d1c71104dba763eebdbda7"
+    },
+    "deslop": {
+      "source": "cursor/plugins",
+      "sourceType": "github",
+      "skillPath": "cursor-team-kit/skills/deslop/SKILL.md",
+      "computedHash": "8883a7d459c07a0b2ee06972e79baa634009aa3bab969a6650acbefac394ad41"
+    },
+    "deslop-duplication-audit": {
+      "source": "kevmoo/kevmoo_skills",
+      "sourceType": "github",
+      "skillPath": "skills/deslop-duplication-audit/SKILL.md",
+      "computedHash": "242612aa605bd0bc87a97716c264a86a364aca4eceb9cc5398c82af3cc22609b"
+    }
+  }
+}

@@ -171,11 +171,17 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
   Stream<S> _watch<S>(Future<S> Function() read, {String? userId}) {
     final controller = StreamController<S>.broadcast();
     StreamSubscription<DatumChangeDetail<T>>? sub;
-    controller.onListen = () async {
-      controller.add(await read());
+    controller.onListen = () {
+      // Attach the change subscription SYNCHRONOUSLY before the (async)
+      // initial read — a write landing between listen and the first emission
+      // must not be missed. Every emission re-reads current state, so an
+      // out-of-order initial emission is harmless (at worst a duplicate).
       sub = _changeController.stream.where((e) => userId == null || e.userId == userId).listen((_) async {
         if (!controller.isClosed) controller.add(await read());
       });
+      unawaited(read().then((initial) {
+        if (!controller.isClosed) controller.add(initial);
+      }));
     };
     controller.onCancel = () => sub?.cancel();
     return controller.stream;

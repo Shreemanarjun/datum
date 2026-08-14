@@ -127,14 +127,12 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
 
   @override
   Future<void> clearUserData(String userId) async {
-    final currentKeys = (entityBox.keys);
-    final keysToDelete = [];
-    for (var key in currentKeys) {
-      final map = entityBox.get(key);
-      if (map != null && map['userId'] == userId) {
-        keysToDelete.add(map);
-      }
-    }
+    // Collect the box KEYS (not the value maps) whose entity belongs to the
+    // user — deleteAll takes keys.
+    final keysToDelete = [
+      for (final key in entityBox.keys)
+        if (entityBox.get(key)?['userId'] == userId) key,
+    ];
     await Future.wait([
       entityBox.deleteAll(keysToDelete),
       pendingOpsBox.delete(userId),

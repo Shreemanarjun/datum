@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:datum/source/core/models/conflict_context.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
@@ -69,6 +70,23 @@ class DatumConflictDetector<T extends DatumEntityInterface> {
 
     // Fallback: If versions differ, it's a sign of independent modification.
     if (localItem.version != remoteItem.version) {
+      return DatumConflictContext(
+        userId: userId,
+        entityId: localItem.id,
+        type: DatumConflictType.bothModified,
+        localMetadata: localMetadata,
+        remoteMetadata: remoteMetadata,
+        detectedAt: DateTime.now(),
+      );
+    }
+
+    // Equal versions can still be concurrent edits: two devices that each
+    // bumped the same ancestor produce identical version numbers with
+    // divergent content — the common concurrency signature when entities
+    // carry no vector clocks. Identical re-delivered rows (the bulk of every
+    // full pull) short-circuit on the timestamp comparison; the deep map
+    // comparison only runs for same-instant ties.
+    if (localItem.modifiedAt != remoteItem.modifiedAt || !const DeepCollectionEquality().equals(localItem.toDatumMap(), remoteItem.toDatumMap())) {
       return DatumConflictContext(
         userId: userId,
         entityId: localItem.id,

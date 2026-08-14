@@ -1,0 +1,28 @@
+name: datum_test
+description: Adapter conformance test kit for the Datum ecosystem — certify any LocalAdapter/RemoteAdapter with one call, plus a real HTTP sync-server harness with fault injection.
+version: 0.1.0
+resolution: workspace
+homepage: https://www.shreeman.dev
+repository: https://github.com/Shreemanarjun/datum
+issue_tracker: https://github.com/Shreemanarjun/datum/issues
+documentation: https://datum.shreeman.dev/
+funding:
+  - https://buymeacoffee.com/shreemanarjun
+
+topics:
+  - offline-first
+  - synchronization
+  - testing
+  - conformance
+  - adapters
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  datum: ^1.1.0
+  meta: ^1.11.0
+  test: ^1.25.6
+
+dev_dependencies:
+  lints: ^4.0.0

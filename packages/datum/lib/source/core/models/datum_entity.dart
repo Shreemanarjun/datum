@@ -90,8 +90,11 @@ sealed class DatumEntityBase extends Equatable implements DatumEntityInterface {
   int get version;
 
   /// A **vector clock** for tracking causality across multiple devices.
+  ///
+  /// Declared, not defined: [DatumEntityMixin] always provides the
+  /// implementation (mixin linearization wins), so a body here is dead code.
   @override
-  VectorClock? get vectorClock => null;
+  VectorClock? get vectorClock;
 
   /// A flag indicating if this entity has been locally marked for **deletion**.
   @override
@@ -99,7 +102,7 @@ sealed class DatumEntityBase extends Equatable implements DatumEntityInterface {
 
   /// Returns a new instance with the vector clock incremented for [replicaId].
   @override
-  DatumEntityInterface incrementClock(String replicaId) => this;
+  DatumEntityInterface incrementClock(String replicaId);
 
   /// Converts the entity to a `Map<String, dynamic>` for persistence.
   @override
@@ -115,16 +118,16 @@ sealed class DatumEntityBase extends Equatable implements DatumEntityInterface {
 
   /// Merges this entity with [other].
   @override
-  DatumEntityInterface merge(covariant DatumEntityInterface other) => other;
+  DatumEntityInterface merge(covariant DatumEntityInterface other);
 
   /// Indicates whether this entity supports relationships.
   @override
-  bool get isRelational => false;
+  bool get isRelational;
 
   /// Provides the list of properties to be used by the [Equatable] mixin
   /// for value equality checks.
   @override
-  List<Object?> get props => [id, userId, modifiedAt, createdAt, version, isDeleted, vectorClock];
+  List<Object?> get props;
 }
 
 /// The **base abstract class** for all entities managed by Datum **without**

@@ -8,5 +8,7 @@ workspace:
   - packages/datum
   - packages/datum_docs
   - packages/datum_generator
+  - packages/datum_sqlite
+  - packages/datum_test
 
 

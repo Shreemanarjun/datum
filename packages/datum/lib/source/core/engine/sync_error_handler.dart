@@ -82,9 +82,8 @@ class SyncErrorHandler {
       ));
     }
 
-    // Wrap the error with events for the manager to handle
-    await Future.error(SyncExceptionWithEvents<T>(error, stack, events), stack);
-    // This line won't be reached, but satisfies the type checker
-    return DatumSyncResult<T>.fromError(userId, error);
+    // Wrap the error with events for the manager to handle. throwWithStackTrace
+    // is Never-typed, so no unreachable return is needed to satisfy the types.
+    Error.throwWithStackTrace(SyncExceptionWithEvents<T>(error, stack, events), stack);
   }
 }

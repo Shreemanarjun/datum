@@ -206,6 +206,31 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
   /// if you have measured a need and understand those trade-offs.
   final bool enableQueryCache;
 
+  /// Whether to cache the per-user content hash used when stamping sync
+  /// metadata, so an idle sync cycle skips an O(n) `readAll` + rehash of the
+  /// whole local dataset.
+  ///
+  /// Defaults to **true**. Every write that flows through the manager, the
+  /// sync engine, or an adapter `changeStream` invalidates the cache. Disable
+  /// only if something writes to local storage completely out-of-band (no
+  /// manager, no change stream) — such writes are invisible to the cache the
+  /// same way they are invisible to queueing and reactivity.
+  final bool enableMetadataHashCache;
+
+  /// Whether the pull phase may use **incremental pulls** when the remote
+  /// adapter mixes in `DeltaSyncCapable` — fetching only entities modified
+  /// since the last sync watermark instead of the full dataset.
+  ///
+  /// Defaults to **true** (the capability mixin is itself the opt-in). The
+  /// engine still performs full pulls for a user's first sync and for cycles
+  /// that need the complete remote id set (`detectRemoteDeletions`).
+  final bool enableDeltaSync;
+
+  /// Clock-skew tolerance subtracted from the watermark passed to
+  /// `DeltaSyncCapable.readSince`. Re-delivered rows in the overlap window
+  /// are skipped by the strictly-newer check, so a generous overlap is safe.
+  final Duration deltaSyncOverlap;
+
   /// The maximum size of the query cache.
   final int maxQueryCacheSize;
 
@@ -260,6 +285,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     this.excludedSyncUserIds = const {},
     this.detectRemoteDeletions = false,
     this.enableQueryCache = false,
+    this.enableMetadataHashCache = true,
+    this.enableDeltaSync = true,
+    this.deltaSyncOverlap = const Duration(minutes: 5),
     this.maxQueryCacheSize = 100,
     this.maxRelationshipQueryCacheSize = 200,
     this.maxEntityExistenceCacheSize = 500,
@@ -305,6 +333,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     Set<String>? excludedSyncUserIds,
     bool? detectRemoteDeletions,
     bool? enableQueryCache,
+    bool? enableMetadataHashCache,
+    bool? enableDeltaSync,
+    Duration? deltaSyncOverlap,
     int? maxQueryCacheSize,
     int? maxRelationshipQueryCacheSize,
     int? maxEntityExistenceCacheSize,
@@ -348,6 +379,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       excludedSyncUserIds: excludedSyncUserIds ?? this.excludedSyncUserIds,
       detectRemoteDeletions: detectRemoteDeletions ?? this.detectRemoteDeletions,
       enableQueryCache: enableQueryCache ?? this.enableQueryCache,
+      enableMetadataHashCache: enableMetadataHashCache ?? this.enableMetadataHashCache,
+      enableDeltaSync: enableDeltaSync ?? this.enableDeltaSync,
+      deltaSyncOverlap: deltaSyncOverlap ?? this.deltaSyncOverlap,
       maxQueryCacheSize: maxQueryCacheSize ?? this.maxQueryCacheSize,
       maxRelationshipQueryCacheSize: maxRelationshipQueryCacheSize ?? this.maxRelationshipQueryCacheSize,
       maxEntityExistenceCacheSize: maxEntityExistenceCacheSize ?? this.maxEntityExistenceCacheSize,
@@ -400,6 +434,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       excludedSyncUserIds: excludedSyncUserIds,
       detectRemoteDeletions: detectRemoteDeletions,
       enableQueryCache: enableQueryCache,
+      enableMetadataHashCache: enableMetadataHashCache,
+      enableDeltaSync: enableDeltaSync,
+      deltaSyncOverlap: deltaSyncOverlap,
       maxQueryCacheSize: maxQueryCacheSize,
       maxRelationshipQueryCacheSize: maxRelationshipQueryCacheSize,
       maxEntityExistenceCacheSize: maxEntityExistenceCacheSize,
@@ -458,6 +495,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       excludedSyncUserIds,
       detectRemoteDeletions,
       enableQueryCache,
+      enableMetadataHashCache,
+      enableDeltaSync,
+      deltaSyncOverlap,
       maxQueryCacheSize,
       maxRelationshipQueryCacheSize,
       maxEntityExistenceCacheSize,

@@ -156,8 +156,8 @@ void main() {
 
     test('does NOT overwrite when clocks are null and item is identical', () async {
       final at = DateTime(2024, 1, 1);
-      final localItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'local', version: 1, modifiedAt: at);
-      final remoteItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'remote', version: 1, modifiedAt: at);
+      final localItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'same', version: 1, modifiedAt: at, createdAt: at);
+      final remoteItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'same', version: 1, modifiedAt: at, createdAt: at);
 
       when(() => localAdapter.readByIds(any(), userId: any(named: 'userId'))).thenAnswer((_) async => {'1': localItem});
       var readCount = 0;
@@ -172,7 +172,13 @@ void main() {
       verifyNever(() => localAdapter.update(any()));
     });
 
-    test('does NOT overwrite when clocks are null and local modifiedAt is newer', () async {
+    test('keeps the newer local on equal versions AND queues a push-back so the remote converges', () async {
+      // Same version + divergent content = concurrent edits (the most common
+      // concurrency signature without vector clocks). The old behavior
+      // silently skipped the row, stranding the winner on this device
+      // forever (split-brain, found by the convergence fuzz suite): now it
+      // is a detected conflict — LWW keeps the newer local AND enqueues a
+      // resolution push.
       final localItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'local', version: 1, modifiedAt: DateTime(2024, 1, 2));
       final remoteItem = TestDatumEntity(id: '1', userId: 'user-1', value: 'remote', version: 1, modifiedAt: DateTime(2024, 1, 1));
 
@@ -183,10 +189,12 @@ void main() {
         return [];
       });
       when(() => localAdapter.update(any())).thenAnswer((_) async => remoteItem);
+      when(() => queueManager.enqueue(any())).thenAnswer((_) async {});
 
       await engine.synchronize('user-1', options: const DatumSyncOptions(direction: SyncDirection.pullOnly));
 
       verifyNever(() => localAdapter.update(any()));
+      verify(() => queueManager.enqueue(any())).called(1);
     });
 
     test('DOES overwrite when clocks are null and remote modifiedAt is newer', () async {

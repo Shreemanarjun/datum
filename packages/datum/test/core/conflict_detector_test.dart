@@ -192,7 +192,7 @@ void main() {
       expect(context!.type, DatumConflictType.bothModified);
     });
 
-    test('no conflict when same version despite time difference', () {
+    test('conflict when same version but divergent content (concurrent edits)', () {
       final baseTime = DateTime.now();
       final local = TestEntity(
         id: 'entity1',
@@ -220,7 +220,11 @@ void main() {
         userId: 'user1',
       );
 
-      expect(context, isNull);
+      // Two devices that each bumped the same ancestor produce EQUAL
+      // versions with divergent content — silently ignoring it caused a
+      // permanent split-brain (found by the convergence fuzz suite).
+      expect(context, isNotNull);
+      expect(context!.type, DatumConflictType.bothModified);
     });
 
     test('detects no conflict when items are identical', () {

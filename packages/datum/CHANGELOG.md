@@ -2,6 +2,44 @@
 
 All changes below are additive and backward compatible unless noted.
 
+## ⚡ Sync performance & scale
+
+- **cursor-based incremental pull (delta v2)**: `CursorSyncCapable` —
+  `readChanges(cursor)` returns `(items, nextCursor)` with an **opaque
+  cursor**, the natural fit for changes-feed backends (Firestore tokens,
+  DynamoDB streams, CouchDB sequences, monotonic counters) and immune to
+  clock skew. A `null` cursor means "from the beginning", so even first
+  syncs ride the feed; the cursor persists per **device** in local sync
+  metadata (`customMetadata['__sync_cursor__']`) and is deliberately
+  stripped from the remote metadata beacon — a foreign device adopting
+  another's cursor would silently skip changes. When an adapter advertises
+  both capabilities, the cursor path wins over the timestamp path.
+- **incremental pull (delta sync)**: remote adapters can mix in
+  `DeltaSyncCapable` and implement `readSince(since)`; the pull phase then
+  fetches only rows modified since the last sync watermark instead of the
+  full dataset — the biggest scalability lever for large stores. Enabled by
+  default when the adapter is capable (`DatumConfig.enableDeltaSync`), with
+  `deltaSyncOverlap` clock-skew tolerance (re-delivered rows are dropped by
+  the strictly-newer check). The engine still pulls full for a user's first
+  sync and for `detectRemoteDeletions` cycles, which need the complete
+  remote id set. Prefer a server-maintained received-at column over the
+  client's `modifiedAt` — see the `DeltaSyncCapable` docs.
+- **metadata hash cache**: stamping sync metadata no longer re-reads and
+  re-hashes the whole local dataset on cycles where nothing changed locally
+  — a per-user `(hash, count)` cache is invalidated by every write
+  chokepoint (manager CRUD, engine pull application, external changes,
+  migrations, clears) and reused otherwise. Escape hatch:
+  `DatumConfig.enableMetadataHashCache: false`.
+
+## 🧹 CRDT compaction
+
+- **RgaList/RgaText**: added `compacted()`/`compact()` and
+  `tombstoneCount`. Compaction purges deletion tombstones (which otherwise
+  accumulate forever), preserving element ids — cursor anchors stay valid —
+  and the visible order exactly. Compact only at a synchronization barrier;
+  the coordination contract (and the stale-replica resurrection hazard it
+  prevents) is documented on `RgaList.compacted` and pinned by tests.
+
 ## ✨ Realtime / collaborative editing
 
 - **crdt**: added `RgaList<T>` — a Replicated Growable Array (convergent
@@ -39,6 +77,33 @@ All changes below are additive and backward compatible unless noted.
   instead of mid-migration.
 
 ## 🐛 Bug fixes (sync-engine hardening)
+
+- **conflict detection**: equal-version concurrent edits are now detected.
+  Two devices that each bumped the same ancestor (v1 → v2) produce identical
+  version numbers with divergent content — the most common concurrency
+  signature when entities carry no vector clocks. Previously this returned
+  "no conflict", the pull path kept the local silently, and the LWW winner
+  was stranded on its own device forever (permanent split-brain, found by
+  the `datum_test` convergence fuzz suite). The detector now flags it as
+  `bothModified`; identical re-delivered rows short-circuit cheaply.
+- **LastWriteWinsResolver**: exact `(version, modifiedAt)` ties with
+  divergent content now break by a deterministic payload comparison instead
+  of preferring `local` — the old bias made each device elect ITSELF,
+  resolution pushes ping-ponged between replicas, and the fleet never
+  converged (also found by the convergence fuzz suite).
+- **in-memory adapter**: fixed a race in the `watch*` streams — the change
+  subscription attached only after the awaited initial read, so a write
+  landing in that window was silently missed by new watchers. The
+  subscription now attaches synchronously on listen.
+- **isolate sync**: `useIsolateSync: true` never actually worked — the
+  `Isolate.run` closure referenced the manager's class type parameter, and
+  Dart closures capture `this` to reach instance type arguments, so the send
+  always failed with `ArgumentError` (unsendable stream controllers) before
+  the isolate spawned. The spawn now goes through a top-level trampoline
+  whose own type parameter carries `T`, and isolate sync completes with
+  sendable adapters. Note that `Isolate.run` deep-copies the adapter graph:
+  in-memory adapters' writes stay in the isolate; storage-backed adapters
+  (Hive/SQLite/network) persist normally.
 
 - **metadata**: replaced the hardcoded `'testhash'` placeholder with a real
   order-independent content hash. The sync-skip check had degraded to a bare

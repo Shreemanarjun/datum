@@ -26,9 +26,9 @@ sealed class Relation<T extends DatumEntityInterface> {
   final CascadeDeleteBehavior cascadeDeleteBehavior;
 
   const Relation(
-    this._parent, {
+    RelationalDatumEntity parent, {
     this.cascadeDeleteBehavior = CascadeDeleteBehavior.none,
-  });
+  }) : _parent = parent;
 
   dynamic get value;
 

@@ -36,11 +36,15 @@ class DatumGenerator extends GeneratorForAnnotation<DatumSerializable> {
     try {
       name = dynamicElement.name;
     } catch (_) {
+      // Cross-analyzer-version fallbacks (supported range >=7.0.0 <9.0.0):
+      // on 8.x `name` always works, so these arms only run on older APIs.
+      // coverage:ignore-start
       try {
         name = dynamicElement.displayName;
       } catch (_) {
         name = dynamicElement.toString();
       }
+      // coverage:ignore-end
     }
     final className = name!;
 
@@ -311,11 +315,15 @@ class DatumGenerator extends GeneratorForAnnotation<DatumSerializable> {
       final name = e.name;
       if (name != null) return name as String;
     } catch (_) {}
+    // Cross-analyzer-version fallbacks (supported range >=7.0.0 <9.0.0): on
+    // 8.x every element handed to this method has a working non-null `name`.
+    // coverage:ignore-start
     try {
       final name = e.displayName;
       if (name != null) return name as String;
     } catch (_) {}
     return e.toString();
+    // coverage:ignore-end
   }
 
   bool _isIgnored(dynamic field, {String? property}) {
@@ -1167,20 +1175,10 @@ DateTime _${_toLowerCamelCase(className)}ParseDate(dynamic value) {
       'extension ${className}Query on DatumQueryBuilder<$className> {',
     );
 
+    // Relation fields never reach this method: the sole caller passes
+    // serializableFields, which filters on !_hasRelationAnnotationOnField.
     for (final field in fields) {
       final fieldName = _getElementName(field);
-
-      if (_hasRelationAnnotationOnField(field)) {
-        final relationName = fieldName.startsWith('_')
-            ? fieldName.substring(1)
-            : fieldName;
-        final methodName = 'with${_capitalize(relationName)}';
-        buffer.writeln('  DatumQueryBuilder<$className> $methodName() {');
-        buffer.writeln("    withRelated(['$relationName']);");
-        buffer.writeln('    return this;');
-        buffer.writeln('  }');
-        continue;
-      }
 
       final mapKey = _getMapKey(field);
       final type = field.type.getDisplayString();

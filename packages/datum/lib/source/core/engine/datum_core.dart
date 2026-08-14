@@ -430,16 +430,12 @@ class Datum {
     switch (config.defaultSyncDirection) {
       case SyncDirection.pushThenPull:
         logBuffer.writeln('│  │  └─ ℹ️  Local changes will be pushed before pulling remote changes.');
-        break;
       case SyncDirection.pullThenPush:
         logBuffer.writeln('│  │  └─ ℹ️  Remote changes will be pulled before pushing local changes.');
-        break;
       case SyncDirection.pushOnly:
         logBuffer.writeln('│  │  └─ ℹ️  Only local changes will be pushed to the remote.');
-        break;
       case SyncDirection.pullOnly:
         logBuffer.writeln('│  │  └─ ℹ️  Only remote changes will be pulled to local.');
-        break;
     }
     logBuffer.writeln('│  ├─ 🚦 ${_yellow('Sync Strategy')}: ${_green(config.syncExecutionStrategy.runtimeType)}');
     if (config.syncExecutionStrategy is SequentialStrategy) {
@@ -460,16 +456,12 @@ class Datum {
     switch (config.defaultUserSwitchStrategy) {
       case UserSwitchStrategy.syncThenSwitch:
         logBuffer.writeln('│  │  └─ ℹ️  Syncs previous user\'s pending data before switching.');
-        break;
       case UserSwitchStrategy.clearAndFetch:
         logBuffer.writeln('│  │  └─ ℹ️  Clears new user\'s local data, then fetches from remote.');
-        break;
       case UserSwitchStrategy.promptIfUnsyncedData:
         logBuffer.writeln('│  │  └─ ℹ️  Fails switch if previous user has unsynced data.');
-        break;
       case UserSwitchStrategy.keepLocal:
         logBuffer.writeln('│  │  └─ ℹ️  Switches user without any data modifications.');
-        break;
     }
     logBuffer.writeln('│  ├─ 🛡️  ${_yellow('Error Recovery')}: ${_green(config.errorRecoveryStrategy.runtimeType)} (Retries: ${_cyan(config.errorRecoveryStrategy.maxRetries)})');
     logBuffer.writeln('│  │  └─ ℹ️  Uses a ${_green(config.errorRecoveryStrategy.backoffStrategy.runtimeType)} for retries on network errors.');
@@ -654,10 +646,8 @@ class Datum {
 
   Future<StringBuffer> _initializeManagerForTypeParallel(Type type) async {
     final logBuffer = StringBuffer();
-    final adapters = _adapterPairs[type];
-    if (adapters == null) {
-      throw StateError('AdapterPair not found for type $type during initialization.');
-    }
+    // Callers only pass keys of _adapterPairs, so the pair is always present.
+    final adapters = _adapterPairs[type]!;
 
     final manager = adapters.createManager(this);
     logBuffer.writeln('│  └─ ✨ Manager for ${_cyan(type)} ready.');
@@ -673,10 +663,9 @@ class Datum {
   }
 
   Future<void> _initializeManagerForType(Type type, StringBuffer logBuffer) async {
-    final adapters = _adapterPairs[type];
-    if (adapters == null) {
-      throw StateError('AdapterPair not found for type $type during initialization.');
-    }
+    // Only called from register<T>() immediately after _register<T>() inserts
+    // the pair, so it is always present.
+    final adapters = _adapterPairs[type]!;
 
     final manager = adapters.createManager(this);
     logBuffer.writeln('│  └─ ✨ Manager for ${_cyan(type)} ready.');
@@ -1472,7 +1461,7 @@ class Datum {
 // Uses the same definition as the language specification for when two
 // types are the same. Currently the same as mutual sub-typing.
 bool sameTypes<S, V>() {
-  void func<X extends S>() {}
-  // Dart spec says this is only true if S and V are "the same type".
-  return func is void Function<X extends V>();
+  // Mutual sub-typing via List covariance: List<S> <: List<V> iff S <: V.
+  // The spec defines "same type" as mutual sub-typing.
+  return <S>[] is List<V> && <V>[] is List<S>;
 }
