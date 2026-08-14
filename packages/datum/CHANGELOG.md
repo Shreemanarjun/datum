@@ -23,6 +23,14 @@ All changes below are additive and backward compatible unless noted.
   surgery. Rows can be scoped by `entityType` (`__typename`) or a `where`
   predicate, and `migrate` never mutates its input, keeping the executor's
   rollback snapshot intact even for adapters that hand out live references.
+- **migration**: added a native SQL migration path. `SqlMigrationGenerator`
+  translates the same `ColumnOperation`s into dialect-aware DDL/DML
+  (`ALTER TABLE ADD/RENAME/DROP COLUMN`, backfilling `UPDATE`s; sqlite +
+  postgresql, with type inference from `defaultValue` and `sqlType`/
+  `sqlExpression`/`sqlWhere` overrides), and `SqlMigrationExecutor` runs the
+  chain through any `RawQueryCapable` adapter inside its transaction — every
+  statement is generated and validated before anything touches the database.
+  Custom operations join in by implementing `SqlConvertibleOperation`.
 - **migration**: added `MigrationPlan.resolve` — validates the whole
   version chain (gaps, duplicate starting versions, backwards steps,
   overshoot) and reports every problem in one `MigrationException`.

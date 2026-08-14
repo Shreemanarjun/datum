@@ -215,20 +215,32 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
     } else {
       await clear();
     }
+    // Store the raw maps as given (no entity round-trip): Hive is schemaless,
+    // and migrations may add columns the current fromMap/toDatumMap do not
+    // know about yet — a round-trip would silently drop them.
     final newEntities = <String, Map<dynamic, dynamic>>{};
     for (final rawItem in data) {
-      final entity = fromMap(rawItem);
-      newEntities[entity.id] = entity.toDatumMap(target: MapTarget.local);
+      final id = rawItem['id'] as String? ?? fromMap(rawItem).id;
+      newEntities[id] = Map<String, dynamic>.from(rawItem);
     }
     await entityBox.putAll(newEntities);
   }
 
+  /// Reserved metadata-box key persisting the schema version across launches.
+  static const String schemaVersionKey = '__datum_schema_version__';
+
   @override
-  Future<int> getStoredSchemaVersion() => Future.value(schemaVersion);
+  Future<int> getStoredSchemaVersion() async {
+    final stored = await metadataBox.get(schemaVersionKey);
+    if (stored != null) return stored['version'] as int? ?? schemaVersion;
+    // Nothing persisted yet: fall back to the constructor-provided baseline.
+    return schemaVersion;
+  }
 
   @override
   Future<void> setStoredSchemaVersion(int version) async {
     schemaVersion = version;
+    await metadataBox.put(schemaVersionKey, {'version': version});
   }
 
   @override

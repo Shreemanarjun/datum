@@ -24,13 +24,28 @@ abstract class ColumnOperation {
   /// the full row) when provided. Provide exactly one of the two.
   /// If the column already exists it is left untouched unless [overwrite]
   /// is true.
+  ///
+  /// For SQL adapters, [sqlType] overrides the column type inferred from
+  /// [defaultValue] (e.g. `'TEXT'`), and [sqlExpression] is the SQL
+  /// counterpart of [compute] used to backfill the new column
+  /// (`UPDATE t SET name = sqlExpression`). Both are ignored by the
+  /// map-based migration path.
   factory ColumnOperation.add(
     String name, {
     Object? defaultValue,
     Object? Function(Map<String, dynamic> row)? compute,
     bool overwrite = false,
+    String? sqlType,
+    String? sqlExpression,
   }) =>
-      AddColumn(name, defaultValue: defaultValue, compute: compute, overwrite: overwrite);
+      AddColumn(
+        name,
+        defaultValue: defaultValue,
+        compute: compute,
+        overwrite: overwrite,
+        sqlType: sqlType,
+        sqlExpression: sqlExpression,
+      );
 
   /// Moves the value under [from] to the key [to]. Rows without [from] are
   /// left unchanged.
@@ -43,19 +58,30 @@ abstract class ColumnOperation {
   ///
   /// Rows that do not contain [name] are skipped unless [applyIfAbsent] is
   /// true (in which case the transform receives `null` as the value).
+  ///
+  /// For SQL adapters, [sqlExpression] is the SQL counterpart of the Dart
+  /// closure (`UPDATE t SET name = sqlExpression`); without it the operation
+  /// cannot be expressed as SQL. Ignored by the map-based migration path.
   factory ColumnOperation.transform(
     String name,
     Object? Function(Object? value, Map<String, dynamic> row) transform, {
     bool applyIfAbsent = false,
+    String? sqlExpression,
   }) =>
-      TransformColumn(name, transform, applyIfAbsent: applyIfAbsent);
+      TransformColumn(name, transform, applyIfAbsent: applyIfAbsent, sqlExpression: sqlExpression);
 
   /// Applies an arbitrary whole-row rewrite. The returned map replaces the
   /// row entirely, so spread the input to keep untouched columns:
   /// `ColumnOperation.row((row) => {...row, 'v': 2})`.
+  ///
+  /// For SQL adapters, [sql] supplies the equivalent statements verbatim
+  /// (run in order); without it the operation cannot be expressed as SQL.
+  /// Ignored by the map-based migration path.
   factory ColumnOperation.row(
-    Map<String, dynamic> Function(Map<String, dynamic> row) transform,
-  ) = RowTransform;
+    Map<String, dynamic> Function(Map<String, dynamic> row) transform, {
+    List<String>? sql,
+  }) =>
+      RowTransform(transform, sql: sql);
 
   /// Applies this operation to [row] and returns the resulting row.
   ///
@@ -66,8 +92,14 @@ abstract class ColumnOperation {
 
 /// See [ColumnOperation.add].
 class AddColumn extends ColumnOperation {
-  AddColumn(this.name, {this.defaultValue, this.compute, this.overwrite = false})
-      : assert(
+  AddColumn(
+    this.name, {
+    this.defaultValue,
+    this.compute,
+    this.overwrite = false,
+    this.sqlType,
+    this.sqlExpression,
+  }) : assert(
           defaultValue == null || compute == null,
           'Provide either defaultValue or compute for "$name", not both.',
         );
@@ -76,6 +108,14 @@ class AddColumn extends ColumnOperation {
   final Object? defaultValue;
   final Object? Function(Map<String, dynamic> row)? compute;
   final bool overwrite;
+
+  /// SQL column type for DDL generation; inferred from [defaultValue] when
+  /// omitted. Ignored by the map-based path.
+  final String? sqlType;
+
+  /// SQL expression backfilling the new column; the SQL counterpart of
+  /// [compute]. Ignored by the map-based path.
+  final String? sqlExpression;
 
   @override
   Map<String, dynamic> apply(Map<String, dynamic> row) {
@@ -115,11 +155,15 @@ class RemoveColumn extends ColumnOperation {
 
 /// See [ColumnOperation.transform].
 class TransformColumn extends ColumnOperation {
-  TransformColumn(this.name, this.transform, {this.applyIfAbsent = false});
+  TransformColumn(this.name, this.transform, {this.applyIfAbsent = false, this.sqlExpression});
 
   final String name;
   final Object? Function(Object? value, Map<String, dynamic> row) transform;
   final bool applyIfAbsent;
+
+  /// SQL expression equivalent of [transform] (`UPDATE t SET name = <expr>`).
+  /// Required for the SQL migration path; ignored by the map-based path.
+  final String? sqlExpression;
 
   @override
   Map<String, dynamic> apply(Map<String, dynamic> row) {
@@ -131,9 +175,13 @@ class TransformColumn extends ColumnOperation {
 
 /// See [ColumnOperation.row].
 class RowTransform extends ColumnOperation {
-  RowTransform(this.transform);
+  RowTransform(this.transform, {this.sql});
 
   final Map<String, dynamic> Function(Map<String, dynamic> row) transform;
+
+  /// SQL statements equivalent to [transform], run verbatim in order.
+  /// Required for the SQL migration path; ignored by the map-based path.
+  final List<String>? sql;
 
   @override
   Map<String, dynamic> apply(Map<String, dynamic> row) => transform(row);
@@ -166,6 +214,7 @@ class SchemaMigration extends Migration {
     required List<ColumnOperation> operations,
     this.entityType,
     this.where,
+    this.sqlWhere,
   })  : assert(toVersion > fromVersion, 'toVersion must be greater than fromVersion'),
         _fromVersion = fromVersion,
         _toVersion = toVersion,
@@ -183,6 +232,11 @@ class SchemaMigration extends Migration {
   /// When set, only rows for which this predicate returns true are migrated.
   /// Combined with [entityType] when both are given.
   final bool Function(Map<String, dynamic> row)? where;
+
+  /// SQL `WHERE` clause (without the keyword) scoping the `UPDATE` statements
+  /// generated for the SQL migration path — the SQL counterpart of [where].
+  /// Ignored by the map-based path.
+  final String? sqlWhere;
 
   @override
   int get fromVersion => _fromVersion;
