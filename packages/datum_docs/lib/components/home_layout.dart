@@ -36,6 +36,12 @@ class HomeLayout extends PageLayoutBase {
         strong([Component.text('your backend, your database')]),
         Component.text(', one type-safe API.'),
       ]),
+      div(classes: 'home-hero-badges', [
+        span(classes: 'home-badge', [Component.text('v1.1.0')]),
+        span(classes: 'home-badge', [Component.text('MIT licensed')]),
+        span(classes: 'home-badge', [Component.text('Pure client library')]),
+        span(classes: 'home-badge', [Component.text('100% test coverage')]),
+      ]),
       div(classes: 'home-hero-ctas', [
         a(classes: 'cta primary', href: '/getting_started/quick_start', [Component.text('Get started')]),
         a(classes: 'cta', href: 'https://pub.dev/packages/datum', [Component.text('pub.dev')]),
@@ -80,7 +86,7 @@ class HomeLayout extends PageLayoutBase {
           'align-items': 'center',
           'text-align': 'center',
           'background':
-              'radial-gradient(ellipse 80% 60% at 50% -10%, color-mix(in srgb, hsl(var(--primary)) 18%, transparent), transparent)',
+              'radial-gradient(ellipse 80% 60% at 50% -10%, color-mix(in srgb, var(--primary) 18%, transparent), transparent)',
         },
       ),
       css('.home-hero-logo').styles(
@@ -89,10 +95,12 @@ class HomeLayout extends PageLayoutBase {
       ),
       css('.home-hero-title').styles(
         margin: Margin.zero,
+        padding: Padding.only(bottom: 0.15.em),
         fontSize: Unit.expression('clamp(3rem, 10vw, 5rem)'),
         fontWeight: FontWeight.w700,
         raw: {
-          'background': 'linear-gradient(90deg, hsl(var(--foreground)), hsl(var(--primary)))',
+          'line-height': '1.15',
+          'background': 'linear-gradient(90deg, var(--content-headings), var(--primary))',
           '-webkit-background-clip': 'text',
           'background-clip': 'text',
           'color': 'transparent',
@@ -102,13 +110,27 @@ class HomeLayout extends PageLayoutBase {
         margin: Margin.only(top: 0.5.rem, bottom: 1.5.rem),
         fontSize: Unit.expression('clamp(1.1rem, 4vw, 1.5rem)'),
         fontWeight: FontWeight.w500,
-        color: Color('var(--fg-color-2)'),
+        color: Color('var(--content-lead)'),
       ),
       css('.home-hero-sub').styles(
         margin: Margin.only(top: 1.5.rem),
         fontSize: 1.15.rem,
         maxWidth: 40.rem,
-        color: Color('var(--fg-color-2)'),
+        color: Color('var(--content-lead)'),
+      ),
+      css('.home-hero-badges').styles(
+        display: Display.flex,
+        margin: Margin.only(top: 1.25.rem),
+        raw: {'gap': '0.5rem', 'flex-wrap': 'wrap', 'justify-content': 'center'},
+      ),
+      css('.home-badge').styles(
+        padding: Padding.symmetric(vertical: 0.35.rem, horizontal: 0.8.rem),
+        radius: BorderRadius.circular(999.px),
+        border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
+        fontSize: 0.8.rem,
+        fontWeight: FontWeight.w500,
+        color: Color('var(--content-lead)'),
+        backgroundColor: Color('color-mix(in srgb, var(--background) 94%, var(--text) 6%)'),
       ),
       css('.home-hero-ctas').styles(
         display: Display.flex,
@@ -119,14 +141,16 @@ class HomeLayout extends PageLayoutBase {
         css('&').styles(
           padding: Padding.symmetric(vertical: 0.7.rem, horizontal: 1.4.rem),
           radius: BorderRadius.circular(0.6.rem),
-          border: Border.all(width: 1.px, color: Color('hsl(var(--border))')),
+          border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
           fontWeight: FontWeight.w600,
           raw: {'text-decoration': 'none', 'transition': 'all .2s ease'},
         ),
-        css('&:hover').styles(raw: {'transform': 'translateY(-2px)', 'box-shadow': '0 6px 18px hsl(var(--foreground) / .12)'}),
+        css('&:hover').styles(raw: {'transform': 'translateY(-2px)', 'box-shadow': '0 6px 18px color-mix(in srgb, var(--text) 12%, transparent)'}),
         css('&.primary').styles(
-          backgroundColor: Color('hsl(var(--primary))'),
-          color: Color('hsl(var(--primary-foreground, 0 0% 100%))'),
+          backgroundColor: Color('var(--primary)'),
+          // Background doubles as the on-primary color: near-white on blue-500
+          // in light mode, near-black on blue-300 in dark mode.
+          color: Color('var(--background)'),
           border: Border.all(width: 1.px, color: Color('transparent')),
         ),
       ]),
@@ -142,13 +166,13 @@ class HomeLayout extends PageLayoutBase {
           display: Display.flex,
           padding: Padding.all(0.9.rem),
           radius: BorderRadius.circular(1.rem),
-          border: Border.all(width: 2.px, color: Color('hsl(var(--border))')),
-          backgroundColor: Color('hsl(var(--card, var(--background)))'),
-          raw: {'flex-direction': 'column', 'align-items': 'center', 'gap': '.25rem', 'box-shadow': '0 6px 20px hsl(var(--foreground) / .08)'},
+          border: Border.all(width: 2.px, color: Color('var(--content-hr)')),
+          backgroundColor: Color('color-mix(in srgb, var(--background) 94%, var(--text) 6%)'),
+          raw: {'flex-direction': 'column', 'align-items': 'center', 'gap': '.25rem', 'box-shadow': '0 6px 20px color-mix(in srgb, var(--text) 8%, transparent)'},
         ),
         css('&.cloud').styles(raw: {'animation': 'home-breathe 3.5s ease-in-out infinite'}),
         css('.home-node-icon').styles(fontSize: 1.9.rem),
-        css('.home-node-label').styles(fontSize: .75.rem, color: Color('var(--fg-color-2)')),
+        css('.home-node-label').styles(fontSize: .75.rem, color: Color('var(--content-lead)')),
       ]),
       css('.home-lane').styles(
         position: Position.relative(),
@@ -158,7 +182,7 @@ class HomeLayout extends PageLayoutBase {
       css('.home-lane::before').styles(
         position: Position.absolute(top: 6.px, left: Unit.zero, right: Unit.zero),
         height: 2.px,
-        raw: {'content': '""', 'background': 'hsl(var(--border))'},
+        raw: {'content': '""', 'background': 'var(--content-hr)'},
       ),
       css('.home-packet', [
         css('&').styles(
@@ -166,7 +190,7 @@ class HomeLayout extends PageLayoutBase {
           width: 10.px,
           height: 10.px,
           radius: BorderRadius.circular(5.px),
-          raw: {'background': 'hsl(var(--primary))', 'box-shadow': '0 0 12px hsl(var(--primary) / .9)'},
+          raw: {'background': 'var(--primary)', 'box-shadow': '0 0 12px color-mix(in srgb, var(--primary) 90%, transparent)'},
         ),
         css('&.up').styles(position: Position.absolute(top: (-2).px), raw: {'animation': 'home-travel 2.2s linear infinite'}),
         css('&.down').styles(position: Position.absolute(top: 8.px), raw: {'animation': 'home-travel 2.2s linear infinite reverse', 'animation-delay': '1.1s', 'opacity': '.75'}),
@@ -176,9 +200,144 @@ class HomeLayout extends PageLayoutBase {
       css('.home-content', [
         css('&').styles(
           margin: Margin.symmetric(horizontal: Unit.auto),
-          padding: Padding.symmetric(horizontal: 1.5.rem),
+          padding: Padding.only(left: 1.5.rem, right: 1.5.rem, bottom: 4.rem),
           maxWidth: 52.rem,
         ),
+        // Clear section structure: centered headings with a gradient accent.
+        // (Heading-anchor extension renders h2 as a flex row of <span> + <a>,
+        // so center with justify-content and hang the accent off the span.)
+        css('& h2').styles(
+          margin: Margin.only(top: 4.rem, bottom: 1.25.rem),
+          textAlign: TextAlign.center,
+          fontSize: Unit.expression('clamp(1.6rem, 5vw, 2.2rem)'),
+          raw: {'justify-content': 'center'},
+        ),
+        css('& h2 > span::after').styles(
+          display: Display.block,
+          width: 3.5.rem,
+          height: 3.px,
+          margin: Margin.only(top: 0.6.rem, left: Unit.auto, right: Unit.auto),
+          radius: BorderRadius.circular(2.px),
+          raw: {
+            'content': '""',
+            'background': 'linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 40%, transparent))',
+          },
+        ),
+        // Wide, centered breakout for card grids inside the narrow prose column.
+        css('.home-features, .home-stats, .home-build ul, .home-links').styles(
+          position: Position.relative(left: 50.percent),
+          width: Unit.expression('min(70rem, calc(100vw - 3rem))'),
+          raw: {'transform': 'translateX(-50%)'},
+        ),
+        // Feature cards: responsive grid of equal-height cards.
+        css('.home-features', [
+          css('&').styles(
+            display: Display.grid,
+            margin: Margin.symmetric(vertical: 2.rem),
+            raw: {
+              'grid-template-columns': 'repeat(auto-fit, minmax(280px, 1fr))',
+              'gap': '1.25rem',
+            },
+          ),
+          css('.card').styles(
+            height: 100.percent,
+            margin: Margin.only(bottom: Unit.zero),
+          ),
+        ]),
+        // "What you can build" use-case cards.
+        css('.home-build ul', [
+          css('&').styles(
+            display: Display.grid,
+            padding: Padding.zero,
+            margin: Margin.symmetric(vertical: 2.rem),
+            listStyle: ListStyle.none,
+            raw: {
+              // 2x2 on desktop, single column on narrow screens.
+              'grid-template-columns': 'repeat(auto-fit, minmax(380px, 1fr))',
+              'gap': '1.25rem',
+            },
+          ),
+          css('& > li', [
+            css('&').styles(
+              padding: Padding.all(1.25.rem),
+              margin: Margin.zero,
+              border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
+              radius: BorderRadius.circular(0.75.rem),
+              backgroundColor: Color('color-mix(in srgb, var(--background) 94%, var(--text) 6%)'),
+              raw: {
+                'box-shadow': '0 1px 3px color-mix(in srgb, var(--text) 8%, transparent)',
+                'transition': 'all .25s ease',
+                'line-height': '1.65',
+              },
+            ),
+            css('&:hover').styles(
+              raw: {
+                'transform': 'translateY(-2px)',
+                'box-shadow': '0 8px 22px color-mix(in srgb, var(--text) 12%, transparent)',
+              },
+            ),
+          ]),
+        ]),
+        // Stat tiles for "The numbers behind the claims".
+        css('.home-stats', [
+          css('&').styles(
+            display: Display.grid,
+            margin: Margin.symmetric(vertical: 2.rem),
+            raw: {
+              'grid-template-columns': 'repeat(auto-fit, minmax(240px, 1fr))',
+              'gap': '1.25rem',
+            },
+          ),
+          css('.home-stat').styles(
+            display: Display.flex,
+            padding: Padding.all(1.5.rem),
+            border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
+            radius: BorderRadius.circular(0.75.rem),
+            textAlign: TextAlign.center,
+            backgroundColor: Color('color-mix(in srgb, var(--background) 94%, var(--text) 6%)'),
+            raw: {
+              'flex-direction': 'column',
+              'align-items': 'center',
+              'gap': '.5rem',
+              'box-shadow': '0 1px 3px color-mix(in srgb, var(--text) 8%, transparent)',
+            },
+          ),
+          css('.home-stat-value').styles(
+            fontSize: Unit.expression('clamp(1.6rem, 4vw, 2.2rem)'),
+            fontWeight: FontWeight.w700,
+            raw: {
+              'background': 'linear-gradient(90deg, var(--primary), var(--content-headings))',
+              '-webkit-background-clip': 'text',
+              'background-clip': 'text',
+              'color': 'transparent',
+            },
+          ),
+          css('.home-stat-label').styles(
+            fontSize: 0.9.rem,
+            color: Color('var(--content-lead)'),
+            raw: {'line-height': '1.55'},
+          ),
+        ]),
+        // "Explore the docs" link-group cards.
+        css('.home-links', [
+          css('&').styles(
+            display: Display.grid,
+            margin: Margin.symmetric(vertical: 2.rem),
+            raw: {
+              'grid-template-columns': 'repeat(auto-fit, minmax(300px, 1fr))',
+              'gap': '1.25rem',
+            },
+          ),
+          css('& > p').styles(
+            padding: Padding.all(1.25.rem),
+            margin: Margin.zero,
+            border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
+            radius: BorderRadius.circular(0.75.rem),
+            fontSize: 0.95.rem,
+            backgroundColor: Color('color-mix(in srgb, var(--background) 94%, var(--text) 6%)'),
+            raw: {'line-height': '1.9', 'box-shadow': '0 1px 3px color-mix(in srgb, var(--text) 8%, transparent)'},
+          ),
+        ]),
       ]),
       css('@media (prefers-reduced-motion: reduce)', [
         css('.home-packet, .home-hero-logo, .home-node.cloud').styles(raw: {'animation': 'none'}),

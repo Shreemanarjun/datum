@@ -36,12 +36,12 @@ class ComparisonTable extends CustomComponentBase {
       css('&').styles(
         width: 100.percent,
         margin: Margin.only(bottom: 1.5.rem),
-        border: Border.all(width: 1.px, color: Color('hsl(var(--border))')),
+        border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
         radius: BorderRadius.circular(0.75.rem),
-        backgroundColor: Color('hsl(var(--card))'),
+        backgroundColor: Color('var(--background)'),
         raw: {
           'overflow': 'hidden',
-          'box-shadow': '0 4px 6px hsl(var(--foreground) / 0.07), 0 1px 3px hsl(var(--foreground) / 0.1)',
+          'box-shadow': '0 4px 6px color-mix(in srgb, var(--text) 7%, transparent), 0 1px 3px color-mix(in srgb, var(--text) 10%, transparent)',
         },
       ),
       css('& table').styles(
@@ -49,12 +49,12 @@ class ComparisonTable extends CustomComponentBase {
         raw: {'border-collapse': 'collapse'},
       ),
       css('& thead').styles(
-        backgroundColor: Color('hsl(var(--muted))'),
+        backgroundColor: Color('color-mix(in srgb, var(--text) 8%, transparent)'),
       ),
       css('& th').styles(
         padding: Padding.symmetric(vertical: 1.rem, horizontal: 1.25.rem),
-        border: Border.all(width: 1.px, color: Color('hsl(var(--border))')),
-        color: Color('hsl(var(--foreground))'),
+        border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
+        color: Color('var(--text)'),
         textAlign: TextAlign.left,
         fontSize: 0.875.rem,
         fontWeight: FontWeight.w600,
@@ -62,8 +62,8 @@ class ComparisonTable extends CustomComponentBase {
       ),
       css('& td').styles(
         padding: Padding.symmetric(vertical: 1.rem, horizontal: 1.25.rem),
-        border: Border.all(width: 1.px, color: Color('hsl(var(--border))')),
-        color: Color('hsl(var(--foreground))'),
+        border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
+        color: Color('var(--text)'),
         raw: {'line-height': '1.5'},
       ),
       css('& tbody tr').styles(
@@ -72,10 +72,10 @@ class ComparisonTable extends CustomComponentBase {
         },
       ),
       css('& tbody tr:nth-child(even)').styles(
-        backgroundColor: Color('hsl(var(--muted) / 0.3)'),
+        backgroundColor: Color('color-mix(in srgb, var(--text) 4%, transparent)'),
       ),
       css('& tbody tr:hover').styles(
-        backgroundColor: Color('hsl(var(--accent) / 0.5)'),
+        backgroundColor: Color('color-mix(in srgb, var(--primary) 6%, transparent)'),
       ),
       // Status badges
       css('& .status-success').styles(
@@ -122,10 +122,10 @@ class ComparisonTable extends CustomComponentBase {
         fontWeight: FontWeight.w600,
       ),
       css('& .icon-dot').styles(
-        color: Color('hsl(var(--muted-foreground))'),
+        color: Color('var(--content-captions)'),
       ),
       css('& .icon-circle').styles(
-        color: Color('hsl(var(--muted-foreground))'),
+        color: Color('var(--content-captions)'),
       ),
       css('& .icon-green').styles(
         color: Color('hsl(142 76% 36%)'),

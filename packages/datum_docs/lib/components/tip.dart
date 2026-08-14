@@ -95,7 +95,7 @@ class _TipComponent extends StatelessComponent {
         div(
           styles: Styles(
             flex: Flex(grow: 1),
-            color: Color('hsl(var(--foreground))'),
+            color: Color('var(--text)'),
             raw: {'line-height': '1.6'},
           ),
           [

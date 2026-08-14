@@ -26,20 +26,20 @@ class Card extends CustomComponentBase {
       css('&').styles(
         padding: Padding.all(1.5.rem),
         margin: Margin.only(bottom: 1.5.rem),
-        border: Border.all(width: 1.px, color: Color('hsl(var(--border))')),
+        border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
         radius: BorderRadius.circular(0.75.rem),
-        backgroundColor: Color('hsl(var(--card))'),
+        backgroundColor: Color('color-mix(in srgb, var(--background) 94%, var(--text) 6%)'),
         raw: {
           'position': 'relative',
           'transition': 'all 0.3s ease-in-out',
-          'box-shadow': '0 1px 3px hsl(var(--foreground) / 0.1), 0 1px 2px hsl(var(--foreground) / 0.06)',
-          'background': 'linear-gradient(135deg, hsl(var(--card)) 0%, hsl(var(--card) / 0.95) 100%)',
+          'box-shadow': '0 1px 3px color-mix(in srgb, var(--text) 10%, transparent), 0 1px 2px color-mix(in srgb, var(--text) 6%, transparent)',
+          'background': 'linear-gradient(135deg, color-mix(in srgb, var(--background) 94%, var(--text) 6%) 0%, color-mix(in srgb, var(--background) 94%, var(--text) 6%) 100%)',
         },
       ),
       css('&:hover').styles(
         raw: {
           'transform': 'translateY(-2px)',
-          'box-shadow': '0 8px 25px hsl(var(--foreground) / 0.15), 0 4px 12px hsl(var(--foreground) / 0.1)',
+          'box-shadow': '0 8px 25px color-mix(in srgb, var(--text) 15%, transparent), 0 4px 12px color-mix(in srgb, var(--text) 10%, transparent)',
         },
       ),
       css('&::before').styles(
@@ -50,24 +50,24 @@ class Card extends CustomComponentBase {
           'left': '0',
           'right': '0',
           'height': '3px',
-          'background': 'linear-gradient(90deg, hsl(var(--primary)), hsl(var(--primary) / 0.8))',
+          'background': 'linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 80%, transparent))',
           'border-radius': '0.75rem 0.75rem 0 0',
         },
       ),
       css('& > .card-title').styles(
         margin: Margin.only(bottom: 0.75.rem),
-        color: Color('hsl(var(--foreground))'),
+        color: Color('var(--content-headings)'),
         fontSize: 1.125.rem,
         fontWeight: FontWeight.w600,
         raw: {
-          'background': 'linear-gradient(135deg, hsl(var(--foreground)), hsl(var(--foreground) / 0.9))',
+          'background': 'linear-gradient(135deg, var(--content-headings), color-mix(in srgb, var(--content-headings) 90%, transparent))',
           '-webkit-background-clip': 'text',
           '-webkit-text-fill-color': 'transparent',
           'background-clip': 'text',
         },
       ),
       css('& > .card-content').styles(
-        color: Color('hsl(var(--foreground))'),
+        color: Color('var(--content-headings)'),
         raw: {'line-height': '1.7'},
       ),
       css('& > .card-content p').styles(
@@ -79,17 +79,17 @@ class Card extends CustomComponentBase {
       css('& > .card-content pre').styles(
         padding: Padding.all(1.rem),
         margin: Margin.symmetric(vertical: 1.rem),
-        border: Border.all(width: 1.px, color: Color('hsl(var(--border))')),
+        border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
         radius: BorderRadius.circular(0.5.rem),
-        backgroundColor: Color('hsl(var(--muted))'),
-        raw: {'overflow': 'auto', 'box-shadow': 'inset 0 1px 3px hsl(var(--foreground) / 0.1)'},
+        backgroundColor: Color('color-mix(in srgb, var(--background) 90%, var(--text) 10%)'),
+        raw: {'overflow': 'auto', 'box-shadow': 'inset 0 1px 3px color-mix(in srgb, var(--text) 10%, transparent)'},
       ),
       css('& > .card-content code').styles(
         padding: Padding.symmetric(horizontal: 0.375.rem, vertical: 0.125.rem),
         radius: BorderRadius.circular(0.375.rem),
-        color: Color('hsl(var(--foreground))'),
+        color: Color('var(--content-headings)'),
         fontSize: 0.875.em,
-        backgroundColor: Color('hsl(var(--muted))'),
+        backgroundColor: Color('color-mix(in srgb, var(--background) 90%, var(--text) 10%)'),
         raw: {'font-family': 'var(--font-mono)'},
       ),
       css('& > .card-content ul, & > .card-content ol').styles(

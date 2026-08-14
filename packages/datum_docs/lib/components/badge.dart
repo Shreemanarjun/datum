@@ -36,21 +36,21 @@ class Badge extends CustomComponentBase {
           'line-height': '1',
           'white-space': 'nowrap',
           'transition': 'all 0.2s ease-in-out',
-          'box-shadow': '0 1px 2px hsl(var(--foreground) / 0.1)',
+          'box-shadow': '0 1px 2px color-mix(in srgb, var(--text) 10%, transparent)',
           'border': '1px solid transparent',
         },
       ),
       css('&:hover').styles(
         raw: {
           'transform': 'translateY(-1px)',
-          'box-shadow': '0 2px 8px hsl(var(--foreground) / 0.15)',
+          'box-shadow': '0 2px 8px color-mix(in srgb, var(--text) 15%, transparent)',
         },
       ),
       // Default variant
       css('&.badge-default').styles(
-        border: Border.all(width: 1.px, color: Color('hsl(var(--border))')),
-        color: Color('hsl(var(--muted-foreground))'),
-        backgroundColor: Color('hsl(var(--muted))'),
+        border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
+        color: Color('var(--content-captions)'),
+        backgroundColor: Color('color-mix(in srgb, var(--text) 8%, transparent)'),
       ),
       // Success variant
       css('&.badge-success').styles(

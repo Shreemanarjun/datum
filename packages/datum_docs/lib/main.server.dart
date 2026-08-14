@@ -22,7 +22,6 @@ import 'components/code_block.dart';
 import 'components/steps.dart';
 import 'components/card.dart';
 import 'components/badge.dart';
-import 'components/sync_animation.dart';
 import 'components/tip.dart';
 import 'components/home_layout.dart';
 import 'components/responsive_docs_layout.dart';
@@ -77,8 +76,6 @@ void main() {
         Badge(),
         // Custom tip component for helpful information
         Tip(),
-        // Animated sync hero visual for the landing page
-        SyncAnimation(),
         // Comparison table component for feature comparisons
         //// ComparisonTable(),
         // Adds a custom Jaspr component to be used as <Clicker/> in markdown.
@@ -195,7 +192,7 @@ void main() {
                 styles: Styles(
                   position: Position.fixed(bottom: 0.px, right: 24.px),
                   padding: Spacing.only(bottom: 24.px),
-                  backgroundColor: Color('hsl(var(--background))'),
+                  backgroundColor: Color('var(--background)'),
                   raw: {
                     'transition': 'all 0.3s ease-in-out',
                     //'box-shadow': '0 -2px 10px rgba(0, 0, 0, 0.08)',
@@ -217,24 +214,24 @@ void main() {
                           radius: BorderRadius.all(Radius.circular(12.px)),
                           alignItems: AlignItems.center,
                           gap: Gap(row: 6.px),
-                          backgroundColor: Color('hsl(var(--primary) / 0.1)'),
+                          backgroundColor: Color('color-mix(in srgb, var(--primary) 10%, transparent)'),
                         ),
                         [
                           span(
                             styles: Styles(
-                              color: Color('hsl(var(--primary))'),
+                              color: Color('var(--primary)'),
                               fontSize: 0.6875.rem,
                               fontWeight: FontWeight.w600,
                               letterSpacing: 0.025.em,
                             ),
-                            [Component.text('v1.0.3')],
+                            [Component.text('v1.1.0')],
                           ),
                           div(
                             styles: Styles(
                               width: 6.px,
                               height: 6.px,
                               radius: BorderRadius.circular(50.percent),
-                              backgroundColor: Color('hsl(var(--primary))'),
+                              backgroundColor: Color('var(--primary)'),
                             ),
                             [],
                           ),

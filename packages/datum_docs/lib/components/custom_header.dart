@@ -10,7 +10,7 @@ class CustomHeader extends StatelessComponent {
     required this.logo,
     required this.title,
     this.subtitle,
-    this.version = '1.0.3',
+    this.version = '1.1.0',
     this.leading = const [SidebarToggleButton()],
     this.items = const [],
     this.navigationItems = const [],
@@ -151,24 +151,24 @@ class CustomHeader extends StatelessComponent {
           width: 100.percent,
           padding: Padding.symmetric(horizontal: 1.rem, vertical: 0.5.rem),
           radius: BorderRadius.all(Radius.circular(0.5.rem)),
-          color: Color('hsl(var(--foreground))'),
+          color: Color('var(--text)'),
           fontSize: 0.875.rem,
-          backgroundColor: Color('hsl(var(--background))'),
+          backgroundColor: Color('var(--background)'),
           raw: {
             'outline': 'none',
             'transition': 'all 0.2s ease',
             'box-sizing': 'border-box',
-            'border': '1px solid hsl(var(--border))',
+            'border': '1px solid var(--content-hr)',
           },
         ),
         css('&:focus').styles(
           raw: {
-            'border-color': 'hsl(var(--ring))',
-            'box-shadow': '0 0 0 2px hsl(var(--ring) / 0.2)',
+            'border-color': 'var(--primary)',
+            'box-shadow': '0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent)',
           },
         ),
         css('&::placeholder').styles(
-          raw: {'color': 'hsl(var(--muted-foreground))'},
+          raw: {'color': 'var(--content-captions)'},
         ),
       ]),
       css('.header-right', [
@@ -205,10 +205,10 @@ class CustomHeader extends StatelessComponent {
         css('.header-version').styles(
           padding: Padding.symmetric(horizontal: 0.375.rem, vertical: 0.125.rem),
           radius: BorderRadius.all(Radius.circular(0.25.rem)),
-          color: Color('hsl(var(--foreground) / 0.7)'),
+          color: Color('color-mix(in srgb, var(--text) 70%, transparent)'),
           fontSize: 0.75.rem,
           fontWeight: FontWeight.w500,
-          backgroundColor: Color('hsl(var(--muted))'),
+          backgroundColor: Color('color-mix(in srgb, var(--text) 8%, transparent)'),
         ),
         css('.header-subtitle').styles(
           fontSize: 0.75.rem,
@@ -241,19 +241,26 @@ class CustomHeader extends StatelessComponent {
             alignItems: AlignItems.center,
             raw: {
               'transition': 'all 0.2s ease',
-              'border': '1px solid hsl(var(--border))',
-              'background-color': 'hsl(var(--background))',
-              'color': 'hsl(var(--foreground))',
+              'border': '1px solid var(--content-hr)',
+              'background-color': 'var(--background)',
+              'color': 'var(--text)',
               'flex-shrink': '0', // Prevent button shrinking
             },
           ),
           css('&:hover').styles(
             raw: {
-              'background-color': 'hsl(var(--accent))',
-              'border-color': 'hsl(var(--accent-foreground))',
+              'background-color': 'color-mix(in srgb, var(--primary) 12%, transparent)',
+              'border-color': 'var(--content-headings)',
             },
           ),
         ]),
+        // The GitHub button carries repo text + star/fork counts — size it to
+        // its content instead of the square icon-button width above.
+        css('a.github-button').styles(
+          width: Unit.auto,
+          height: 2.5.rem,
+          padding: Padding.symmetric(horizontal: 0.7.rem, vertical: 0.25.rem),
+        ),
       ]),
     ]),
     // Desktop responsive styles

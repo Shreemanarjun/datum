@@ -94,9 +94,9 @@ class ResponsiveDocsLayout extends PageLayoutBase {
     css('.sidebar', [
       css('&').styles(
         border: Border.only(
-          right: BorderSide(width: 1.px, color: Color('hsl(var(--border))')),
+          right: BorderSide(width: 1.px, color: Color('var(--content-hr)')),
         ),
-        backgroundColor: Color('hsl(var(--background))'),
+        backgroundColor: Color('var(--background)'),
         raw: {'box-shadow': '0 0 4px rgba(0, 0, 0, 0.05)'},
       ),
       css('.sidebar-group', [
@@ -104,7 +104,7 @@ class ResponsiveDocsLayout extends PageLayoutBase {
           padding: Padding.only(left: 0.75.rem, bottom: 0.0.rem),
           margin: Margin.only(bottom: 0.5.rem, top: Unit.zero),
           border: Border.only(
-            bottom: BorderSide(width: 1.px, color: Color('hsl(var(--border))')),
+            bottom: BorderSide(width: 1.px, color: Color('var(--content-hr)')),
           ),
           color: ContentColors.headings,
           fontSize: 12.px,
@@ -121,13 +121,13 @@ class ResponsiveDocsLayout extends PageLayoutBase {
             ),
             css('&:hover').styles(
               transform: Transform.translate(x: 2.px),
-              backgroundColor: Color('hsl(var(--accent))'),
+              backgroundColor: Color('color-mix(in srgb, var(--primary) 12%, transparent)'),
             ),
             css('&.active').styles(
-              color: Color('hsl(var(--primary))'),
+              color: Color('var(--primary)'),
               fontWeight: FontWeight.w600,
-              backgroundColor: Color('color-mix(in srgb, hsl(var(--primary)) 15%, transparent)'),
-              raw: {'box-shadow': '0 1px 2px color-mix(in srgb, hsl(var(--primary)) 20%, transparent)'},
+              backgroundColor: Color('color-mix(in srgb, var(--primary) 15%, transparent)'),
+              raw: {'box-shadow': '0 1px 2px color-mix(in srgb, var(--primary) 20%, transparent)'},
             ),
           ]),
           css('a').styles(
@@ -147,7 +147,7 @@ class ResponsiveDocsLayout extends PageLayoutBase {
           position: Position.fixed(top: Unit.zero, left: Unit.zero, right: Unit.zero),
           zIndex: ZIndex(10),
           border: Border.only(
-            bottom: BorderSide(width: 1.px, color: Color('hsl(var(--border))')),
+            bottom: BorderSide(width: 1.px, color: Color('var(--content-hr)')),
           ),
           raw: {'backdrop-filter': 'none', 'background-color': 'var(--background) !important'},
         ),
@@ -209,13 +209,13 @@ class ResponsiveDocsLayout extends PageLayoutBase {
               // Webkit browsers (Chrome, Safari, Edge)
               '&::-webkit-scrollbar': 'width: 8px',
               '&::-webkit-scrollbar-track': 'background: transparent',
-              '&::-webkit-scrollbar-thumb': 'background: hsl(var(--border))',
-              '&::-webkit-scrollbar-thumb:hover': 'background: hsl(var(--muted-foreground) / 0.6)',
-              '&::-webkit-scrollbar-thumb:active': 'background: hsl(var(--muted-foreground) / 0.8)',
+              '&::-webkit-scrollbar-thumb': 'background: var(--content-hr)',
+              '&::-webkit-scrollbar-thumb:hover': 'background: color-mix(in srgb, var(--content-captions) 60%, transparent)',
+              '&::-webkit-scrollbar-thumb:active': 'background: color-mix(in srgb, var(--content-captions) 80%, transparent)',
               '&::-webkit-scrollbar-corner': 'background: transparent',
               // Firefox
               'scrollbar-width': 'thin',
-              'scrollbar-color': 'hsl(var(--border)) transparent',
+              'scrollbar-color': 'var(--content-hr) transparent',
             },
           ),
           // Tablet and up

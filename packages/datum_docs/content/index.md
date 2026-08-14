@@ -55,6 +55,8 @@ does not change.
 
 ## What's in the box
 
+<div class="home-features">
+
 <Card title="🔌 Offline-first core">
 Instant local writes, an automatic pending-operation queue, replay on
 reconnect, reactive <code>watch*</code> streams, and multi-user isolation.
@@ -98,6 +100,8 @@ of runtime probing. <a href="/guides/code_generation">Code Generation</a> ·
 <a href="/guides/querying">Querying</a>
 </Card>
 
+</div>
+
 ## How Datum compares
 
 Different tools make different trade-offs — pick honestly:
@@ -115,29 +119,41 @@ cache is nearly zero-setup if you're all-in on that backend. Datum's bet is
 
 ## What you can build
 
-- **Field & offline work apps** — inspections, delivery, healthcare rounds:
+<div class="home-build">
+
+- **📋 Field & offline work apps** — inspections, delivery, healthcare rounds:
   hours offline, clean reconciliation later, per-user data isolation.
-- **Multi-device personal apps** — notes, tasks, finance: edits on phone
+- **📱 Multi-device personal apps** — notes, tasks, finance: edits on phone
   and laptop converge without a "which copy wins?" support ticket.
-- **Collaborative tools** — shared lists and documents using
+- **👥 Collaborative tools** — shared lists and documents using
   [CRDTs](/guides/collaborative_editing) where everyone's concurrent edits
   survive the merge.
-- **Data-heavy dashboards** — [SQL pushdown](/guides/custom_adapters/sqlite_adapter)
+- **📊 Data-heavy dashboards** — [SQL pushdown](/guides/custom_adapters/sqlite_adapter)
   and [incremental pulls](/guides/performance/incremental_sync) keep 10k+
   row datasets responsive.
 
+</div>
+
 ## The numbers behind the claims
 
-- **100% test line coverage** across the library — 1,900+ tests including
-  wire-level suites against a real HTTP server and a real SQLite database.
-- **Convergence is fuzz-verified**: seeded multi-device random workloads
-  must reach identical state after quiescence — the suite that found (and
-  fixed) two real engine bugs before you ever hit them.
-- **Measured hot paths**: ~26 µs collaborative-text keystrokes, ~17 µs
-  incremental dataset-hash updates, O(1) idle sync cycles. Full tables in
-  [Performance Tuning](/guides/performance/tuning).
+<div class="home-stats">
+<div class="home-stat">
+<span class="home-stat-value">100%</span>
+<span class="home-stat-label">test line coverage — 1,900+ tests, including wire-level suites against a real HTTP server and a real SQLite database</span>
+</div>
+<div class="home-stat">
+<span class="home-stat-value">Fuzz-verified</span>
+<span class="home-stat-label">seeded multi-device random workloads must converge to identical state — the suite that caught two real engine bugs before you ever hit them</span>
+</div>
+<div class="home-stat">
+<span class="home-stat-value">~26 µs</span>
+<span class="home-stat-label">collaborative-text keystrokes, ~17 µs incremental dataset-hash updates, O(1) idle sync cycles — full tables in <a href="/guides/performance/tuning">Performance Tuning</a></span>
+</div>
+</div>
 
 ## Explore the docs
+
+<div class="home-links">
 
 **Getting started** — [Quick Start](/getting_started/quick_start) ·
 [Define Entities](/guides/entity_define) ·
@@ -173,3 +189,5 @@ cache is nearly zero-setup if you're all-in on that backend. Datum's bet is
 [Observers & Middleware](/modules/observers) · [Adapter](/modules/adapter) ·
 [Configuration](/modules/config) · [Utils](/modules/utils) ·
 [Changelog](/changelog)
+
+</div>

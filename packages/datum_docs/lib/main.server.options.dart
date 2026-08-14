@@ -15,7 +15,6 @@ import 'package:datum_docs/components/enhanced_theme_toggle.dart'
     as _enhanced_theme_toggle;
 import 'package:datum_docs/components/home_layout.dart' as _home_layout;
 import 'package:datum_docs/components/steps.dart' as _steps;
-import 'package:datum_docs/components/sync_animation.dart' as _sync_animation;
 import 'package:datum_docs/components/tip.dart' as _tip;
 import 'package:jaspr_content/components/_internal/code_block_copy_button.dart'
     as _code_block_copy_button;
@@ -80,7 +79,6 @@ ServerOptions get defaultServerOptions => ServerOptions(
     ..._enhanced_theme_toggle.EnhancedThemeToggleState.styles,
     ..._home_layout.HomeLayout.styles,
     ..._steps.Steps.styles,
-    ..._sync_animation.SyncAnimation.styles,
     ..._tip.Tip.styles,
     ..._tabs.Tabs.styles,
     ..._tab_bar.TabBar.styles,

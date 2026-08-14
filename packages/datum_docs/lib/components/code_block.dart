@@ -116,14 +116,30 @@ class CodeBlock extends CustomComponent {
         zIndex: ZIndex(10),
         width: 1.25.rem,
         height: 1.25.rem,
-        border: Border.all(width: 1.px, color: Color('hsl(var(--border))')),
+        border: Border.all(width: 1.px, color: Color('var(--content-hr)')),
         radius: BorderRadius.circular(0.25.rem),
         opacity: 0.5,
-        color: Color('hsl(var(--foreground))'),
-        backgroundColor: Color('hsl(var(--muted))'),
+        color: Color('var(--text)'),
+        backgroundColor: Color('color-mix(in srgb, var(--text) 8%, transparent)'),
         raw: {'transition': 'opacity 0.2s ease'},
       ),
       css('&:hover button').styles(opacity: 1),
+      // Thin themed scrollbar — the default track renders as a bright strip
+      // against the dark pre background, especially in dark mode.
+      css('pre').styles(
+        raw: {
+          'scrollbar-width': 'thin',
+          'scrollbar-color': 'color-mix(in srgb, var(--content-pre-code) 35%, transparent) transparent',
+        },
+      ),
+      css('pre::-webkit-scrollbar').styles(raw: {'height': '8px', 'width': '8px'}),
+      css('pre::-webkit-scrollbar-track').styles(raw: {'background': 'transparent'}),
+      css('pre::-webkit-scrollbar-thumb').styles(
+        raw: {
+          'background': 'color-mix(in srgb, var(--content-pre-code) 35%, transparent)',
+          'border-radius': '4px',
+        },
+      ),
     ]),
   ];
 }

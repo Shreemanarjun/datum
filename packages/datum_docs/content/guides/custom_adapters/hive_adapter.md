@@ -823,6 +823,8 @@ class Task extends DatumEntity {
 ```
 
 ```dart
+import 'package:datum_hive/datum_hive.dart';
+
 // Create and use the adapter
 final taskAdapter = HiveLocalAdapter<Task>(
   entityBoxName: 'tasks',
