@@ -29,8 +29,7 @@ class DatumRegistration<T extends DatumEntityInterface> {
 
   /// A helper method to capture the generic type `T` at runtime.
   /// This is used to get a reliable `Type` object as a key for maps.
-  // ignore: avoid_types_as_parameter_names
-  R capture<R>(R Function<T extends DatumEntityInterface>() cb) {
+  R capture<R>(R Function<E extends DatumEntityInterface>() cb) {
     return cb<T>();
   }
 }

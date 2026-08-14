@@ -1092,7 +1092,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
             if (persistRemoteResults) await _persistFetchedLocally([remote]);
             return remote;
           }
-          return readLocal();
+          return await readLocal();
         } catch (e) {
           _logger.warn('remoteFirst read failed, falling back to local: $e');
           return readLocal();

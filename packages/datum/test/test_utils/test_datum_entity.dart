@@ -1,7 +1,6 @@
 import 'package:datum/datum.dart';
-import 'package:equatable/equatable.dart';
 
-class TestDatumEntity extends DatumEntity with EquatableMixin {
+class TestDatumEntity extends DatumEntity {
   @override
   final String id;
   @override
