@@ -15,6 +15,21 @@ All changes below are additive and backward compatible unless noted.
   reference pattern (two devices editing offline and converging, including
   the backend).
 
+## 🗂️ Schema migrations
+
+- **migration**: added `SchemaMigration` — declare a migration as a list of
+  `ColumnOperation`s (`add` with default or computed value, `rename`,
+  `remove`, `transform`, arbitrary `row` rewrite) instead of hand-written map
+  surgery. Rows can be scoped by `entityType` (`__typename`) or a `where`
+  predicate, and `migrate` never mutates its input, keeping the executor's
+  rollback snapshot intact even for adapters that hand out live references.
+- **migration**: added `MigrationPlan.resolve` — validates the whole
+  version chain (gaps, duplicate starting versions, backwards steps,
+  overshoot) and reports every problem in one `MigrationException`.
+  `MigrationExecutor.execute()` now resolves the plan up front, so a
+  misconfigured chain fails fast **before** any data is read or written
+  instead of mid-migration.
+
 ## 🐛 Bug fixes (sync-engine hardening)
 
 - **metadata**: replaced the hardcoded `'testhash'` placeholder with a real

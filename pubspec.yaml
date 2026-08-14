@@ -8,5 +8,5 @@ workspace:
   - packages/datum
   - packages/datum_docs
   - packages/datum_generator
-  - packages/datum_hive
+
 

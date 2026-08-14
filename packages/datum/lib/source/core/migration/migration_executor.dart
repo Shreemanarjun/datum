@@ -29,9 +29,27 @@ class MigrationExecutor<T extends DatumEntityInterface> {
   }
 
   /// Executes the migration process from the adapter's stored version up to [targetVersion].
-  /// This method snapshots the adapter's raw data and stored schema version before
-  /// attempting migrations and will restore them if any error occurs, returning a [MigrationResult].
+  ///
+  /// The full chain is resolved and validated with [MigrationPlan] before any
+  /// data is read or written, so configuration errors (gaps, duplicates,
+  /// backwards steps) fail without touching the store. The method then
+  /// snapshots the adapter's raw data and stored schema version before
+  /// attempting migrations and will restore them if any error occurs,
+  /// returning a [MigrationResult].
   Future<MigrationResult> execute() async {
+    // Validate the whole chain up front — no store access has happened yet.
+    final List<Migration> plannedSteps;
+    try {
+      plannedSteps = MigrationPlan.resolve(
+        migrations,
+        fromVersion: await localAdapter.getStoredSchemaVersion(),
+        toVersion: targetVersion,
+      ).steps;
+    } catch (planError, planStack) {
+      logger.error('Migration plan invalid, nothing was modified: $planError');
+      return (success: false, migrationError: planError, migrationStack: planStack);
+    }
+
     // Snapshot current adapter state so we can restore on failure.
     final originalData = await localAdapter.getAllRawData(userId: null);
     final originalStoredVersion = await localAdapter.getStoredSchemaVersion();
@@ -42,9 +60,7 @@ class MigrationExecutor<T extends DatumEntityInterface> {
         var currentVersion = await localAdapter.getStoredSchemaVersion();
         logger.info('Starting schema migration from version $currentVersion to $targetVersion...');
 
-        while (currentVersion < targetVersion) {
-          final migration = _findMigration(currentVersion);
-
+        for (final migration in plannedSteps) {
           logger.info('Running migration from v${migration.fromVersion} to v${migration.toVersion}...');
 
           // Retrieve current raw data and produce migrated maps.
@@ -81,18 +97,6 @@ class MigrationExecutor<T extends DatumEntityInterface> {
         // We still prioritize the original migration error.
         return (success: false, migrationError: migrationError, migrationStack: migrationStack);
       }
-    }
-  }
-
-  /// Finds the next migration to run from the current version.
-  Migration _findMigration(int fromVersion) {
-    try {
-      return migrations.firstWhere((m) => m.fromVersion == fromVersion);
-    } on StateError {
-      throw MigrationException(
-        message: 'Migration path broken: No migration found from version $fromVersion. Please provide a migration that starts at this version.',
-        code: DatumExceptionCode.migrationError,
-      );
     }
   }
 }

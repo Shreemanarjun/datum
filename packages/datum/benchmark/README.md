@@ -31,6 +31,8 @@ no Flutter, no I/O, no new dependencies.
 | Query | `DatumQueryBuilder.build`, `DatumQuery.toSql` (sqlite/postgres) | Runs per query against SQL adapters |
 | Integrity | `DatumHashGenerator.hashEntities` (n=10/100/1000) | Runs per sync cycle to detect drift |
 | Caching | `LRUCache` get/put | Relationship + query-result caching |
+| Migration | `SchemaMigration.migrate` (3 ops/row), `MigrationPlan.resolve` (10-step chain), `MigrationExecutor` end-to-end (1k / 10k rows, 3 steps) | Runs once at startup when the schema version advances; the executor case includes the adapter's serialize/deserialize round-trip per step |
+| Sequence CRDT | `RgaText` append / merge / value | Per-keystroke and per-sync cost in collaborative editors |
 
 > **Observed hotspot (now addressed):** `hashEntities` is O(n) (sort + full
 > `jsonEncode`) and was recomputed over the entire dataset each sync cycle — at
@@ -38,6 +40,14 @@ no Flutter, no I/O, no new dependencies.
 > order-independent XOR accumulator so a single-entity update is **O(1)**
 > (~17 µs, ~420× faster) instead of a full rehash. `hashEntitiesUnordered` gives
 > the same set hash without sorting, enabling that incremental maintenance.
+
+> **Migration baseline (Apple Silicon, scale=1):** the pure column-op pipeline
+> costs ~0.2 µs/row (~4.7M rows/sec), so migration time is dominated by the
+> adapter round-trip: a full 3-step executor pass over 10,000 rows takes ~72 ms
+> — acceptable one-off startup cost. `RgaText` inserts copy the node map
+> (~26 µs at 200 chars), which is fine for keystroke-sized edits on
+> document-sized texts but not for bulk-loading megabyte strings — build those
+> with a single `insert(0, wholeText)`, which is one `insertAll`.
 
 ### Tier B — end-to-end engine benchmarks (planned)
 

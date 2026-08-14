@@ -46,6 +46,30 @@ class BenchResult {
       };
 }
 
+/// Times [iterations] runs of an async [body], with un-timed [setup] before
+/// each run — used for end-to-end cases (e.g. a full migration pass) where
+/// per-run state must be rebuilt without polluting the measurement.
+Future<BenchResult> benchAsync(
+  String name,
+  int iterations,
+  Future<void> Function() body, {
+  Future<void> Function()? setup,
+  int warmup = 1,
+}) async {
+  for (var i = 0; i < warmup; i++) {
+    if (setup != null) await setup();
+    await body();
+  }
+  final sw = Stopwatch();
+  for (var i = 0; i < iterations; i++) {
+    if (setup != null) await setup();
+    sw.start();
+    await body();
+    sw.stop();
+  }
+  return BenchResult(name, iterations, sw.elapsedMicroseconds);
+}
+
 /// Runs [body] [iterations] times after [warmup] warmup iterations and returns
 /// the measured wall-clock result.
 BenchResult bench(
@@ -218,7 +242,7 @@ BenchTask makeTask(int i) => BenchTask(
 // Benchmark cases.
 // ---------------------------------------------------------------------------
 
-List<BenchResult> run(int scale) {
+Future<List<BenchResult>> run(int scale) async {
   final results = <BenchResult>[];
 
   // --- Serialization hot path -------------------------------------------------
@@ -325,10 +349,105 @@ List<BenchResult> run(int scale) {
     cache.get('k500');
   }));
 
+  // --- Schema migrations (declarative column ops + full executor pass) --------
+  final migrationRow = makeTask(7).toDatumMap();
+  final rowMigration = SchemaMigration(
+    fromVersion: 0,
+    toVersion: 1,
+    operations: [
+      ColumnOperation.add('archived', defaultValue: false),
+      ColumnOperation.transform('priority', (v, _) => (v as int) + 1),
+      ColumnOperation.rename('description', to: 'details'),
+    ],
+  );
+  results.add(bench('SchemaMigration.migrate (3 ops/row)', 200000 * scale, () {
+    rowMigration.migrate(migrationRow);
+  }));
+
+  final tenStepChain = [
+    for (var v = 0; v < 10; v++)
+      SchemaMigration(
+        fromVersion: v,
+        toVersion: v + 1,
+        operations: [ColumnOperation.add('col_v${v + 1}', defaultValue: v)],
+      ),
+  ];
+  results.add(bench('MigrationPlan.resolve (10-step chain)', 200000 * scale, () {
+    MigrationPlan.resolve(tenStepChain, fromVersion: 0, toVersion: 10);
+  }));
+
+  // End-to-end: a 3-step chain over an in-memory store, including the
+  // adapter's serialize/deserialize round-trip per step — the real cost an
+  // app pays at startup when its schema version advances.
+  final migrationLogger = DatumLogger(enabled: false);
+  final threeStepChain = [
+    SchemaMigration(
+      fromVersion: 0,
+      toVersion: 1,
+      operations: [ColumnOperation.transform('priority', (v, _) => (v as int) + 1)],
+    ),
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [ColumnOperation.add('archived', defaultValue: false)],
+    ),
+    SchemaMigration(
+      fromVersion: 2,
+      toVersion: 3,
+      operations: [
+        ColumnOperation.row((r) => {...r, 'title': '[migrated] ${r['title']}'}),
+      ],
+    ),
+  ];
+  for (final (rows, iters) in [(1000, 20), (10000, 5)]) {
+    final rawRows = List.generate(rows, (i) => makeTask(i).toDatumMap());
+    final adapter = InMemoryLocalAdapter<BenchTask>(fromMap: BenchTask.fromMap);
+    await adapter.initialize();
+    results.add(await benchAsync(
+      'MigrationExecutor 3-step (rows=$rows)',
+      iters * scale,
+      () async {
+        await MigrationExecutor<BenchTask>(
+          localAdapter: adapter,
+          migrations: threeStepChain,
+          targetVersion: 3,
+          logger: migrationLogger,
+        ).execute();
+      },
+      setup: () async {
+        await adapter.overwriteAllRawData(rawRows);
+        await adapter.setStoredSchemaVersion(0);
+      },
+    ));
+  }
+
+  // --- Sequence CRDT (collaborative-editor hot path) ---------------------------
+  var doc = RgaText(replicaId: 'bench');
+  results.add(bench('RgaText append (build 200-char doc)', 200 * scale, () {
+    doc = RgaText(replicaId: 'bench');
+    for (var i = 0; i < 200; i++) {
+      doc = doc.insert(i, 'x');
+    }
+  }));
+
+  var docA = RgaText(replicaId: 'a');
+  var docB = RgaText(replicaId: 'b');
+  for (var i = 0; i < 400; i++) {
+    docA = docA.insert(i, 'a');
+    docB = docB.insert(i, 'b');
+  }
+  results.add(bench('RgaText.merge (two 400-char docs)', 500 * scale, () {
+    docA.merge(docB);
+  }));
+  final mergedDoc = docA.merge(docB);
+  results.add(bench('RgaText.value (800-char doc)', 2000 * scale, () {
+    mergedDoc.value;
+  }));
+
   return results;
 }
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   var scale = 1;
   var asJson = false;
   for (final a in args) {
@@ -340,7 +459,7 @@ void main(List<String> args) {
   }
   if (scale < 1) scale = 1;
 
-  final results = run(scale);
+  final results = await run(scale);
 
   if (asJson) {
     print(const JsonEncoder.withIndent('  ').convert({
