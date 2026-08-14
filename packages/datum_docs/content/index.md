@@ -1,377 +1,175 @@
 ---
 title: Datum
+description: Offline-first data synchronization for Dart & Flutter — your backend, your database, one type-safe sync engine.
+layout: home
 ---
 
+Datum is an **offline-first sync engine for Dart & Flutter** that owns the
+hard part of local-first apps: reconciling a device's database with a remote
+backend — conflicts, retries, queues, migrations and all — behind one
+type-safe API. Local writes are instant; sync happens when connectivity
+allows; every device converges.
 
+**Your backend, your database.** Datum is a pure client library with a
+pluggable adapter architecture — Hive, SQLite, or in-memory locally;
+Supabase, Firebase, or any REST API remotely. No hosted service, no
+lock-in, MIT licensed.
 
-<Image src="/images/logo.webp" alt="Datum Logo" width="300" height="300" />
-
-<p style="text-align: center; font-size: clamp(2.5rem, 10vw, 4.5rem); font-weight: 700; margin-top: 1rem; margin-bottom: 0;">Datum</p>
-
-<p style="text-align: center; font-size: clamp(1.1rem, 4vw, 1.5rem); font-weight: 500; margin-top: 1rem; margin-bottom: 2.5rem; color: var(--fg-color-2);">Data, Seamlessly Synced</p>
-
-
-
-## Offline-First Data Synchronization for Dart & Flutter
-
-Datum is a powerful and easy-to-use framework for building offline-first applications with Dart and Flutter. It provides a seamless way to synchronize data between your local database and a remote server, ensuring your app remains functional even without a network connection.
-
-## Key Features
-
-*   **Offline-First:** Your app works seamlessly, whether online or offline.
-*   **Automatic Synchronization:** Data is automatically synchronized between the local and remote databases.
-*   **Conflict Resolution:** Built-in conflict resolution strategies to handle data conflicts.
-*   **Support for Dart & Flutter:** Use Datum in your Dart backend and Flutter applications.
-
-## Who is Datum For?
-
-You should consider Datum if you are building an application that:
-
-- **Needs to work offline:** From field service apps to content-heavy media apps, Datum ensures a seamless user experience, regardless of network connectivity.
-- **Requires real-time collaboration:** If you're building a tool where multiple users edit the same data, Datum's conflict resolution and real-time sync are essential.
-- **Has a complex data model:** For apps with relational data that needs to be available on the device.
-- **You want to avoid backend lock-in:** Datum's adapter-based architecture gives you the freedom to choose—and change—your database and backend services without rewriting your app's business logic.
-
-## Getting Started
-
-New to Datum? Here's how to get started:
-
-1. **[Define your entities](guides/entity_define)**: Learn about `DatumEntity` and `RelationalDatumEntity`
-2. **[Use code generation](guides/code_generation)**: Automate boilerplate with `datum_generator` (recommended)
-3. **[Set up initialization](guides/initialization)**: Configure and initialize the Datum system
-4. **[Work with relationships](guides/relationships)**: Define and use entity relationships
-5. **[Query your data](guides/querying)**: Filter, sort, and paginate data
-6. **[Implement adapters](guides/local_adapter_implement)**: Create local and remote adapters
-7. **[Master sync patterns](guides/advanced_sync)**: Handle app startup, login, and data synchronization
-8. **[Use the Singleton API](guides/singleton_api)**: Convenient access to all Datum operations
-9. **[Advanced sync patterns](guides/advanced_sync)**: Production-ready synchronization features
-
-## 🚀 What's Next
-
-- **[Coming Soon](coming_soon)**: Planned features and documentation improvements
-
-## Core Concepts
-
-Datum is built around a few key ideas:
-
-- **`DatumEntity`**: The base class for your data models. It requires a unique `id`, `userId`, and other metadata for synchronization.
-- **`RelationalDatumEntity`**: Extends `DatumEntity` with relationship support for connecting entities.
-- **`Adapter`**: The bridge between Datum and your data sources.
-    - **`LocalAdapter`**: Manages data persistence on the device (e.g., Hive, Isar, SQLite).
-    - **`RemoteAdapter`**: Communicates with your backend (e.g., a REST API, Supabase, Firestore).
-- **`Datum`**: The main entry point for interacting with your data. It provides a unified API for CRUD operations, queries, and synchronization.
-- **Offline-First:** All data operations are performed on the local database first, ensuring a snappy UI. Datum then automatically syncs changes to the remote backend when a connection is available.
-
----
-
-
-## Why Datum?
-
-Datum isn't just another local database; it's a complete data synchronization framework. While databases like ObjectBox or Hive are excellent at storing data locally and are very fast, Datum's primary goal is to solve the much harder problem of keeping that local data effortlessly in sync with a remote backend, all while providing a seamless offline-first experience.
-
-You choose Datum when your application's data needs to live on both the device and a server, and you want to stop writing complex, error-prone boilerplate code for syncing, conflict resolution, and real-time updates.
-
-## Key Differentiators: Why Choose Datum?
-
-Here are the core strengths of Datum broken down.
-
-### 1. Backend Agnosticism: The "Universal" Adapter Model
-
-**The Problem:** Many solutions lock you into their specific backend. If you use ObjectBox Sync, you sync to an ObjectBox server. If you use Firestore's offline persistence, you're locked into Firestore.
-
-**Datum's Solution:** Datum uses a brilliant **Adapter pattern**. You have a `LocalAdapter` (for Hive, Isar, etc.) and a `RemoteAdapter` (for Supabase, a custom REST API, etc.). Your application code only ever talks to the `DatumManager`. This means you can swap your entire backend or local database without changing your app's business logic.
-
-<Image src="/images/high-level-arch.webp" alt="Datum Adapter Architecture" caption="Datum's adapter model decouples your app from the backend and local database." width="600" />
-
-*   **Migrate your backend?** Just write a new `RemoteAdapter`.
-*   **Switch local databases?** Just write a new `LocalAdapter`.
-
-This makes your application incredibly flexible and future-proof.
-
-### 2. Built-in "Smart" Synchronization & Conflict Resolution
-
-**The Problem:** Writing sync logic manually is a nightmare. You have to track changes, handle network failures, manage retries, and resolve conflicts when the same data is changed in two places at once.
-
-**Datum's Solution:** This is all handled automatically.
-
-*   **Offline Queue:** All local changes (create, update, delete) are automatically added to a reliable queue and processed when a network connection is available.
-*   **Conflict Resolution:** Datum detects conflicts and provides pre-built strategies (`LastWriteWins`, `LocalPriority`, `RemotePriority`). Most importantly, you can implement your own custom logic to resolve conflicts in a way that makes sense for your specific data.
-
-### 3. A Single, Unified API for Everything
-
-**The Problem:** Without a framework like Datum, you often find yourself juggling multiple APIs: one for your local database (e.g., `box.put()`) and another for your remote backend (e.g., `dio.post()`). This leads to boilerplate, inconsistencies, and increased complexity.
-
-**Datum's Solution:** Datum provides a single, unified API through its `Datum.instance` singleton. This means you interact with your data consistently, regardless of whether it's a local operation, a remote sync, or a reactive stream. This dramatically simplifies your application code, making it cleaner, more readable, and less prone to bugs.
-
-Let's explore the core functionalities available directly through `Datum.instance`.
-
-
-#### 3.2. Basic CRUD Operations
-
-Perform Create, Read, Update, and Delete operations through entity managers. Datum handles the local persistence and queues changes for synchronization with your remote backend.
+## Sixty seconds to synced
 
 ```dart
-// Assuming Datum has been initialized as shown above
-
-// Get the manager for Task entities
-final taskManager = Datum.manager<Task>();
-
-// CREATE: Add a new task
-Future<void> addNewTask(String title, String userId) async {
-  final newTask = Task(
-    id: const Uuid().v4(),
-    userId: userId,
-    createdAt: DateTime.now(),
-    modifiedAt: DateTime.now(),
-    version: 1,
-    title: title,
+Future<void> sixtySeconds() async {
+  final datumResult = await Datum.initialize(
+    config: const DatumConfig(enableLogging: true),
+    connectivityChecker: const SnippetConnectivity(),
+    registrations: [
+      DatumRegistration<Task>(
+        localAdapter: InMemoryLocalAdapter<Task>(fromMap: Task.fromMap),
+        remoteAdapter: HttpRemoteAdapter<Task>(baseUri: Uri.parse('https://api.example.com'), fromMap: Task.fromMap),
+      ),
+    ],
   );
-  await taskManager.push(item: newTask, userId: userId);
-  print('Created task: "${newTask.title}" (ID: ${newTask.id})');
-}
+  print('initialized: ${datumResult.isSuccess()}');
+  final tasks = Datum.manager<Task>();
 
-// READ (single): Retrieve a task by its ID
-Future<Task?> getTaskDetails(String taskId, String userId) async {
-  final task = await taskManager.read(taskId, userId: userId);
-  if (task != null) {
-    print('Read task: "${task.title}" (Version: ${task.version})');
-  } else {
-    print('Task with ID $taskId not found.');
-  }
-  return task;
-}
-
-// READ (all): Retrieve all tasks for a user
-Future<List<Task>> getAllUserTasks(String userId) async {
-  final tasks = await taskManager.readAll(userId: userId);
-  print('Found ${tasks.length} tasks for user $userId.');
-  return tasks;
-}
-
-// UPDATE: Modify an existing task
-Future<void> updateTaskTitle(Task task, String newTitle) async {
-  final updatedTask = task.copyWith(
-    title: newTitle,
-    modifiedAt: DateTime.now(),
-    version: task.version + 1,
+  // Instant local write — queued for sync automatically.
+  await tasks.push(
+    item: Task(id: 't1', userId: 'u1', title: 'Ship it', createdAt: DateTime.now(), modifiedAt: DateTime.now(), version: 1),
+    userId: 'u1',
   );
-  await taskManager.push(item: updatedTask, userId: task.userId);
-  print('Updated task ID ${task.id} to: "${updatedTask.title}"');
-}
 
-// DELETE: Remove a task by its ID
-Future<void> removeTask(String taskId, String userId) async {
-  final success = await taskManager.delete(id: taskId, userId: userId);
-  if (success) {
-    print('Deleted task with ID: $taskId');
-  } else {
-    print('Failed to delete task with ID: $taskId');
-  }
+  // React to data changes anywhere in the app.
+  tasks.watchAll(userId: 'u1').listen((all) => print('${all.length} tasks'));
+
+  // Reconcile with the backend whenever you choose (or let auto-sync run).
+  final result = await tasks.synchronize('u1');
+  print('synced: ${result.syncedCount}, failed: ${result.failedCount}');
 }
 ```
 
-#### 3.3. Reactive Data Access (Watching)
+Swap the adapters for [Hive](/guides/custom_adapters/hive_adapter),
+[SQLite](/guides/custom_adapters/sqlite_adapter),
+[Supabase](/guides/custom_adapters/supabase_adapter), or
+[your own backend](/guides/remote_adapter_implement) — the rest of your code
+does not change.
 
-Datum is built for reactivity. Use `watch` methods to get `Stream`s that automatically emit new data whenever changes occur, whether from local user actions or remote synchronization.
+## What's in the box
 
-```dart
-import 'dart:async'; // For StreamSubscription
+<Card title="🔌 Offline-first core">
+Instant local writes, an automatic pending-operation queue, replay on
+reconnect, reactive <code>watch*</code> streams, and multi-user isolation.
+Start with <a href="/guides/entity_define">entities</a> and
+<a href="/guides/initialization">initialization</a>.
+</Card>
 
-// Watch all tasks for a user
-StreamSubscription? allTasksSubscription;
-void startWatchingAllTasks(String userId) {
-  allTasksSubscription = Datum.instance.watchAll<Task>(userId: userId)?.listen((tasks) {
-    print('--- All Tasks Updated (${tasks.length}) ---');
-    for (final task in tasks) {
-      print('- [${task.id.substring(0, 4)}] ${task.title} (v${task.version})');
-    }
-  });
-}
+<Card title="⚡ Incremental sync at scale">
+Pull only what changed: timestamp deltas or opaque change-feed cursors, with
+clock-skew tolerance and per-device cursor tracking. Idle cycles cost almost
+nothing thanks to content-hash skip checks and metadata hash caching.
+<a href="/guides/performance/incremental_sync">Incremental Sync</a> ·
+<a href="/guides/performance/tuning">Performance Tuning</a>
+</Card>
 
-void stopWatchingAllTasks() {
-  allTasksSubscription?.cancel();
-  print('Stopped watching all tasks.');
-}
+<Card title="🤝 Conflict resolution that converges">
+Version + timestamp last-write-wins with deterministic tie-breaking, vector
+clocks for true causality, custom resolvers — and real CRDTs
+(counters, sets, ordered lists, collaborative text) when concurrent edits
+must all survive. <a href="/guides/collaborative_editing">Collaborative
+Editing</a>
+</Card>
 
-// Watch a single task by its ID
-StreamSubscription? singleTaskSubscription;
-void startWatchingSingleTask(String taskId, String userId) {
-  singleTaskSubscription = Datum.instance.watchById<Task>(taskId, userId)?.listen((task) {
-    if (task != null) {
-      print('--- Single Task $taskId Updated ---');
-      print('Title: ${task.title}, Version: ${task.version}');
-    } else {
-      print('Task $taskId deleted or not found.');
-    }
-  });
-}
+<Card title="🗂️ Schema migrations">
+Declarative column operations with fail-fast chain validation, rollback,
+and run-once stamping — the same chain runs as raw-map rewrites on Hive and
+as real <code>ALTER TABLE</code> DDL on SQLite.
+<a href="/guides/migrations">Schema Migrations</a>
+</Card>
 
-// Watch a paginated list of tasks
-StreamSubscription? paginatedTasksSubscription;
-void startWatchingPaginatedTasks(String userId) {
-  const paginationConfig = PaginationConfig(pageSize: 5);
-  paginatedTasksSubscription = Datum.instance.watchAllPaginated<Task>(paginationConfig, userId: userId)?.listen((result) {
-    print('--- Paginated Tasks (Page ${result.currentPage}/${result.totalPages}) ---');
-    for (final task in result.items) {
-      print('- ${task.title}');
-    }
-  });
-}
+<Card title="🧪 A conformance kit, not just tests">
+Certify your adapter or whole stack with one call, then keep going: network
+chaos profiles, crash-recovery with exactly-once delivery, and seeded
+convergence fuzzing. <a href="/guides/testing">Testing Your Sync Stack</a>
+</Card>
 
-// Watch tasks matching a specific query
-StreamSubscription? queriedTasksSubscription;
-void startWatchingQueriedTasks(String userId) {
-  final query = DatumQueryBuilder<Task>()
-      .where('title', startsWith: 'Urgent')
-      .orderBy('createdAt', descending: true)
-      .build();
-  queriedTasksSubscription = Datum.instance.watchQuery<Task>(query, userId: userId)?.listen((tasks) {
-    print('--- Queried Tasks (Urgent) Updated (${tasks.length}) ---');
-    for (final task in tasks) {
-      print('- ${task.title}');
-    }
-  });
-}
-```
+<Card title="🛠️ Type-safe by construction">
+Typed errors with <code>tryX</code> result APIs, generated entity
+boilerplate, type-safe query fields, and adapter capability mixins instead
+of runtime probing. <a href="/guides/code_generation">Code Generation</a> ·
+<a href="/guides/querying">Querying</a>
+</Card>
 
-#### 3.4. One-time Queries
+## How Datum compares
 
-For fetching data without continuous updates, use the `query` method. You can specify the `DataSource` (local or remote).
+Different tools make different trade-offs — pick honestly:
 
-```dart
-// Fetch tasks that are marked as 'completed' from the local database
-Future<List<Task>> getCompletedTasksLocally(String userId) async {
-  final query = DatumQueryBuilder<Task>()
-      .where('isCompleted', isEqualTo: true) // Assuming 'isCompleted' field exists
-      .build();
-  final completedTasks = await Datum.instance.query<Task>(query, source: DataSource.local, userId: userId);
-  print('Locally found ${completedTasks.length} completed tasks.');
-  return completedTasks;
-}
+| Approach | Examples | Model | Where Datum differs |
+|---|---|---|---|
+| **Hosted sync service** | PowerSync, Ditto, Realm/Atlas Device Sync | A sync service (managed or self-hosted) sits between clients and your database | Datum is a **pure client library** — no service to run or pay for; your backend stays exactly as it is |
+| **Backend-bundled offline cache** | Firebase/Firestore offline persistence | Offline support comes with — and is tied to — one specific backend | Datum is **backend-agnostic**: the same app code syncs against Supabase, Firebase, or any REST API via adapters |
+| **Roll your own** | timestamps + `ConnectivityPlus` + hope | Full control, but you own conflicts, retries, queues, migrations, and convergence testing | Datum is that engine, already built — with 100% test line coverage, wire-level integration suites, and fuzz-verified convergence |
 
-// Fetch tasks directly from the remote backend (bypassing local cache)
-Future<List<Task>> getTasksFromRemote(String userId) async {
-  final query = DatumQueryBuilder<Task>().build(); // Fetch all from remote
-  final remoteTasks = await Datum.instance.query<Task>(query, source: DataSource.remote, userId: userId);
-  print('Remotely found ${remoteTasks.length} tasks.');
-  return remoteTasks;
-}
-```
+The honest flip side: a hosted service can give you server-enforced partial
+replication and operational dashboards out of the box; a backend-bundled
+cache is nearly zero-setup if you're all-in on that backend. Datum's bet is
+**control without lock-in** — you bring the backend, it brings the engine.
 
-#### 3.5. Working with Relationships
+## What you can build
 
-Datum simplifies managing relationships between different `DatumEntity` types.
+- **Field & offline work apps** — inspections, delivery, healthcare rounds:
+  hours offline, clean reconciliation later, per-user data isolation.
+- **Multi-device personal apps** — notes, tasks, finance: edits on phone
+  and laptop converge without a "which copy wins?" support ticket.
+- **Collaborative tools** — shared lists and documents using
+  [CRDTs](/guides/collaborative_editing) where everyone's concurrent edits
+  survive the merge.
+- **Data-heavy dashboards** — [SQL pushdown](/guides/custom_adapters/sqlite_adapter)
+  and [incremental pulls](/guides/performance/incremental_sync) keep 10k+
+  row datasets responsive.
 
-```dart
-// Assuming you have a 'Project' entity and a 'tasks' relation defined on it.
-// (You would need to define Project as a RelationalDatumEntity)
+## The numbers behind the claims
 
-// Fetch related tasks for a specific project
-// Future<List<Task>> getTasksForProject(Project project) async {
-//   final projectTasks = await Datum.instance.fetchRelated<Project, Task>(project, 'tasks');
-//   print('Project "${project.name}" has ${projectTasks.length} tasks.');
-//   return projectTasks;
-// }
+- **100% test line coverage** across the library — 1,900+ tests including
+  wire-level suites against a real HTTP server and a real SQLite database.
+- **Convergence is fuzz-verified**: seeded multi-device random workloads
+  must reach identical state after quiescence — the suite that found (and
+  fixed) two real engine bugs before you ever hit them.
+- **Measured hot paths**: ~26 µs collaborative-text keystrokes, ~17 µs
+  incremental dataset-hash updates, O(1) idle sync cycles. Full tables in
+  [Performance Tuning](/guides/performance/tuning).
 
-// Watch related tasks for a specific project (real-time updates)
-// StreamSubscription? projectTasksSubscription;
-// void startWatchingProjectTasks(Project project) {
-//   projectTasksSubscription = Datum.instance.watchRelated<Project, Task>(project, 'tasks')?.listen((tasks) {
-//     print('--- Project "${project.name}" Tasks Updated (${tasks.length}) ---');
-//     for (final task in tasks) {
-//       print('- ${task.title}');
-//     }
-//   });
-// }
-```
+## Explore the docs
 
-#### 3.6. Synchronization Control & Health Monitoring
+**Getting started** — [Quick Start](/getting_started/quick_start) ·
+[Define Entities](/guides/entity_define) ·
+[Code Generation](/guides/code_generation) ·
+[Initialization](/guides/initialization) ·
+[Singleton API](/guides/singleton_api)
 
-Manage the synchronization process and monitor the health of your Datum setup.
+**Data & queries** — [Querying](/guides/querying) ·
+[Relationships](/guides/relationships) ·
+[Automated Relationships](/guides/code_generation_relationships) ·
+[Cascading Delete](/guides/cascading_delete)
 
-```dart
-// Manually trigger a full synchronization cycle for a user
-Future<void> triggerManualSync(String userId) async {
-  print('Initiating manual sync for user: $userId...');
-  final result = await Datum.instance.synchronize(userId);
-  print('Sync completed. Synced: ${result.syncedCount}, Failed: ${result.failedCount}, Conflicts: ${result.conflictsResolved}');
-}
+**Sync** — [Sync Patterns](/guides/sync_patterns) ·
+[Advanced Sync](/guides/advanced_sync) ·
+[Incremental Sync](/guides/performance/incremental_sync) ·
+[Performance Tuning](/guides/performance/tuning) ·
+[Collaborative Editing](/guides/collaborative_editing)
 
-// Pause all ongoing and future synchronization operations
-void pauseAllSyncs() {
-  Datum.instance.pauseSync();
-  print('All Datum synchronization paused.');
-}
+**Storage & backends** — [Hive](/guides/custom_adapters/hive_adapter) ·
+[SQLite](/guides/custom_adapters/sqlite_adapter) ·
+[Supabase](/guides/custom_adapters/supabase_adapter) ·
+[Firebase](/guides/custom_adapters/firebase_adapter) ·
+[REST](/guides/custom_adapters/rest_api_adapter) ·
+[Build a Local Adapter](/guides/local_adapter_implement) ·
+[Build a Remote Adapter](/guides/remote_adapter_implement)
 
-// Resume all paused synchronization operations
-void resumeAllSyncs() {
-  Datum.instance.resumeSync();
-  print('All Datum synchronization resumed.');
-}
+**Quality** — [Schema Migrations](/guides/migrations) ·
+[Testing Your Sync Stack](/guides/testing) ·
+[Troubleshooting](/troubleshooting)
 
-// Check the health status of a specific entity's adapters
-Future<void> checkTaskEntityHealth() async {
-  final health = await Datum.instance.checkHealth<Task>();
-  print('Health status for Task entity: ${health.status.name}');
-  if (health.errors.isNotEmpty) {
-    print('Health errors: ${health.errors.map((e) => e.message).join(', ')}');
-  }
-}
-
-// Watch the aggregated health status of all registered entities
-StreamSubscription? allHealthsSubscription;
-void startWatchingAllHealths() {
-  allHealthsSubscription = Datum.instance.allHealths.listen((healthMap) {
-    print('--- Overall System Health Update ---');
-    healthMap.forEach((entityType, health) {
-      print('- ${entityType.toString().split('<').first}: ${health.status.name}');
-    });
-  });
-}
-
-// Watch the synchronization status for a specific user
-StreamSubscription? userStatusSubscription;
-void startWatchingUserSyncStatus(String userId) {
-  userStatusSubscription = Datum.instance.statusForUser(userId)?.listen((statusSnapshot) {
-    if (statusSnapshot != null) {
-      print('--- User $userId Sync Status ---');
-      print('Status: ${statusSnapshot.status.name}, Pending Ops: ${statusSnapshot.pendingOperationsCount}');
-    }
-  });
-}
-```
-
-#### 3.7. Disposal
-
-It's crucial to dispose of the `Datum` instance when your application is shutting down to release resources and prevent memory leaks.
-
-```dart
-// Call this when your application is terminating (e.g., in main's dispose method)
-Future<void> shutdownDatum() async {
-  await Datum.instance.dispose();
-  print('Datum instance and all managers disposed successfully.');
-}
-```
-
-
-### 4. Designed for Real-time and Reactivity
-
-Datum is built with streams at its core. The `watchAll()`, `watchById()`, and `watchQuery()` methods provide streams that automatically emit new data whenever it changes—whether from a local user action or a real-time push from the server. This makes building reactive UIs effortless.
-
-## Comparison Table
-
-| **Feature**               | **Simple Local DB (e.g., Hive)** | **DB with Sync (e.g., ObjectBox)** | **Datum**                                       |
-| :------------------------ | :------------------------------: | :--------------------------------: | :------------------------------------------: |
-| **Primary Goal**          | Fast local storage               | Local storage + proprietary sync   | **Unify any local DB with any backend**      |
-| **Backend Agnostic**      | ❌ (N/A)                         | ❌ (Proprietary backend)           | ✅ **(Key Differentiator)**                  |
-| **Conflict Resolution**   | ❌ (Manual)                      | ✅ (Basic/Limited)                 | ✅ **(Advanced & Customizable)**             |
-| **Offline Queue**         | ❌ (Manual)                      | ✅                                 | ✅ (Built-in & Automatic)                    |
-| **Unified API**           | ❌ (Separate APIs)               | ❌ (Sync state management)         | ✅ (Single API for all data ops)             |
-| **Cost Model**            | ✅ (Free & Open Source)          | 💰 (Commercial Subscription)       | ✅ (Free & OpenSource)                       |
-
-
-For a detailed discussion on the cost model and architectural considerations, please refer to [Costs and Licensing](/costs_licensing).
-
-## The Elevator Pitch
-
-> You use Datum because you want to build a robust, offline-first application without spending months building a complex and fragile sync engine. It gives you the power of a unified, real-time data layer while giving you the freedom to choose the best local database and backend for your specific needs, both today and in the future.
+**Reference** — [Core](/modules/core) · [Query](/modules/query) ·
+[Migration](/modules/migration) · [Health](/modules/health) ·
+[Observers & Middleware](/modules/observers) · [Adapter](/modules/adapter) ·
+[Configuration](/modules/config) · [Utils](/modules/utils) ·
+[Changelog](/changelog)

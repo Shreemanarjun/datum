@@ -12,7 +12,7 @@ Supabase provides real-time database capabilities with PostgreSQL and works seam
 
 Add Supabase dependencies to your `pubspec.yaml`:
 
-```dart
+```yaml
 dependencies:
   supabase_flutter: ^2.0.0
   recase: ^4.1.0
@@ -161,12 +161,13 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
   Stream<bool> get authStateStream => _authStateController.stream;
 
   @override
-  Future<void> delete(String id, {String? userId}) async {
+  Future<bool> delete(String id, {String? userId}) async {
     try {
       await _client.from(tableName).delete().eq(
             'id',
             id,
           );
+      return true;
     } on PostgrestException catch (e) {
       // PGRST116: "Cannot coerce the result to a single JSON object" - means no rows were affected
       if (e.code == 'PGRST116') {
@@ -1258,6 +1259,8 @@ Map<String, dynamic> _toCamelCase(Map<String, dynamic> map) {
 ## Usage Example
 
 ```dart
+import 'supabase_remote_adapter.dart'; // the adapter implemented above
+
 // Create the adapter
 final taskAdapter = SupabaseRemoteAdapter<Task>(
   tableName: 'tasks',
@@ -1268,10 +1271,8 @@ final taskAdapter = SupabaseRemoteAdapter<Task>(
 final registrations = [
   DatumRegistration<Task>(
     localAdapter: HiveLocalAdapter<Task>(
-      boxName: 'tasks',
+      entityBoxName: 'tasks',
       fromMap: (map) => Task.fromMap(map),
-      // Pass user change stream for reactive updates
-      userChangeStream: Datum.instance.userChangeStream,
     ),
     remoteAdapter: taskAdapter,
   ),

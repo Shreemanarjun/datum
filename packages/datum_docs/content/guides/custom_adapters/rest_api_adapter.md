@@ -170,16 +170,18 @@ class RestRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapter<T>
   }
 
   @override
-  Future<void> delete(String id, {String? userId}) async {
+  Future<bool> delete(String id, {String? userId}) async {
     try {
       final response = await http.delete(
         _buildUri(id, userId != null ? {'userId': userId} : null),
         headers: _headers,
       );
 
+      if (response.statusCode == 404) return false;
       if (response.statusCode != 200 && response.statusCode != 204) {
         throw Exception('Failed to delete entity: ${response.statusCode}');
       }
+      return true;
     } catch (e) {
       throw Exception('Network error during delete: $e');
     }
@@ -226,14 +228,14 @@ class RestRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapter<T>
 
       // Add sorting
       for (final sort in query.sorting) {
-        queryParams['sort[${sort.field}]'] = sort.direction.name;
+        queryParams['sort[${sort.field}]'] = sort.descending ? 'desc' : 'asc';
       }
 
       // Add pagination
       if (query.limit != null) {
         queryParams['limit'] = query.limit.toString();
       }
-      if (query.offset > 0) {
+      if ((query.offset ?? 0) > 0) {
         queryParams['offset'] = query.offset.toString();
       }
 
@@ -300,9 +302,15 @@ class RestRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapter<T>
 }
 ```
 
+> **Reference implementation:** the `datum_test` package ships `HttpRemoteAdapter`,
+> a complete REST adapter (including `DeltaSyncCapable` incremental pulls and
+> Datum's exception taxonomy) that you can use as a production-grade template.
+
 ## Usage Example
 
 ```dart
+import 'rest_remote_adapter.dart'; // the adapter implemented above
+
 // Create the adapter
 final taskAdapter = RestRemoteAdapter<Task>(
   baseUrl: 'https://api.example.com',
@@ -315,7 +323,7 @@ final taskAdapter = RestRemoteAdapter<Task>(
 final registrations = [
   DatumRegistration<Task>(
     localAdapter: HiveLocalAdapter<Task>(
-      boxName: 'tasks',
+      entityBoxName: 'tasks',
       fromMap: (map) => Task.fromMap(map),
     ),
     remoteAdapter: taskAdapter,
@@ -361,4 +369,4 @@ Your REST API should implement these endpoints:
 - **Authentication**: JWT token or custom auth headers
 - **Custom Mapping**: Transform data between API and Datum formats
 - **Timeout Configuration**: Set request timeouts
-- **Retry Logic**: Implement retry strategies for failed requests</content>
+- **Retry Logic**: Implement retry strategies for failed requests

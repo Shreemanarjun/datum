@@ -63,39 +63,46 @@ Future<void> bootstrapApp() async {
     registrations: [
       // Register each DatumEntity type with its adapters
       DatumRegistration<Task>(
-        localAdapter: HiveLocalAdapter<Task>(),
-        remoteAdapter: RestRemoteAdapter<Task>(),
+        localAdapter: HiveLocalAdapter<Task>(
+          entityBoxName: 'tasks',
+          fromMap: Task.fromMap,
+        ),
+        remoteAdapter: MyTaskRemoteAdapter(), // Your RemoteAdapter<Task>
         // Optional: Provide entity-specific configuration
-        config: const DatumConfig(
+        config: DatumConfig<Task>(
           defaultConflictResolver: LastWriteWinsResolver<Task>(),
         ),
-        // Optional: Add middlewares for data transformation
-        middlewares: [EncryptionMiddleware<Task>()],
-        // Optional: Add observers for entity lifecycle events
-        observers: [TaskObserver()],
+        // Optional: Add middlewares (List<DatumMiddleware<Task>>) for
+        // data transformation, and observers (List<DatumObserver<Task>>)
+        // for entity lifecycle events:
+        // middlewares: [MyEncryptionMiddleware()],
+        // observers: [MyTaskObserver()],
       ),
       // Add registrations for other entities
       DatumRegistration<User>(
-        localAdapter: HiveLocalAdapter<User>(),
-        remoteAdapter: RestRemoteAdapter<User>(),
+        localAdapter: HiveLocalAdapter<User>(
+          entityBoxName: 'users',
+          fromMap: User.fromMap,
+        ),
+        remoteAdapter: MyUserRemoteAdapter(),
       ),
     ],
     // Optional: Add global observers for all entities
-    observers: [GlobalAnalyticsObserver()],
+    // observers: [MyGlobalAnalyticsObserver()],
   );
 
   // Handle initialization result
   switch (result) {
-    case Success(datum: final datum):
+    case Success(value: final datum):
       // Initialization successful
-      print('Datum initialized successfully!');
+      print('Datum initialized successfully: $datum');
 
       // Your application can now use Datum.manager<T>() to access registered entities
       runApp(const MyApp());
 
-    case Failure(error: final error, stackTrace: final stack):
+    case Failure(value: final error, stackTrace: final stack):
       // Initialization failed
-      print('Datum initialization failed: $error');
+      print('Datum initialization failed: $error\n$stack');
       // Handle error appropriately for your app
   }
 }
@@ -110,7 +117,7 @@ Once initialized, access entity managers through the static `Datum.manager<T>()`
 final taskManager = Datum.manager<Task>();
 
 // Perform operations
-await taskManager.push(item: myTask, userId: 'user123');
+await taskManager.push(item: task, userId: 'user123');
 final tasks = await taskManager.readAll(userId: 'user123');
 
 // Global operations across all entities

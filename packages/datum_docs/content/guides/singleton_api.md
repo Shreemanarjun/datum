@@ -10,26 +10,39 @@ The `Datum` class provides a global singleton instance that offers convenient ac
 Before using any Datum functionality, you must initialize the singleton:
 
 ```dart
-final result = await Datum.initialize(
-  config: DatumConfig(
-    enableLogging: true,
-    autoStartSync: true,
-    autoSyncInterval: Duration(minutes: 5),
-  ),
-  connectivityChecker: MyConnectivityChecker(),
-  registrations: [
-    DatumRegistration<Task>(
-      localAdapter: HiveTaskAdapter(),
-      remoteAdapter: RestApiTaskAdapter(),
-    ),
-  ],
-);
+class MyConnectivityChecker implements DatumConnectivityChecker {
+  @override
+  Future<bool> get isConnected async => true; // Replace with a real check
 
-if (result.isSuccess) {
-  // Datum is ready to use
-} else {
-  // Handle initialization error
-  print('Failed to initialize Datum: ${result.error}');
+  @override
+  Stream<bool> get onStatusChange => const Stream.empty();
+}
+
+Future<void> bootstrap(
+  LocalAdapter<Task> localAdapter,
+  RemoteAdapter<Task> remoteAdapter,
+) async {
+  final result = await Datum.initialize(
+    config: const DatumConfig(
+      enableLogging: true,
+      autoStartSync: true,
+      autoSyncInterval: Duration(minutes: 5),
+    ),
+    connectivityChecker: MyConnectivityChecker(),
+    registrations: [
+      DatumRegistration<Task>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+      ),
+    ],
+  );
+
+  switch (result) {
+    case Success():
+      print('Datum is ready to use');
+    case Failure(value: final error):
+      print('Failed to initialize Datum: $error');
+  }
 }
 ```
 
@@ -53,33 +66,54 @@ The singleton provides direct access to CRUD operations without needing to get m
 
 ```dart
 // Create a single entity
-final task = Task(id: '1', title: 'New Task', userId: 'user123');
-await Datum.create(task);
+final newTask = Task(
+  id: '1',
+  title: 'New Task',
+  userId: 'user123',
+  createdAt: DateTime.now(),
+  modifiedAt: DateTime.now(),
+  version: 1,
+);
+await Datum.instance.create(newTask);
 
 // Create multiple entities
 final tasks = [
-  Task(id: '1', title: 'Task 1', userId: 'user123'),
-  Task(id: '2', title: 'Task 2', userId: 'user123'),
+  Task(
+    id: '2',
+    title: 'Task 2',
+    userId: 'user123',
+    createdAt: DateTime.now(),
+    modifiedAt: DateTime.now(),
+    version: 1,
+  ),
+  Task(
+    id: '3',
+    title: 'Task 3',
+    userId: 'user123',
+    createdAt: DateTime.now(),
+    modifiedAt: DateTime.now(),
+    version: 1,
+  ),
 ];
-await Datum.createMany<Task>(items: tasks, userId: 'user123');
+await Datum.instance.createMany<Task>(items: tasks, userId: 'user123');
 ```
 
 ### Read Operations
 
 ```dart
 // Read a single entity
-final task = await Datum.read<Task>('task-id', userId: 'user123');
+final task = await Datum.instance.read<Task>('task-id', userId: 'user123');
 
 // Read all entities for a user
-final allTasks = await Datum.readAll<Task>(userId: 'user123');
+final allTasks = await Datum.instance.readAll<Task>(userId: 'user123');
 
 // Query entities
 final query = DatumQueryBuilder<Task>()
-  .where('completed', isEqualTo: false)
+  .where('isCompleted', isEqualTo: false)
   .orderBy('createdAt', descending: true)
   .build();
 
-final pendingTasks = await Datum.query<Task>(
+final pendingTasks = await Datum.instance.query<Task>(
   query,
   source: DataSource.local,
   userId: 'user123',
@@ -90,19 +124,22 @@ final pendingTasks = await Datum.query<Task>(
 
 ```dart
 // Update a single entity
-final updatedTask = existingTask.copyWith(title: 'Updated Title');
-await Datum.update(updatedTask);
+final updatedTask = task.copyWith(title: 'Updated Title');
+await Datum.instance.update(updatedTask);
 
 // Update multiple entities
-final tasksToUpdate = [task1, task2, task3];
-await Datum.updateMany<Task>(items: tasksToUpdate, userId: 'user123');
+final tasksToUpdate = [
+  task.copyWith(priority: 1),
+  task.copyWith(isCompleted: true),
+];
+await Datum.instance.updateMany<Task>(items: tasksToUpdate, userId: 'user123');
 ```
 
 ### Delete Operations
 
 ```dart
 // Delete a single entity
-await Datum.delete<Task>(id: 'task-id', userId: 'user123');
+await Datum.instance.delete<Task>(id: 'task-id', userId: 'user123');
 ```
 
 ## Sync Operations
@@ -111,19 +148,19 @@ await Datum.delete<Task>(id: 'task-id', userId: 'user123');
 
 ```dart
 // Create/update and immediately sync
-final (savedTask, syncResult) = await Datum.pushAndSync(
+final (savedTask, pushResult) = await Datum.instance.pushAndSync(
   item: task,
   userId: 'user123',
 );
 
 // Update and immediately sync
-final (updatedTask, syncResult) = await Datum.updateAndSync(
+final (updatedTask, updateResult) = await Datum.instance.updateAndSync(
   item: task,
   userId: 'user123',
 );
 
 // Delete and immediately sync
-final (deleted, syncResult) = await Datum.deleteAndSync<Task>(
+final (deleted, deleteResult) = await Datum.instance.deleteAndSync<Task>(
   id: 'task-id',
   userId: 'user123',
 );
@@ -153,8 +190,11 @@ final subscription = Datum.instance.userChangeStream.listen((userId) {
   // Automatically refresh UI or data
 });
 
-// Emit user changes when authentication state changes
-Datum.instance._userChangeController.add('new-user-id');
+// The stream emits whenever a manager switches users, e.g.:
+await Datum.manager<Task>().switchUser(
+  oldUserId: 'old-user-id',
+  newUserId: 'new-user-id',
+);
 ```
 
 ### Using Manager.onUserChanged
@@ -176,22 +216,28 @@ final userSubscription = taskManager.onUserChanged.listen((userId) {
 
 ```dart
 class AuthService {
-  void login(String userId) {
-    // Update Datum's user change stream
-    Datum.instance._userChangeController.add(userId);
+  String? _currentUserId;
+
+  Future<void> login(String userId) async {
+    // Switching users through a manager syncs the outgoing user's
+    // data (per the configured strategy) and notifies userChangeStream.
+    await Datum.manager<Task>().switchUser(
+      oldUserId: _currentUserId,
+      newUserId: userId,
+    );
+    _currentUserId = userId;
 
     // Your authentication logic here
     // ...
   }
 
-  void logout() {
-    // Clear user (null indicates no user)
-    Datum.instance._userChangeController.add(null);
-  }
-
-  void switchUser(String newUserId) {
-    // Switch to different user
-    Datum.instance._userChangeController.add(newUserId);
+  Future<void> switchAccount(String newUserId) async {
+    await Datum.manager<Task>().switchUser(
+      oldUserId: _currentUserId,
+      newUserId: newUserId,
+      strategy: UserSwitchStrategy.syncThenSwitch,
+    );
+    _currentUserId = newUserId;
   }
 }
 ```
@@ -199,6 +245,8 @@ class AuthService {
 ### Reactive UI Updates
 
 ```dart
+import 'package:flutter/material.dart';
+
 class TaskListWidget extends StatefulWidget {
   @override
   _TaskListWidgetState createState() => _TaskListWidgetState();
@@ -302,6 +350,8 @@ Streams are automatically refreshed in certain scenarios:
 For optimal user switching behavior, combine `onUserChanged` with `refreshStreams`:
 
 ```dart
+import 'dart:async';
+
 class UserManager {
   StreamSubscription<String?>? _userSubscription;
 
@@ -321,11 +371,8 @@ class UserManager {
   void _onUserSwitched(String? userId) {
     if (userId == null) {
       // User logged out - clear any user-specific state
-      _clearUserState();
     } else {
       // User logged in - load user preferences, update UI, etc.
-      _loadUserPreferences(userId);
-      _updateUIForUser(userId);
     }
   }
 
@@ -338,50 +385,44 @@ class UserManager {
 ### Advanced User Switching Pattern
 
 ```dart
+import 'dart:async';
+
 class AdvancedUserSwitcher {
   final StreamController<String?> _userController = StreamController.broadcast();
+  String? _currentUserId;
 
   // Expose user change stream for other components
   Stream<String?> get onUserChanged => _userController.stream;
 
   Future<void> switchToUser(String newUserId) async {
-    final currentUserId = await _getCurrentUserId();
+    // 1. Perform the switch — Datum syncs the outgoing user's data
+    //    first when using UserSwitchStrategy.syncThenSwitch.
+    final result = await Datum.manager<Task>().switchUser(
+      oldUserId: _currentUserId,
+      newUserId: newUserId,
+      strategy: UserSwitchStrategy.syncThenSwitch,
+    );
+    print('Switch completed: $result');
 
-    // 1. Validate user switch (check permissions, etc.)
-    if (!await _canSwitchToUser(newUserId)) {
-      throw Exception('Cannot switch to user: insufficient permissions');
-    }
-
-    // 2. Pre-switch cleanup
-    if (currentUserId != null) {
-      await _cleanupUserData(currentUserId);
-    }
-
-    // 3. Perform the switch
-    await _performUserSwitch(currentUserId, newUserId);
-
-    // 4. Emit user change event
+    // 2. Track and broadcast the change
+    _currentUserId = newUserId;
     _userController.add(newUserId);
 
-    // 5. Refresh all streams to clear caches
+    // 3. Refresh all streams to clear caches
     await Datum.instance.refreshStreams();
-
-    // 6. Post-switch initialization
-    await _initializeUserData(newUserId);
   }
 
   Future<void> logout() async {
-    final currentUserId = await _getCurrentUserId();
-    if (currentUserId != null) {
-      await _cleanupUserData(currentUserId);
-    }
-
     // Clear user and refresh streams
+    _currentUserId = null;
     _userController.add(null);
     await Datum.instance.refreshStreams();
 
-    // Clear authentication state
-    await _clearAuthState();
+    // Clear authentication state in your auth system here
+  }
+
+  void dispose() {
+    _userController.close();
   }
 }
 ```
@@ -389,6 +430,8 @@ class AdvancedUserSwitcher {
 ### Reactive UI with User Switching
 
 ```dart
+import 'package:flutter/material.dart';
+
 class MultiUserApp extends StatefulWidget {
   @override
   _MultiUserAppState createState() => _MultiUserAppState();
@@ -473,13 +516,13 @@ Watch for real-time data changes:
 
 ```dart
 // Watch all entities
-final subscription = Datum.watchAll<Task>(userId: 'user123')
+final subscription = Datum.instance.watchAll<Task>(userId: 'user123')
   ?.listen((tasks) {
     print('Tasks updated: ${tasks.length} items');
   });
 
 // Watch a single entity
-final singleSub = Datum.watchById<Task>('task-id', 'user123')
+final singleSub = Datum.instance.watchById<Task>('task-id', 'user123')
   ?.listen((task) {
     if (task != null) {
       print('Task updated: ${task.title}');
@@ -489,7 +532,7 @@ final singleSub = Datum.watchById<Task>('task-id', 'user123')
   });
 
 // Watch paginated results
-final paginatedSub = Datum.watchAllPaginated<Task>(
+final paginatedSub = Datum.instance.watchAllPaginated<Task>(
   PaginationConfig(pageSize: 20),
   userId: 'user123',
 )?.listen((result) {
@@ -498,10 +541,10 @@ final paginatedSub = Datum.watchAllPaginated<Task>(
 
 // Watch query results
 final query = DatumQueryBuilder<Task>()
-  .where('completed', isEqualTo: false)
+  .where('isCompleted', isEqualTo: false)
   .build();
 
-final querySub = Datum.watchQuery<Task>(query, userId: 'user123')
+final querySub = Datum.instance.watchQuery<Task>(query, userId: 'user123')
   ?.listen((tasks) {
     print('Pending tasks: ${tasks.length}');
   });
@@ -509,18 +552,18 @@ final querySub = Datum.watchQuery<Task>(query, userId: 'user123')
 
 ## Relationship Operations
 
-Work with related entities:
+Work with related entities. This assumes relational entities like `Post` and `Comment` with a declared `comments` relation — see the [Relationships Guide](/guides/relationships):
 
-```dart
+```dart no-verify
 // Fetch related entities
-final comments = await Datum.fetchRelated<Post, Comment>(
+final comments = await Datum.instance.fetchRelated<Post, Comment>(
   post,
   'comments',
   source: DataSource.local,
 );
 
 // Watch related entities
-final relatedSub = Datum.watchRelated<Post, Comment>(post, 'comments')
+final relatedSub = Datum.instance.watchRelated<Post, Comment>(post, 'comments')
   ?.listen((comments) {
     print('Post has ${comments.length} comments');
   });
@@ -539,7 +582,7 @@ Datum.instance.allHealths.listen((healthMap) {
 });
 
 // Check health of specific entity type
-final health = await Datum.checkHealth<Task>();
+final health = await Datum.instance.checkHealth<Task>();
 print('Task health: ${health.status}');
 ```
 
@@ -561,7 +604,7 @@ Datum.instance.metrics.listen((metrics) {
 Datum.instance.statusForUser('user123').listen((status) {
   if (status != null) {
     print('User sync status: ${status.status}');
-    print('Pending operations: ${status.pendingOperationsCount}');
+    print('Pending operations: ${status.pendingOperations}');
   }
 });
 ```
@@ -572,21 +615,21 @@ Datum.instance.statusForUser('user123').listen((status) {
 
 ```dart
 // Get pending operation count
-final count = await Datum.getPendingCount<Task>('user123');
+final count = await Datum.instance.getPendingCount<Task>('user123');
 
 // Get pending operations
-final operations = await Datum.getPendingOperations<Task>('user123');
+final operations = await Datum.instance.getPendingOperations<Task>('user123');
 ```
 
 ### Storage Information
 
 ```dart
 // Get storage size
-final size = await Datum.getStorageSize<Task>(userId: 'user123');
+final size = await Datum.instance.getStorageSize<Task>(userId: 'user123');
 
 // Watch storage size changes
-Datum.watchStorageSize<Task>(userId: 'user123')?.listen((size) {
-  print('Storage size: ${size} bytes');
+Datum.instance.watchStorageSize<Task>(userId: 'user123').listen((size) {
+  print('Storage size: $size bytes');
 });
 ```
 
@@ -594,10 +637,10 @@ Datum.watchStorageSize<Task>(userId: 'user123')?.listen((size) {
 
 ```dart
 // Get last sync result
-final lastResult = await Datum.getLastSyncResult<Task>('user123');
+final lastResult = await Datum.instance.getLastSyncResult<Task>('user123');
 
 // Get remote sync metadata
-final metadata = await Datum.getRemoteSyncMetadata<Task>('user123');
+final metadata = await Datum.instance.getRemoteSyncMetadata<Task>('user123');
 ```
 
 ## Global Sync Control
@@ -630,10 +673,10 @@ await Datum.instance.resubscribeAllToRemoteChanges();
 
 | Operation | Singleton Method | Manager Method |
 |-----------|------------------|----------------|
-| Create | `Datum.create(entity)` | `manager.push(item: entity)` |
-| Read | `Datum.read<T>(id)` | `manager.read(id)` |
-| Watch | `Datum.watchAll<T>()` | `manager.watchAll()` |
-| Sync | `Datum.instance.synchronize()` | `manager.synchronize()` |
+| Create | `Datum.instance.create(entity)` | `manager.push(item: entity, userId: userId)` |
+| Read | `Datum.instance.read<T>(id)` | `manager.read(id)` |
+| Watch | `Datum.instance.watchAll<T>()` | `manager.watchAll()` |
+| Sync | `Datum.instance.synchronize(userId)` | `manager.synchronize(userId)` |
 
 The singleton methods are convenient for simple operations, while manager methods provide more control and advanced features.
 
@@ -642,18 +685,32 @@ The singleton methods are convenient for simple operations, while manager method
 
 
 ```dart
-// Initialize Datum
-await Datum.initialize(
-  config: DatumConfig(),
-  connectivityChecker: MyConnectivityChecker(),
-  registrations: [DatumRegistration<Task>(/* adapters */)],
-);
+// Initialize Datum (see the Initialization section for the full setup)
+Future<void> bootstrap(DatumConnectivityChecker connectivity) async {
+  await Datum.initialize(
+    config: const DatumConfig(),
+    connectivityChecker: connectivity,
+    registrations: [
+      DatumRegistration<Task>(
+        localAdapter: localAdapter,
+        remoteAdapter: remoteAdapter,
+      ),
+    ],
+  );
+}
 
 // Use the singleton API
-final task = Task(id: '1', title: 'My Task', userId: 'user123');
-await Datum.create(task);
+final myTask = Task(
+  id: '1',
+  title: 'My Task',
+  userId: 'user123',
+  createdAt: DateTime.now(),
+  modifiedAt: DateTime.now(),
+  version: 1,
+);
+await Datum.instance.create(myTask);
 
-final tasks = await Datum.readAll<Task>(userId: 'user123');
+final tasks = await Datum.instance.readAll<Task>(userId: 'user123');
 print('Found ${tasks.length} tasks');
 ```
 

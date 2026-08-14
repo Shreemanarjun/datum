@@ -5,6 +5,38 @@ description: Version history and release notes for Datum.
 
 # Changelog
 
+## 1.1.0
+
+The largest release to date. Full details in the
+[package changelog](https://pub.dev/packages/datum/changelog); highlights:
+
+### ⚡ Sync performance & scale
+- **Incremental pulls** — `DeltaSyncCapable` (timestamp watermark) and `CursorSyncCapable` (opaque change cursor) let a pull transfer only what changed instead of the full dataset. See [Incremental Sync](/guides/performance/incremental_sync).
+- **Metadata hash cache** — idle sync cycles no longer re-read and re-hash the local store. See [Performance Tuning](/guides/performance/tuning).
+- **Isolate sync fixed** — `useIsolateSync: true` now genuinely offloads the whole cycle to a background isolate (it previously always failed to spawn).
+
+### 🗂️ Declarative schema migrations
+- `SchemaMigration` + `ColumnOperation` (add/rename/remove/transform/row) with fail-fast chain validation, rollback, and run-once stamping — and the same chain runs as **real `ALTER TABLE` DDL** on SQL stores via `SqlMigrationExecutor`. See [Schema Migrations](/guides/migrations).
+
+### ✨ Collaborative editing
+- `RgaList`/`RgaText` sequence CRDTs with stable cursor anchors and tombstone compaction, joining `PNCounter` and `ORSet`. See [Collaborative Editing](/guides/collaborative_editing).
+
+### 🧰 New ecosystem packages
+- **`datum_sqlite`** — SQL-backed local adapter with native query pushdown, real transactions, and DDL migrations. See [SQLite Adapter](/guides/custom_adapters/sqlite_adapter).
+- **`datum_test`** — the conformance kit: certify adapters and whole sync stacks, then go further with chaos profiles, crash-recovery, and convergence fuzzing. See [Testing](/guides/testing).
+
+### 🛡️ Correctness
+- Typed errors + `tryX` result APIs, type-safe query fields, adapter capability mixins, engine hardening (real content hashing, enforced timeouts, conflict push-back convergence, batch retry parity), and fuzz-discovered fixes for equal-version conflict detection and deterministic LWW tie-breaking.
+- The whole library sits at **100% test line coverage** (1,900+ tests), including wire-level integration suites against a real HTTP server and a real SQLite database.
+
+### Merged from the unpublished 1.0.5
+- Granular `@DatumIgnore` flags (`copyWith`, `equality`, `fromMap`/`toMap`).
+- `ManyToMany` takes a pivot `Type` instead of an instance *(breaking vs 1.0.4)*.
+
+## 1.0.4
+
+- Generator refinements: `TypeChecker`-based type handling, `DatumConverter` support for custom field serialization, improved handling of `Color`, `Offset`, `Duration`, `DateTime`, `Uri`, and `BigInt`.
+
 ## 1.0.3
 
 ### 🚀 Relational Data Enhancements

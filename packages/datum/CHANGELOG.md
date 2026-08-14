@@ -191,6 +191,16 @@ All changes below are additive and backward compatible unless noted.
 
 ## ✨ Features
 
+### Merged from the unpublished 1.0.5
+
+- **generator**: granular `@DatumIgnore` flags — `copyWith:`, `equality:`,
+  `fromMap:`/`toMap:` let runtime-only state (e.g. a `ValueNotifier`) live
+  inside entities without breaking immutability or equality. Backward
+  compatible with bare `@DatumIgnore()`.
+- **relations** *(breaking vs 1.0.4)*: `ManyToMany` takes a `Type` for the
+  pivot entity instead of an instance, removing the const zero-argument
+  constructor requirement on pivot entities.
+
 - **query**: `DataFetchStrategy` (`localOnly`/`remoteOnly`/`localFirst`/
   `remoteFirst`) via `manager.fetch(...)` and `manager.fetchById(...)`, with an
   optional `persistRemoteResults` cache-fill.
@@ -243,25 +253,6 @@ All changes below are additive and backward compatible unless noted.
 
 See `doc/ADAPTERS_AND_MIGRATIONS_GUIDE.md` (Drift/Isar/migrations) and
 `doc/API_DESIGN_AND_TESTING_PLAN.md` for details.
-
-
-# 1.0.5
-
-## ✨ Features
-
-- **generator**: scalar @DatumIgnore flags
-  - Added support for granular control in `@DatumIgnore` annotation
-  - Developers can now specify:
-    - `copyWith: true` to exclude fields from `copyWith` / `copyWithAll`
-    - `equality: true` to exclude fields from `==` and `hashCode`
-    - `fromMap: true` / `toMap: true` to exclude from serialization (default)
-  - Perfect for handling runtime-only state (e.g., `ValueNotifier`, `StreamController`) inside entities without breaking immutability or equality checks
-  - Fully backward compatible with existing `@DatumIgnore()` usage
-## 🗑️ Breaking Changes
-
-- **relations**: `ManyToMany` now requires `Type` for pivot entity
-  - Updated `ManyToMany` constructor to accept `Type` for pivot entity instead of an instance.
-  - This removes the requirement for a `const` zero-argument constructor on pivot entities.
 
 
 # 1.0.4

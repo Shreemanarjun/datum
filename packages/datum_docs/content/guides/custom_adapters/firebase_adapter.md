@@ -16,7 +16,7 @@ Firebase provides real-time database capabilities and works well with Datum's sy
 
 Add Firebase dependencies to your `pubspec.yaml`:
 
-```dart
+```yaml
 dependencies:
   cloud_firestore: ^4.0.0
   firebase_core: ^2.0.0
@@ -31,7 +31,7 @@ import 'package:datum/datum.dart';
 class FirebaseRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapter<T> {
   final String collectionName;
   final T Function(Map<String, dynamic>) fromMap;
-  final FirebaseFirestore? firestore;
+  final FirebaseFirestore firestore;
 
   FirebaseRemoteAdapter({
     required this.collectionName,
@@ -164,10 +164,11 @@ class FirebaseRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapte
   }
 
   @override
-  Future<void> delete(String id, {String? userId}) async {
+  Future<bool> delete(String id, {String? userId}) async {
     try {
       // Soft delete by updating the document
       await _collection.doc(id).update({'isDeleted': true});
+      return true;
     } catch (e) {
       throw Exception('Failed to delete in Firestore: $e');
     }
@@ -217,7 +218,7 @@ class FirebaseRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapte
       for (final sort in query.sorting) {
         firestoreQuery = firestoreQuery.orderBy(
           sort.field,
-          descending: sort.direction == SortDirection.descending,
+          descending: sort.descending,
         );
       }
 
@@ -295,6 +296,8 @@ class FirebaseRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapte
 ## Usage Example
 
 ```dart
+import 'firebase_remote_adapter.dart'; // the adapter implemented above
+
 // Create the adapter
 final taskAdapter = FirebaseRemoteAdapter<Task>(
   collectionName: 'tasks',
@@ -305,7 +308,7 @@ final taskAdapter = FirebaseRemoteAdapter<Task>(
 final registrations = [
   DatumRegistration<Task>(
     localAdapter: HiveLocalAdapter<Task>(
-      boxName: 'tasks',
+      entityBoxName: 'tasks',
       fromMap: (map) => Task.fromMap(map),
     ),
     remoteAdapter: taskAdapter,
@@ -353,4 +356,4 @@ service cloud.firestore {
 - **Indexing**: Automatic indexing but can be expensive for complex queries
 - **Real-time Updates**: Change streams can consume battery and data
 - **Batch Operations**: Consider batch writes for multiple operations
-- **Pagination**: Implement cursor-based pagination for large datasets</content>
+- **Pagination**: Implement cursor-based pagination for large datasets

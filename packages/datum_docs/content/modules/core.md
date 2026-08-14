@@ -24,25 +24,36 @@ The `Datum` class provides a global singleton instance that offers convenient ac
 
 **Initialization:**
 ```dart
-// Initialize the singleton (required before use)
-final result = await Datum.initialize(
-  config: DatumConfig(),
-  connectivityChecker: MyConnectivityChecker(),
-  registrations: [/* entity registrations */],
-);
+class MyConnectivityChecker implements DatumConnectivityChecker {
+  @override
+  Future<bool> get isConnected async => true; // plug in connectivity_plus here
+  @override
+  Stream<bool> get onStatusChange => const Stream.empty();
+}
 
-if (result.isSuccess) {
-  // Datum is ready to use
+Future<void> main() async {
+  // Initialize the singleton (required before use)
+  final result = await Datum.initialize(
+    config: const DatumConfig(),
+    connectivityChecker: MyConnectivityChecker(),
+    registrations: [/* entity registrations */],
+  );
+
+  if (result.isSuccess()) {
+    // Datum is ready to use
+  }
 }
 ```
 
 **Global Operations:**
 - `Datum.manager<T>()`: Get manager for entity type
+- `Datum.managerByType(Type type)`: Get manager by runtime `Type`
 - `Datum.instance.synchronize(userId)`: Sync all entities
 - `Datum.instance.startAutoSync(userId)`: Start auto-sync across all managers
 - `Datum.instance.getRemoteSyncMetadata<T>(userId)`: Get remote sync metadata
-- `Datum.instance.allHealths`: Monitor all entity health
-- `Datum.instance.metrics`: Global metrics stream
+- `Datum.instance.allHealths`: Monitor all entity health (`Stream<Map<Type, DatumHealth>>`)
+- `Datum.instance.metrics` / `currentMetrics`: Global metrics stream and snapshot
+- `Datum.instance.events`: Stream of all sync events across managers
 
 ### Manager
 
@@ -53,50 +64,54 @@ The Manager sub-module provides high-level interfaces for interacting with Datum
 The main entry point for Datum operations, providing a comprehensive API for data management and synchronization.
 
 **Initialization:**
-- `DatumManager(LocalAdapter<T>, RemoteAdapter<T>, ...)`: Constructor with required adapters and optional configuration
+- `DatumManager(localAdapter: ..., remoteAdapter: ..., connectivity: ..., ...)`: Constructor with required adapters and optional configuration
 - `initialize()`: Must be called before any other operations
 
 **CRUD Operations:**
-- `push(T item, {String userId, DataSource source, bool forceRemoteSync})`: Saves entity locally and queues for sync
-- `read(String id, {String? userId})`: Retrieves single entity
-- `readAll({String? userId})`: Retrieves all entities
-- `delete(String id, String userId, ...)`: Deletes entity and queues for sync
+- `push({required T item, required String userId, DataSource source, bool forceRemoteSync})`: Saves entity locally and queues for sync
+- `read(String id, {String? userId, List<String> withRelated})`: Retrieves single entity
+- `readAll({String? userId, List<String> withRelated})`: Retrieves all entities
+- `delete({required String id, required String userId, DeleteBehavior? behavior})`: Deletes entity and queues for sync
+- `exists(String id, {String? userId})` / `count({String? userId})`: Existence and count checks
 
-**Batch Operations:**
-- `saveMany(List<T> items, String userId, ...)`: Saves multiple entities
-- `pushAndSync(T item, String userId, ...)`: Saves and immediately syncs
-- `deleteAndSync(String id, String userId, ...)`: Deletes and immediately syncs
+**Batch & Combined Operations:**
+- `saveMany({required List<T> items, required String userId})`: Saves multiple entities
+- `pushAndSync({required T item, required String userId})`: Saves and immediately syncs
+- `deleteAndSync({required String id, required String userId})`: Deletes and immediately syncs
+- `tryPush`, `tryRead`, `tryDelete`, `trySynchronize`, ...: `DatumEither`-returning variants that never throw
 
 **Reactive Streams:**
 - `eventStream`: Stream of all sync-related events
 - `onDataChange`: Stream of data change events
-- `onSyncStarted/onSyncProgress/onSyncCompleted`: Sync lifecycle events
+- `onSyncStarted` / `onSyncProgress` / `onSyncCompleted` / `onSyncError`: Sync lifecycle events
 - `onConflict`: Conflict detection events
 - `watchAll({String? userId})`: Reactive stream of all entities
 - `watchById(String id, String? userId)`: Reactive stream of single entity
 - `watchStorageSize({String? userId})`: Reactive storage size monitoring
 
 **Querying:**
-- `query(DatumQuery query, DataSource source, String? userId)`: Executes queries against local or remote
-- `watchQuery(DatumQuery query, String? userId)`: Reactive query results
+- `query(DatumQuery query, {DataSource source, String? userId})`: Executes queries against local or remote
+- `watchQuery(DatumQuery query, {String? userId})`: Reactive query results
+- `rawQuery(DatumRawQuery query, {DataSource source, String? userId})`: Raw rows via a `RawQueryCapable` adapter
 
 **Synchronization:**
-- `synchronize(String userId, ...)`: Manual synchronization
-- `startAutoSync(String userId, Duration? interval)`: Enables periodic auto-sync
+- `synchronize(String userId, {DatumSyncOptions? options, DatumSyncScope? scope})`: Manual synchronization
+- `startAutoSync(String userId, {Duration? interval})`: Enables periodic auto-sync
 - `stopAutoSync({String? userId})`: Stops auto-sync
 - `pauseSync()` / `resumeSync()`: Pause/resume all sync activity
 
 **Cascading Delete:**
-- `cascadeDelete(String id, String userId, ...)`: Delete entity and related entities based on cascade behaviors
-- `deleteCascade(String entityId)`: Fluent API builder for cascade delete operations
-- `executeCascadeDeleteWithOptions(String entityId, String userId, CascadeOptions options)`: Advanced cascade delete with full control
+- `cascadeDelete({required String id, required String userId})`: Delete entity and related entities based on cascade behaviors
+- `getDeletePlan(String id, {String? userId})`: Preview what a cascade delete would touch
+- `executeCascadeDeleteWithOptions(...)`: Advanced cascade delete with full control
 
 **User Management:**
-- `switchUser(String? oldUserId, String newUserId, ...)`: Switches active user with configurable strategy
+- `switchUser({String? oldUserId, required String newUserId, ...})`: Switches active user with configurable strategy
 
 **Monitoring & Health:**
-- `health`: Stream of health status
+- `health`: Stream of `DatumHealth`
 - `checkHealth()`: Performs health check
+- `currentStatus`: The live `DatumSyncStatusSnapshot` (pending counts, progress, health)
 - `getPendingCount(String userId)`: Gets count of pending operations
 - `getLastSyncResult(String userId)`: Gets result of last sync
 
@@ -119,11 +134,6 @@ Detects conflicts between local and remote data during synchronization.
 #### QueueManager<T>
 
 Manages the queue of pending synchronization operations.
-
-**Key Methods:**
-- `enqueue(DatumSyncOperation<T> operation)`: Adds operation to queue
-- `getPending(String userId)`: Gets pending operations for user
-- `getPendingCount(String userId)`: Gets count of pending operations
 
 ### Events
 
@@ -154,18 +164,20 @@ The Health sub-module provides mechanisms for monitoring the health and status o
 
 #### DatumHealth
 
-Represents the health status of the Datum system.
+Represents the operational health of a sync manager.
 
 **Properties:**
-- `status`: Current health status (healthy, degraded, unhealthy)
-- `message`: Human-readable status description
-- `timestamp`: When health was last checked
-- `details`: Additional diagnostic information
+- `status`: Overall status (`DatumSyncHealth`: healthy, syncing, pending, degraded, offline, error)
+- `localAdapterStatus`: `AdapterHealthStatus` of the local adapter (healthy, unhealthy)
+- `remoteAdapterStatus`: `AdapterHealthStatus` of the remote adapter
+- `describe()`: Human-readable multi-line summary
 
 #### Health Monitoring
 
-- `checkHealth()`: Performs comprehensive health check of adapters and sync status
+- `checkHealth()`: Performs a health check of both adapters and sync status
 - `health`: Reactive stream of health status changes
+
+See the [Health module](/modules/health) for full details.
 
 ### Middleware
 
@@ -173,27 +185,30 @@ The Middleware sub-module allows for custom processing and transformation of dat
 
 #### DatumMiddleware<T>
 
-Abstract class for implementing middleware that can transform data during save/retrieval operations.
+Abstract class for implementing middleware that can transform data during save/fetch operations.
 
 **Key Methods:**
-- `transformBeforeSave(T entity)`: Transform entity before saving
-- `transformAfterFetch(T entity)`: Transform entity after fetching
+- `transformBeforeSave(T item)`: Transform entity before saving
+- `transformAfterFetch(T item)`: Transform entity after fetching
 
 **Usage:**
 ```dart
-class EncryptionMiddleware extends DatumMiddleware<MyEntity> {
+class EncryptionMiddleware extends DatumMiddleware<Task> {
   @override
-  Future<MyEntity> transformBeforeSave(MyEntity entity) async {
+  Future<Task> transformBeforeSave(Task item) async {
     // Encrypt sensitive fields
-    return entity.copyWith(encryptedData: encrypt(entity.data));
+    return item.copyWith(description: encrypt(item.description ?? ''));
   }
 
   @override
-  Future<MyEntity> transformAfterFetch(MyEntity entity) async {
+  Future<Task> transformAfterFetch(Task item) async {
     // Decrypt sensitive fields
-    return entity.copyWith(data: decrypt(entity.encryptedData));
+    return item.copyWith(description: decrypt(item.description ?? ''));
   }
 }
+
+String encrypt(String value) => value; // your cipher here
+String decrypt(String value) => value; // your cipher here
 ```
 
 ### Migration
@@ -202,19 +217,23 @@ The Migration sub-module manages database schema and data migrations.
 
 #### Migration
 
-Abstract class for implementing schema migrations.
+Abstract class representing one migration step.
 
-**Key Methods:**
-- `execute(Map<String, dynamic> data)`: Transforms data for new schema
-- `rollback(Map<String, dynamic> data)`: Reverses migration (optional)
+**Key Members:**
+- `fromVersion` / `toVersion`: The version step this migration performs
+- `migrate(Map<String, dynamic> oldData)`: Transforms a single raw entity map
+
+#### SchemaMigration
+
+Declarative migrations built from `ColumnOperation.add/rename/remove/transform/row` — see the [Migration module](/modules/migration).
 
 #### MigrationExecutor
 
-Executes migrations in order, handling errors and rollbacks.
+Executes migrations in order inside a transaction, snapshotting the store first so failures restore the original data.
 
 #### ErrorBoundary
 
-Provides error handling and recovery strategies for operations that might fail.
+Provides error handling and recovery strategies for operations that might fail. `ErrorBoundary` lives in the engine layer and is available via a deep import.
 
 **Strategies:**
 - `isolate`: Logs errors but allows operation to continue with fallback values
@@ -224,24 +243,28 @@ Provides error handling and recovery strategies for operations that might fail.
 
 **Built-in Boundaries:**
 ```dart
+import 'package:datum/source/core/engine/error_boundary.dart';
+
 // Sync operation isolation
-final boundary = ErrorBoundaries.syncIsolation<Task>();
+final syncBoundary = ErrorBoundaries.syncIsolation<Task>();
 
 // Adapter operation retries
-final boundary = ErrorBoundaries.adapterRetry(maxRetries: 3);
+final retryBoundary = ErrorBoundaries.adapterRetry<List<Task>>(maxRetries: 3);
 
 // Read operations with fallbacks
-final boundary = ErrorBoundaries.readWithFallback(fallbackValue: []);
+final readBoundary = ErrorBoundaries.readWithFallback<List<Task>>(fallbackValue: []);
 
 // Observer error isolation
-final boundary = ErrorBoundaries.observerIsolation();
+final observerBoundary = ErrorBoundaries.observerIsolation();
 ```
 
 **Usage:**
-```dart
-final result = await boundary.execute(() async {
+```dart continue
+final boundary = ErrorBoundaries.readWithFallback<List<Task>>(fallbackValue: []);
+
+final tasks = await boundary.execute(() async {
   // Operation that might fail
-  return await riskyOperation();
+  return manager.readAll(userId: userId);
 });
 ```
 
@@ -249,42 +272,42 @@ final result = await boundary.execute(() async {
 
 ### DatumEither
 
-A sealed class for handling success and failure results in a type-safe manner.
+A sealed class for handling success and failure results in a type-safe manner. `Datum.initialize` and the manager's `try*` methods return it.
 
 **Key Methods:**
-- `fold<T>(onFailure, onSuccess)`: Transforms the Either into a single value
-- `onSuccess(Function(R r) callback)`: Executes callback if successful
-- `onFailure(Function(L l, StackTrace? s) callback)`: Executes callback if failed
+- `fold<T>(onFailure, onSuccess)`: Transforms the Either into a single value (both callbacks are positional)
+- `onSuccess(void Function(R r) callback)`: Executes callback if successful
+- `onFailure(void Function(L l, StackTrace? s) callback)`: Executes callback if failed
 - `getSuccess()`: Returns success value or throws StateError
-- `getError()`: Returns tuple of error value and stack trace
-- `successOrNull`: Returns success value or null
-- `errorOrNull`: Returns error value or null
+- `getError()`: Returns record of error value and stack trace
+- `successOrNull` / `success`: Returns success value or null
+- `errorOrNull` / `failure`: Returns error value or null
 - `isSuccess()`: Returns true if this is a Success
 - `isFailure()`: Returns true if this is a Failure
 
 **Usage:**
 ```dart
-// Initialization result handling
-final result = await Datum.initialize(config: config, /* ... */);
+// Never-throwing read via the manager
+final result = await manager.tryRead('task-1', userId: userId);
 
 result.fold(
-  onFailure: (error, stackTrace) {
-    print('Initialization failed: $error');
+  (error, stackTrace) {
+    print('Read failed: $error');
     // Handle error
   },
-  onSuccess: (success) {
-    print('Initialization successful');
-    // Continue with app
+  (task) {
+    print('Read succeeded: ${task?.title}');
+    // Continue with the value
   },
 );
 
 // Or using convenience methods
 if (result.isSuccess()) {
-  final successValue = result.getSuccess();
-  // Use success value
+  final value = result.getSuccess();
+  print('Loaded ${value?.id}');
 } else {
   final (error, stackTrace) = result.getError();
-  // Handle error
+  print('Failed with $error');
 }
 ```
 
@@ -303,22 +326,33 @@ Interface for all entities managed by Datum. Provides flexible entity implementa
 - `modifiedAt`: Last modification timestamp
 - `version`: Optimistic concurrency version
 - `isDeleted`: Soft delete flag
+- `vectorClock`: Optional vector clock for causality tracking
 
 **Key Methods:**
 - `toDatumMap({MapTarget target})`: Serializes entity
 - `diff(DatumEntityInterface oldVersion)`: Computes changes
-- `copyWith({...})`: Creates modified copy
+- `merge(DatumEntityInterface other)`: Merges with another version (CRDT support)
+- `incrementClock(String replicaId)`: Returns a copy with an incremented vector clock
 
 **Implementation Options:**
 
-**Using DatumEntityMixin (Recommended):**
+**Using DatumEntityMixin:**
+
+Use the mixin to compose Datum's capabilities into your own class hierarchy. The mixin provides defaults for `vectorClock`, `merge`, `incrementClock`, `isRelational`, and `props`; you implement the core fields plus `toDatumMap` and `diff`:
+
 ```dart
 class Task with DatumEntityMixin {
+  @override
   final String id;
+  @override
   final String userId;
+  @override
   final DateTime createdAt;
+  @override
   final DateTime modifiedAt;
+  @override
   final int version;
+  @override
   final bool isDeleted;
   final String title;
   final String description;
@@ -334,23 +368,17 @@ class Task with DatumEntityMixin {
     required this.description,
   });
 
-  @override
   Task copyWith({
-    String? id,
-    String? userId,
-    DateTime? createdAt,
-    DateTime? modifiedAt,
-    int? version,
-    bool? isDeleted,
     String? title,
     String? description,
+    bool? isDeleted,
   }) {
     return Task(
-      id: id ?? this.id,
-      userId: userId ?? this.userId,
-      createdAt: createdAt ?? this.createdAt,
-      modifiedAt: modifiedAt ?? this.modifiedAt,
-      version: version ?? this.version,
+      id: id,
+      userId: userId,
+      createdAt: createdAt,
+      modifiedAt: DateTime.now(),
+      version: version + 1,
       isDeleted: isDeleted ?? this.isDeleted,
       title: title ?? this.title,
       description: description ?? this.description,
@@ -370,43 +398,64 @@ class Task with DatumEntityMixin {
       'description': description,
     };
   }
+
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) {
+    if (oldVersion is! Task) return toDatumMap(target: MapTarget.remote);
+    final delta = <String, dynamic>{};
+    if (title != oldVersion.title) delta['title'] = title;
+    if (description != oldVersion.description) delta['description'] = description;
+    if (delta.isEmpty) return null;
+    delta['modifiedAt'] = modifiedAt.toIso8601String();
+    delta['version'] = version;
+    return delta;
+  }
+
+  @override
+  bool? get stringify => true;
 }
 ```
 
-**Using DatumEntityBase (Legacy):**
-```dart
-class Task extends DatumEntityBase {
-  final String title;
-  final String description;
+**Extending DatumEntity (Recommended):**
 
-  Task({
-    required super.id,
-    required super.userId,
-    required super.createdAt,
-    required super.modifiedAt,
-    required super.version,
-    required super.isDeleted,
-    required this.title,
-    required this.description,
-  });
+`DatumEntity` bundles the sealed `DatumEntityBase` with `DatumEntityMixin` and Equatable support, so extending it is the most concise option:
+
+```dart
+class Task extends DatumEntity {
+  final String title;
+  final String? description;
 
   @override
-  Task copyWith({
-    String? id,
-    String? userId,
-    DateTime? createdAt,
-    DateTime? modifiedAt,
-    int? version,
-    bool? isDeleted,
-    String? title,
-    String? description,
-  }) {
+  final String id;
+  @override
+  final String userId;
+  @override
+  final DateTime createdAt;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
+
+  const Task({
+    required this.id,
+    required this.userId,
+    required this.createdAt,
+    required this.modifiedAt,
+    required this.version,
+    this.isDeleted = false,
+    required this.title,
+    this.description,
+  });
+
+  Task copyWith({String? title, String? description, bool? isDeleted}) {
     return Task(
-      id: id ?? this.id,
-      userId: userId ?? this.userId,
-      createdAt: createdAt ?? this.createdAt,
-      modifiedAt: modifiedAt ?? this.modifiedAt,
-      version: version ?? this.version,
+      id: id,
+      userId: userId,
+      createdAt: createdAt,
+      modifiedAt: DateTime.now(),
+      version: version + 1,
       isDeleted: isDeleted ?? this.isDeleted,
       title: title ?? this.title,
       description: description ?? this.description,
@@ -416,17 +465,38 @@ class Task extends DatumEntityBase {
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
     return {
-      ...super.toDatumMap(target: target),
+      'id': id,
+      'userId': userId,
+      'createdAt': createdAt.toIso8601String(),
+      'modifiedAt': modifiedAt.toIso8601String(),
+      'version': version,
+      'isDeleted': isDeleted,
       'title': title,
       'description': description,
     };
   }
+
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) {
+    if (oldVersion is! Task) return toDatumMap(target: MapTarget.remote);
+    final delta = <String, dynamic>{};
+    if (title != oldVersion.title) delta['title'] = title;
+    if (description != oldVersion.description) delta['description'] = description;
+    return delta.isEmpty ? null : delta;
+  }
+
+  @override
+  List<Object?> get props => [...super.props, title, description];
 }
 ```
 
+<Info>
+`DatumEntityBase` itself is a **sealed** class and cannot be extended directly — extend `DatumEntity` or apply `DatumEntityMixin` instead.
+</Info>
+
 #### RelationalDatumEntity
 
-Extends `DatumEntityInterface` with relationship support for connecting entities.
+Extends the entity interface with relationship support for connecting entities.
 
 **Additional Features:**
 - `relations`: Map of entity relationships (BelongsTo, HasMany, HasOne, ManyToMany)
@@ -469,27 +539,30 @@ Defines query parameters for filtering and sorting data.
 
 #### DatumQueryBuilder
 
-Fluent API for building complex queries.
+Fluent API for building complex queries. `where` takes the operator as a named parameter:
 
 **Example:**
 ```dart
-final query = DatumQueryBuilder()
-  .where('status', equals, 'active')
-  .where('createdAt', greaterThan, DateTime.now().subtract(Duration(days: 7)))
-  .orderBy('createdAt', descending: true)
-  .limit(50)
-  .withRelated(['author', 'comments'])
-  .build();
+final query = DatumQueryBuilder<Task>()
+    .where('isCompleted', isEqualTo: false)
+    .where('createdAt', isGreaterThan: DateTime.now().subtract(const Duration(days: 7)))
+    .orderBy('createdAt', descending: true)
+    .limit(50)
+    .withRelated(['author', 'comments'])
+    .build();
 ```
 
 #### Filter Operators
 
 - `equals`, `notEquals`: Equality comparisons
 - `greaterThan`, `lessThan`, `greaterThanOrEqual`, `lessThanOrEqual`: Range comparisons
-- `contains`, `startsWith`, `endsWith`: String matching
+- `contains`, `containsIgnoreCase`, `startsWith`, `endsWith`, `matches`: String matching
 - `isIn`, `isNotIn`: Set membership
 - `isNull`, `isNotNull`: Null checks
-- `arrayContains`: Array membership
+- `arrayContains`, `arrayContainsAny`: Array membership
+- `between`, `withinDistance`: Range and geo queries
+
+See the [Query module](/modules/query) for the full reference.
 
 ### Resolver
 
@@ -497,7 +570,7 @@ The Resolver sub-module handles conflict resolution strategies during data synch
 
 #### Conflict Resolution Strategies
 
-**LastWriteWinsResolver**: Resolves conflicts by choosing the most recently modified version.
+**LastWriteWinsResolver**: Resolves conflicts by choosing the most recently modified version (the default).
 
 **LocalPriorityResolver**: Always prefers local changes over remote.
 
@@ -509,7 +582,7 @@ The Resolver sub-module handles conflict resolution strategies during data synch
 
 #### Custom Resolvers
 
-Implement `DatumConflictResolver<T>` for custom resolution logic.
+Implement `DatumConflictResolver<T>` (providing `name` and `resolve({local, remote, context})`) for custom resolution logic.
 
 ### Sync
 
@@ -521,15 +594,15 @@ Defines how sync operations are processed.
 
 **SequentialStrategy**: Processes operations one by one (default).
 
-**ParallelStrategy**: Processes multiple operations concurrently.
+**ParallelStrategy**: Processes multiple operations concurrently (`batchSize`, `failFast`).
 
 #### DatumSyncRequestStrategy
 
 Handles concurrent synchronization requests.
 
-**SequentialRequestStrategy**: Queues requests, processes one at a time.
+**SequentialRequestStrategy**: Queues requests, processes one at a time (default).
 
-**ConcurrentRequestStrategy**: Allows multiple concurrent syncs.
+**SkipConcurrentStrategy**: Skips new requests while a sync is already in progress.
 
 #### DatumSyncScope
 
@@ -543,8 +616,8 @@ Defines the scope of a synchronization operation, allowing for partial or filter
 // Sync only active tasks
 final scope = DatumSyncScope(
   query: DatumQueryBuilder<Task>()
-    .where('isCompleted', equals, false)
-    .build(),
+      .where('isCompleted', isEqualTo: false)
+      .build(),
 );
 
 final result = await Datum.manager<Task>().synchronize(
@@ -561,8 +634,10 @@ Configuration options for synchronization operations.
 - `forceFullSync`: When `true`, forces a complete sync regardless of metadata comparison results
 - `resolveConflicts`: Whether conflicts should be resolved during sync (default: `true`)
 - `includeDeletes`: Whether delete operations should be included in sync (default: `true`)
-- `direction`: Sync direction (push-then-pull, pull-then-push, push-only, pull-only)
-- `timeout`: Maximum time allowed for sync operations
+- `direction`: Sync direction override (push-then-pull, pull-then-push, push-only, pull-only)
+- `timeout`: Maximum time allowed for this sync
+- `overrideBatchSize`: Batch-size override for this sync
+- `conflictResolver`: Resolver override for this sync only
 
 **Usage:**
 ```dart
@@ -592,7 +667,9 @@ Datum compares local and remote metadata before performing sync operations to av
 // 3. No pending local operations exist
 
 final result = await Datum.manager<Task>().synchronize('user123');
-// May return DatumSyncResult.skipped if no changes detected
+if (result.wasSkipped) {
+  print('No changes detected: ${result.skipReason}');
+}
 ```
 
 **Metadata Fields Compared:**
@@ -624,6 +701,6 @@ final config = DatumConfig(
 
 #### Sync Results and Statistics
 
-**DatumSyncResult<T>**: Contains sync outcome, statistics, and any errors.
+**DatumSyncResult<T>**: Contains the sync outcome — `syncedCount`, `failedCount`, `conflictsResolved`, `duration`, `pendingOperations`, byte counters, and `wasSkipped`/`wasCancelled`/`error`.
 
 **DatumSyncStatistics**: Detailed metrics about sync performance and data transfer.

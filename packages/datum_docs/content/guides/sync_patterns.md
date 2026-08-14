@@ -20,8 +20,14 @@ When your app starts, you want to ensure at least one remote data fetch happens 
 ### Implementation
 
 ```dart
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 // In your app initializer (e.g., future_initializer_pod)
-final datum = await Datum.initialize(/* config */);
+final datum = await Datum.initialize(
+  config: config,
+  connectivityChecker: connectivityChecker,
+  registrations: registrations,
+);
 
 // Ensure at least one remote data fetch on app start
 final datumInstance = datum.fold(
@@ -63,6 +69,8 @@ Handle sync when users login or relogin after logout, ensuring they always see f
 ### Implementation
 
 ```dart
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 // In your auth state listener
 _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
   (authState) async {
@@ -104,6 +112,8 @@ _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
 ### UI Loading State
 
 ```dart
+import 'package:flutter/material.dart';
+
 Widget _buildAuthenticatedBody(String userId) {
   if (_waitingForInitialSync) {
     return const Center(
@@ -127,6 +137,8 @@ Widget _buildAuthenticatedBody(String userId) {
 ### Sync Status Monitoring
 
 ```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 void _updateSyncStatusListener(String userId) {
   _syncStatusSubscription.close();
   _syncStatusSubscription = ref.listenManual(
@@ -181,7 +193,8 @@ if (remoteMetadata != null) {
 
 The `DatumSyncMetadata` object contains:
 
-```dart
+```dart no-verify
+// Abridged field reference of the real class:
 class DatumSyncMetadata {
   final String userId;
   final DateTime? lastSyncTime;           // Last sync attempt
@@ -192,6 +205,8 @@ class DatumSyncMetadata {
   final Map<String, dynamic>? customMetadata; // Custom fields
   final Map<String, DatumEntitySyncDetails>? entityCounts; // Per-entity stats
   final SyncStatus syncStatus;            // Current sync state
+  final int syncVersion;                  // Metadata schema version
+  final DateTime? serverTimestamp;        // Server clock at last sync
   final int conflictCount;                // Number of conflicts
   final String? errorMessage;             // Last error message
   final int retryCount;                   // Failed sync retries
@@ -243,8 +258,8 @@ For easier access, you can also use these convenience methods:
 // On DatumManager (recommended for single entity)
 final metadata = await Datum.manager<Task>().getRemoteSyncMetadata(userId);
 
-// On Datum (for any entity type)
-final metadata = await Datum.getRemoteSyncMetadata<Task>(userId);
+// On the Datum instance (for any entity type)
+final metadataViaDatum = await Datum.instance.getRemoteSyncMetadata<Task>(userId);
 ```
 
 ## Force Fresh Data
@@ -254,6 +269,8 @@ Sometimes you need to completely ignore cached sync state and force fresh data f
 ### Clear Sync Metadata
 
 ```dart
+import 'supabase_remote_adapter.dart'; // your adapter with a clearSyncMetadata helper
+
 // Cast to specific adapter type to access clearSyncMetadata
 final remoteAdapter = Datum.manager<Task>().remoteAdapter;
 if (remoteAdapter is SupabaseRemoteAdapter<Task>) {
@@ -264,10 +281,10 @@ if (remoteAdapter is SupabaseRemoteAdapter<Task>) {
 ### Force Full Sync Options
 
 ```dart
-const DatumSyncOptions(
+const options = DatumSyncOptions(
   direction: SyncDirection.pullThenPush,  // Pull first, then push
   forceFullSync: true,                    // Ignore cached timestamps
-)
+);
 ```
 
 ### When to Use
@@ -284,6 +301,8 @@ Monitor sync progress and handle different sync states in your UI.
 ### Provider Setup
 
 ```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 final syncStatusProvider =
     StreamProvider.autoDispose.family<DatumSyncStatusSnapshot?, String>(
   (ref, userId) async* {
@@ -297,17 +316,20 @@ final syncStatusProvider =
 
 ```dart
 enum DatumSyncStatus {
-  idle,       // No sync in progress
-  syncing,    // Sync currently running
-  completed,  // Sync finished successfully
-  failed,     // Sync failed
-  paused,     // Sync is paused
+  idle,       // No sync currently running
+  syncing,    // Sync is actively running
+  paused,     // Sync was paused by the user
+  cancelled,  // Sync was cancelled by the user
+  failed,     // Sync failed with errors
+  completed,  // Sync completed successfully
 }
 ```
 
 ### UI Integration
 
 ```dart
+import 'package:flutter/material.dart';
+
 ref.watch(syncStatusProvider(userId)).easyWhen(
   data: (status) {
     if (status?.status == DatumSyncStatus.syncing) {
@@ -326,6 +348,8 @@ ref.watch(syncStatusProvider(userId)).easyWhen(
 ### 1. Loading State Management
 
 ```dart
+import 'package:flutter/material.dart';
+
 class _MyWidgetState extends State<MyWidget> {
   bool _isLoading = false;
 
@@ -346,12 +370,12 @@ class _MyWidgetState extends State<MyWidget> {
 try {
   final result = await Datum.instance.synchronize(userId);
   if (result.isSuccess) {
-    showSuccessSnack('Sync completed: ${result.syncedCount} items');
+    print('Sync completed: ${result.syncedCount} items');
   } else {
-    showErrorSnack('Sync failed: ${result.failedCount} errors');
+    print('Sync failed: ${result.failedCount} errors');
   }
 } catch (e) {
-  showErrorSnack('Sync error: $e');
+  print('Sync error: $e');
 }
 ```
 
@@ -359,11 +383,10 @@ try {
 
 ```dart
 // In DatumConfig
-DatumConfig(
+final config = DatumConfig(
   autoStartSync: true,
   autoSyncInterval: Duration(minutes: 15),
-  // ...
-)
+);
 ```
 
 ### 4. Manual Sync with Options

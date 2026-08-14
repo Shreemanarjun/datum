@@ -2,82 +2,92 @@
 title: Health Module
 ---
 
-The Health module provides comprehensive monitoring and diagnostics for the Datum system's operational status.
+The Health module provides monitoring and diagnostics for the Datum system's operational status.
 
 ## Overview
 
-Health monitoring is crucial for maintaining reliable data synchronization. The Health module tracks the status of all adapters, managers, and sync operations to ensure the system is functioning properly.
+Health monitoring is crucial for maintaining reliable data synchronization. The Health module tracks the status of each manager and its adapters so the system's condition is always observable.
 
 ## Key Components
 
 ### DatumHealth
 
-Represents the health status of a Datum component.
+Represents the operational health of a sync manager.
 
 **Properties:**
-- `status`: Current health status (`healthy`, `degraded`, `unhealthy`)
-- `message`: Human-readable status description
-- `timestamp`: When the health check was performed
-- `details`: Additional diagnostic information (Map<String, dynamic>)
+- `status`: The overall manager health (`DatumSyncHealth`)
+- `localAdapterStatus`: Health of the local data adapter (`AdapterHealthStatus`)
+- `remoteAdapterStatus`: Health of the remote data adapter (`AdapterHealthStatus`)
 
-### HealthStatus Enum
+**Methods:**
+- `describe()`: A human-readable, multi-line health summary suitable for logging
 
-Defines the possible health states:
+### DatumSyncHealth Enum
 
-- `healthy`: Component is functioning normally
-- `degraded`: Component has issues but can still operate
-- `unhealthy`: Component is not functioning properly
+Describes the overall health of a synchronization process:
+
+- `healthy`: Everything is functioning normally
+- `syncing`: A sync cycle is currently running
+- `pending`: Operations are queued and waiting to sync
+- `degraded`: The system works but with reduced capability
+- `offline`: The remote is unreachable
+- `error`: The last sync ended in an error
+
+### AdapterHealthStatus Enum
+
+Describes the health of an individual adapter:
+
+- `healthy`: The adapter is functioning correctly
+- `unhealthy`: The adapter is unreachable or has failed
 
 ## Health Monitoring
 
 ### Manager Health
 
-Each DatumManager provides health monitoring:
+Each `DatumManager` provides health monitoring:
 
 ```dart
-// Check health of a specific manager
+// Check health of a specific manager (probes both adapters)
 final taskHealth = await Datum.manager<Task>().checkHealth();
 
-// Get current health status
+// Get the current health from the live status snapshot
 final currentHealth = Datum.manager<Task>().currentStatus.health;
 
 // Watch health changes reactively
-final healthStream = Datum.manager<Task>().health;
-healthStream.listen((health) {
+Datum.manager<Task>().health.listen((health) {
   switch (health.status) {
-    case HealthStatus.healthy:
+    case DatumSyncHealth.healthy:
       print('Tasks manager is healthy');
-      break;
-    case HealthStatus.degraded:
-      print('Tasks manager is degraded: ${health.message}');
-      break;
-    case HealthStatus.unhealthy:
-      print('Tasks manager is unhealthy: ${health.message}');
-      break;
+    case DatumSyncHealth.offline:
+      print('Tasks manager is offline');
+    case DatumSyncHealth.error:
+      print('Tasks manager reported an error');
+    default:
+      print('Tasks manager status: ${health.status.name}');
   }
 });
 ```
 
 ### Global Health Monitoring
 
-Monitor health across all managers:
+Monitor health across all managers with `Datum.instance.allHealths`, a `Stream<Map<Type, DatumHealth>>`:
 
 ```dart
 // Get health status of all managers
-final allHealths = await Datum.instance.allHealths.first;
+final allHealths = await datum.allHealths.first;
 
 allHealths.forEach((entityType, health) {
-  print('${entityType}: ${health.status} - ${health.message}');
+  print('$entityType: ${health.status.name}');
 });
 
 // Watch global health changes
-Datum.instance.allHealths.listen((healthMap) {
-  final unhealthyCount = healthMap.values
-      .where((health) => health.status == HealthStatus.unhealthy)
+datum.allHealths.listen((healthMap) {
+  final errorCount = healthMap.values
+      .where((health) => health.status == DatumSyncHealth.error)
       .length;
 
-  if (unhealthyCount > 0) {
-    print('Warning: $unhealthyCount managers are unhealthy');
+  if (errorCount > 0) {
+    print('Warning: $errorCount managers report errors');
   }
 });
 ```
@@ -86,62 +96,62 @@ Datum.instance.allHealths.listen((healthMap) {
 
 ### Automatic Health Checks
 
-Health checks run automatically during:
-
-- Manager initialization
-- Sync operations
-- Periodic intervals (configurable)
-- Manual health check requests
+The health carried by `currentStatus` and the `health` stream is refreshed as the manager operates — during initialization, sync cycles, and connectivity changes.
 
 ### Manual Health Checks
 
 Trigger health checks manually:
 
 ```dart
-// Check health of all managers
-final results = await Future.wait([
-  Datum.manager<Task>().checkHealth(),
-  Datum.manager<User>().checkHealth(),
-  Datum.manager<Post>().checkHealth(),
-]);
+// Probe a manager directly
+final taskHealth = await Datum.manager<Task>().checkHealth();
 
-// Check if any manager is unhealthy
-final hasUnhealthy = results.any((health) => health.status == HealthStatus.unhealthy);
+// Or gather the latest health of every registered manager at once
+final healthMap = await datum.allHealths.first;
+final hasErrors = healthMap.values.any((h) => h.status == DatumSyncHealth.error);
 ```
 
 ### Adapter Health
 
-Adapters implement their own health checks:
+Adapters implement their own health checks. `checkHealth()` on an adapter returns an `AdapterHealthStatus` directly:
 
 ```dart
 // Local adapter health
-final localHealth = await taskManager.localAdapter.checkHealth();
+final localHealth = await manager.localAdapter.checkHealth();
 
 // Remote adapter health
-final remoteHealth = await taskManager.remoteAdapter.checkHealth();
+final remoteHealth = await manager.remoteAdapter.checkHealth();
+
+if (localHealth == AdapterHealthStatus.unhealthy) {
+  print('Local storage is failing');
+}
 ```
+
+Custom adapters should override `checkHealth()` to provide a meaningful probe (e.g. check that a database file is accessible, or ping a server endpoint). The default implementation returns `AdapterHealthStatus.healthy`.
 
 ## Health Diagnostics
 
 ### Health Details
 
-Health checks provide detailed diagnostic information:
+A manager health check reports the overall status plus each adapter's state; combine it with the status snapshot for operational counters:
 
 ```dart
-final health = await Datum.manager<Task>().checkHealth();
+final health = await manager.checkHealth();
 
-print('Status: ${health.status}');
-print('Message: ${health.message}');
-print('Timestamp: ${health.timestamp}');
+print(health.describe());
+// Health: healthy
+//   local adapter:  healthy
+//   remote adapter: healthy
 
-// Access detailed diagnostics
-final details = health.details;
-if (details != null) {
-  print('Connection status: ${details['connection']}');
-  print('Last sync: ${details['lastSyncTime']}');
-  print('Pending operations: ${details['pendingCount']}');
-  print('Storage size: ${details['storageSize']} bytes');
-}
+print('Status: ${health.status.name}');
+print('Local adapter: ${health.localAdapterStatus.name}');
+print('Remote adapter: ${health.remoteAdapterStatus.name}');
+
+// Operational counters live on the status snapshot
+final snapshot = manager.currentStatus;
+print('Pending operations: ${snapshot.pendingOperations}');
+print('Failed operations: ${snapshot.failedOperations}');
+print('Progress: ${(snapshot.progress * 100).round()}%');
 ```
 
 ### Common Health Issues
@@ -168,18 +178,15 @@ if (details != null) {
 
 ### Automatic Recovery
 
-Configure automatic recovery actions:
+Configure automatic retries for transient failures:
 
 ```dart
 final config = DatumConfig(
-  // Automatic recovery settings
   errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+    shouldRetry: (error) async => error is NetworkException && error.isRetryable,
     maxRetries: 3,
-    backoffStrategy: ExponentialBackoffStrategy(),
+    backoffStrategy: const ExponentialBackoff(),
   ),
-
-  // Health check intervals
-  healthCheckInterval: Duration(minutes: 5),
 );
 ```
 
@@ -195,18 +202,17 @@ Future<void> recoverFromHealthIssues() async {
     final entityType = entry.key;
     final health = entry.value;
 
-    if (health.status == HealthStatus.unhealthy) {
-      print('Attempting to recover ${entityType}...');
+    if (health.status == DatumSyncHealth.error) {
+      print('Attempting to recover $entityType...');
 
-      // Try to reinitialize the manager
-      try {
-        final manager = Datum.managerByType(entityType);
-        await manager.dispose();
-        // Reinitialize logic here
-        print('Recovered ${entityType}');
-      } catch (e) {
-        print('Failed to recover ${entityType}: $e');
-      }
+      final manager = Datum.managerByType(entityType);
+
+      // Pause, re-probe, and resume the manager
+      manager.pauseSync();
+      final refreshed = await manager.checkHealth();
+      manager.resumeSync();
+
+      print('Re-checked $entityType: ${refreshed.status.name}');
     }
   }
 }
@@ -216,22 +222,25 @@ Future<void> recoverFromHealthIssues() async {
 
 ### Performance Metrics
 
-Track performance-related health metrics:
+Global sync metrics are exposed through `Datum.instance.metrics` (a `Stream<DatumMetrics>`) and `currentMetrics`:
 
 ```dart
-// Get detailed health with performance metrics
-final health = await Datum.manager<Task>().checkHealth();
+final metrics = datum.currentMetrics;
 
-final details = health.details;
-if (details != null) {
-  final avgSyncTime = details['averageSyncDuration'];
-  final syncSuccessRate = details['syncSuccessRate'];
-  final storageUtilization = details['storageUtilizationPercent'];
+print('Total syncs: ${metrics.totalSyncOperations}');
+print('Successful: ${metrics.successfulSyncs}');
+print('Failed: ${metrics.failedSyncs}');
+print('Conflicts detected: ${metrics.conflictsDetected}');
+print('Bytes pushed: ${metrics.totalBytesPushed}');
+print('Bytes pulled: ${metrics.totalBytesPulled}');
 
-  print('Avg sync time: ${avgSyncTime}ms');
-  print('Success rate: ${(syncSuccessRate * 100).round()}%');
-  print('Storage usage: ${storageUtilization}%');
-}
+// Or reactively
+datum.metrics.listen((m) {
+  final total = m.totalSyncOperations;
+  if (total > 0) {
+    print('Sync success rate: ${(m.successfulSyncs / total * 100).round()}%');
+  }
+});
 ```
 
 ### Trend Analysis
@@ -251,13 +260,15 @@ class HealthMonitor {
     }
 
     // Analyze trends
-    final recentHealth = _healthHistory.sublist(_healthHistory.length - 10);
-    final unhealthyCount = recentHealth
-        .where((h) => h.status == HealthStatus.unhealthy)
-        .length;
+    if (_healthHistory.length >= 10) {
+      final recentHealth = _healthHistory.sublist(_healthHistory.length - 10);
+      final errorCount = recentHealth
+          .where((h) => h.status == DatumSyncHealth.error)
+          .length;
 
-    if (unhealthyCount > 5) {
-      print('Warning: Health deteriorating');
+      if (errorCount > 5) {
+        print('Warning: Health deteriorating');
+      }
     }
   }
 }
@@ -278,11 +289,10 @@ class HealthAlertSystem {
         final entityType = entry.key;
         final health = entry.value;
 
-        if (health.status == HealthStatus.unhealthy) {
+        if (health.status == DatumSyncHealth.error) {
           sendAlert(
-            title: '${entityType} Manager Unhealthy',
-            message: health.message,
-            details: health.details,
+            title: '$entityType Manager Unhealthy',
+            message: health.describe(),
           );
         }
       }
@@ -292,7 +302,6 @@ class HealthAlertSystem {
   void sendAlert({
     required String title,
     required String message,
-    Map<String, dynamic>? details,
   }) {
     // Send alert via email, Slack, etc.
     print('ALERT: $title - $message');
@@ -355,10 +364,9 @@ class HealthAlertSystem {
 ```dart
 // Check local adapter health
 final localHealth = await manager.localAdapter.checkHealth();
-if (localHealth.status == HealthStatus.unhealthy) {
-  // Try to reconnect or reinitialize
-  await manager.dispose();
-  await manager.initialize();
+if (localHealth == AdapterHealthStatus.unhealthy) {
+  // Re-initialize the local adapter
+  await manager.localAdapter.initialize();
 }
 ```
 
@@ -366,18 +374,19 @@ if (localHealth.status == HealthStatus.unhealthy) {
 ```dart
 // Check remote adapter health
 final remoteHealth = await manager.remoteAdapter.checkHealth();
-if (remoteHealth.status == HealthStatus.unhealthy) {
-  // Wait for connectivity to recover
-  await connectivityChecker.onStatusChange
+if (remoteHealth == AdapterHealthStatus.unhealthy) {
+  // Wait for connectivity to recover, then re-check
+  await datum.connectivityChecker.onStatusChange
       .where((connected) => connected)
       .first;
+  await manager.checkHealth();
 }
 ```
 
 **Sync Performance Issues:**
 ```dart
 // Check for large pending queues
-final pendingCount = await manager.getPendingCount('user-id');
+final pendingCount = await manager.getPendingCount(userId);
 if (pendingCount > 1000) {
   print('Warning: Large pending queue may cause performance issues');
 }
@@ -389,7 +398,7 @@ if (pendingCount > 1000) {
 // Enable detailed logging
 final config = DatumConfig(
   enableLogging: true,
-  // ... other config
+  logLevel: LogLevel.debug,
 );
 
 // Manually run health checks with timing
@@ -398,5 +407,5 @@ final health = await manager.checkHealth();
 stopwatch.stop();
 
 print('Health check took ${stopwatch.elapsedMilliseconds}ms');
-print('Health details: ${health.details}');
-```</content>
+print(health.describe());
+```

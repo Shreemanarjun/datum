@@ -48,7 +48,7 @@ class TaskIsolatedAdapter extends IsolatedHiveLocalAdapter<Task> {
 
 For full control or other storage backends, implement `LocalAdapter` directly:
 
-```dart
+```dart no-verify
 import 'dart:async';
 import 'package:datum/datum.dart';
 
@@ -56,6 +56,11 @@ class TaskLocalAdapter extends LocalAdapter<Task> {
   // Implementation details...
 }
 ```
+
+> **Reference implementations:** for a complete, tested `LocalAdapter`, see
+> `InMemoryLocalAdapter` in the `datum` package, `HiveLocalAdapter` in
+> `datum_hive`, and `SqliteLocalAdapter` in `datum_sqlite`. The `datum_test`
+> package can certify your adapter with `runLocalAdapterConformanceTests`.
 
 ## Complete Hive Adapter Example
 

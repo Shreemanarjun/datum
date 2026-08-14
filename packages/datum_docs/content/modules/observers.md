@@ -16,66 +16,64 @@ Observers and middleware allow you to intercept, modify, and monitor data operat
 
 ### DatumMiddleware<T>
 
-Middleware intercepts and can modify data operations during create, read, update, and delete operations.
+Middleware intercepts and can transform entities as they flow through save and fetch operations. Both hooks return `FutureOr<T>` and default to passing the entity through unchanged.
 
 **Key Methods:**
-- `transformBeforeSave(T entity)`: Modify entity before saving
-- `transformAfterFetch(T entity)`: Modify entity after fetching
+- `transformBeforeSave(T item)`: Transforms an entity before it is saved via a create or update operation
+- `transformAfterFetch(T item)`: Transforms an entity after it has been fetched from a data source
 
 ### Creating Middleware
 
 ```dart
 class EncryptionMiddleware extends DatumMiddleware<Task> {
   @override
-  Future<Task> transformBeforeSave(Task entity) async {
+  Future<Task> transformBeforeSave(Task item) async {
     // Encrypt sensitive data before saving
-    final encryptedDescription = await encrypt(entity.description ?? '');
-    return entity.copyWith(description: encryptedDescription);
+    return item.copyWith(description: await encrypt(item.description ?? ''));
   }
 
   @override
-  Future<Task> transformAfterFetch(Task entity) async {
+  Future<Task> transformAfterFetch(Task item) async {
     // Decrypt sensitive data after fetching
-    final decryptedDescription = await decrypt(entity.description ?? '');
-    return entity.copyWith(description: decryptedDescription);
+    return item.copyWith(description: await decrypt(item.description ?? ''));
   }
 }
 
-class ValidationMiddleware extends DatumMiddleware<User> {
+class ValidationMiddleware extends DatumMiddleware<Task> {
   @override
-  Future<User> transformBeforeSave(User entity) async {
-    // Validate user data
-    if (entity.email.isEmpty) {
-      throw ValidationException('Email is required');
+  Future<Task> transformBeforeSave(Task item) async {
+    // Validate before the entity reaches the adapters
+    if (item.title.isEmpty) {
+      throw const DatumException(
+        code: DatumExceptionCode.validationError,
+        message: 'Title is required',
+      );
     }
-    if (!isValidEmail(entity.email)) {
-      throw ValidationException('Invalid email format');
-    }
-    return entity;
+    return item;
   }
 }
 
 class AuditMiddleware extends DatumMiddleware<Task> {
   @override
-  Future<Task> transformBeforeSave(Task entity) async {
-    // Add audit information
-    final auditData = {
-      'lastModifiedBy': currentUserId,
-      'lastModifiedAt': DateTime.now(),
-      'changeType': 'update',
-    };
-    return entity.copyWith(auditData: auditData);
+  Future<Task> transformBeforeSave(Task item) async {
+    // Stamp audit information onto the entity before saving
+    return item.copyWith(
+      description: '${item.description ?? ''} [edited ${DateTime.now().toIso8601String()}]',
+    );
   }
 }
+
+Future<String> encrypt(String value) async => value; // your cipher here
+Future<String> decrypt(String value) async => value; // your cipher here
 ```
 
 ### Registering Middleware
 
-```dart
+```dart continue
 final registrations = [
   DatumRegistration<Task>(
-    localAdapter: HiveTaskAdapter(),
-    remoteAdapter: SupabaseTaskAdapter(),
+    localAdapter: localAdapter,
+    remoteAdapter: remoteAdapter,
     middlewares: [
       EncryptionMiddleware(),
       ValidationMiddleware(),
@@ -87,123 +85,101 @@ final registrations = [
 
 ### Middleware Execution Order
 
-Middleware executes in registration order:
-
-1. **Before Save**: `transformBeforeSave` methods run in order
-2. **Save Operation**: Entity saved to adapters
-3. **After Fetch**: `transformAfterFetch` methods run in reverse order
+Middleware executes in registration order for **both** hooks:
 
 ```dart
 // Execution flow for saving:
 // 1. EncryptionMiddleware.transformBeforeSave
 // 2. ValidationMiddleware.transformBeforeSave
 // 3. AuditMiddleware.transformBeforeSave
-// 4. Save to local adapter
-// 5. Save to remote adapter
-// 6. AuditMiddleware.transformAfterFetch (if fetching)
-// 7. ValidationMiddleware.transformAfterFetch (if fetching)
-// 8. EncryptionMiddleware.transformAfterFetch (if fetching)
+// 4. Save to local adapter (and queue for remote sync)
+
+// Execution flow when fetching:
+// 1. EncryptionMiddleware.transformAfterFetch
+// 2. ValidationMiddleware.transformAfterFetch
+// 3. AuditMiddleware.transformAfterFetch
 ```
 
 ## Observers
 
 ### DatumObserver<T>
 
-Observers monitor data operations without modifying them. They receive notifications about operation lifecycle events.
+Observers monitor data operations without modifying them. All hooks are synchronous `void` callbacks with empty default implementations — override only the ones you need.
 
-**Key Methods:**
-- `onCreate(T entity)`: Called before creating an entity
-- `onUpdate(T oldEntity, T newEntity)`: Called before updating an entity
-- `onDelete(T entity)`: Called before deleting an entity
-- `onRead(T entity)`: Called after reading an entity
+**Lifecycle Hooks:**
+- `onCreateStart(T item)` / `onCreateEnd(T item)`: Around a `create` operation
+- `onUpdateStart(T item)` / `onUpdateEnd(T item)`: Around an `update` operation
+- `onDeleteStart(String id)` / `onDeleteEnd(String id, {required bool success})`: Around a `delete` operation
+- `onSyncStart()` / `onSyncEnd(DatumSyncResult result)`: Around a synchronization cycle
+- `onConflictDetected(T local, T remote, DatumConflictContext context)`: When a conflict is detected
+- `onConflictResolved(DatumConflictResolution<T> resolution)`: After a conflict has been resolved
+- `onUserSwitchStart(String? oldUserId, String newUserId, UserSwitchStrategy strategy)` / `onUserSwitchEnd(DatumUserSwitchResult result)`: Around a user switch
 
 ### Creating Observers
 
 ```dart
 class LoggingObserver extends DatumObserver<Task> {
+  final DatumLogger log = DatumLogger();
+
   @override
-  Future<void> onCreate(Task entity) async {
-    logger.info('Creating task: ${entity.title}');
+  void onCreateEnd(Task item) {
+    log.info('Created task: ${item.title}');
   }
 
   @override
-  Future<void> onUpdate(Task oldEntity, Task newEntity) async {
-    logger.info('Updating task ${oldEntity.id}: ${oldEntity.title} -> ${newEntity.title}');
+  void onUpdateEnd(Task item) {
+    log.info('Updated task ${item.id} (v${item.version})');
   }
 
   @override
-  Future<void> onDelete(Task entity) async {
-    logger.warn('Deleting task: ${entity.title}');
+  void onDeleteEnd(String id, {required bool success}) {
+    if (success) log.warn('Deleted task: $id');
   }
 
   @override
-  Future<void> onRead(Task entity) async {
-    logger.debug('Reading task: ${entity.title}');
+  void onSyncEnd(DatumSyncResult result) {
+    log.info('Sync finished: ${result.syncedCount} synced, ${result.failedCount} failed');
   }
 }
 
 class NotificationObserver extends DatumObserver<Task> {
   @override
-  Future<void> onCreate(Task entity) async {
-    if (entity.assignedTo != currentUserId) {
-      await sendNotification(
-        userId: entity.assignedTo,
-        message: 'New task assigned: ${entity.title}',
-      );
+  void onUpdateEnd(Task item) {
+    if (item.isCompleted) {
+      sendNotification('Task completed: ${item.title}');
     }
   }
 
-  @override
-  Future<void> onUpdate(Task oldEntity, Task newEntity) async {
-    if (oldEntity.isCompleted != newEntity.isCompleted && newEntity.isCompleted) {
-      await sendNotification(
-        userId: newEntity.createdBy,
-        message: 'Task completed: ${newEntity.title}',
-      );
-    }
+  void sendNotification(String message) {
+    // Integrate your push/notification service here
   }
 }
 
-class CacheInvalidationObserver extends DatumObserver<Post> {
+class CacheInvalidationObserver extends DatumObserver<Task> {
+  final Map<String, Task> cache = {};
+
   @override
-  Future<void> onCreate(Post entity) async {
-    await cache.invalidate('posts_list');
-    await cache.invalidate('user_${entity.userId}_posts');
+  void onUpdateEnd(Task item) {
+    cache.remove(item.id);
   }
 
   @override
-  Future<void> onUpdate(Post oldEntity, Post newEntity) async {
-    await cache.invalidate('post_${oldEntity.id}');
-    if (oldEntity.userId != newEntity.userId) {
-      await cache.invalidate('user_${oldEntity.userId}_posts');
-    }
-  }
-
-  @override
-  Future<void> onDelete(Post entity) async {
-    await cache.invalidate('post_${entity.id}');
-    await cache.invalidate('posts_list');
-    await cache.invalidate('user_${entity.userId}_posts');
+  void onDeleteEnd(String id, {required bool success}) {
+    if (success) cache.remove(id);
   }
 }
 ```
 
 ### Registering Observers
 
-```dart
+```dart continue
 final registrations = [
   DatumRegistration<Task>(
-    localAdapter: HiveTaskAdapter(),
-    remoteAdapter: SupabaseTaskAdapter(),
+    localAdapter: localAdapter,
+    remoteAdapter: remoteAdapter,
     observers: [
       LoggingObserver(),
       NotificationObserver(),
-    ],
-  ),
-  DatumRegistration<Post>(
-    localAdapter: HivePostAdapter(),
-    remoteAdapter: SupabasePostAdapter(),
-    observers: [
       CacheInvalidationObserver(),
     ],
   ),
@@ -214,64 +190,61 @@ final registrations = [
 
 ### GlobalDatumObserver
 
-Global observers monitor system-wide events across all entities.
-
-**Key Methods:**
-- `onSyncStart()`: Called when global sync starts
-- `onSyncEnd(DatumSyncResult result)`: Called when global sync ends
+Global observers extend `DatumObserver<DatumEntityInterface>` and monitor **every** registered entity type. They receive the same lifecycle hooks (`onCreateStart`/`End`, `onUpdateStart`/`End`, `onDeleteStart`/`End`, `onSyncStart`/`onSyncEnd`, conflict and user-switch hooks) with `DatumEntityInterface` in place of the concrete entity type.
 
 ### Creating Global Observers
 
 ```dart
 class GlobalAnalyticsObserver extends GlobalDatumObserver {
   @override
-  Future<void> onSyncStart() async {
-    analytics.track('sync_started', properties: {
-      'timestamp': DateTime.now().toIso8601String(),
-    });
+  void onSyncStart() {
+    print('sync_started at ${DateTime.now().toIso8601String()}');
   }
 
   @override
-  Future<void> onSyncEnd(DatumSyncResult result) async {
-    analytics.track('sync_completed', properties: {
-      'duration': result.duration.inMilliseconds,
-      'syncedCount': result.syncedCount,
-      'failedCount': result.failedCount,
-      'conflictsResolved': result.conflictsResolved,
-    });
+  void onSyncEnd(DatumSyncResult result) {
+    print('sync_completed in ${result.duration.inMilliseconds}ms: '
+        '${result.syncedCount} synced, ${result.failedCount} failed, '
+        '${result.conflictsResolved} conflicts resolved');
   }
 }
 
 class GlobalHealthObserver extends GlobalDatumObserver {
   @override
-  Future<void> onSyncStart() async {
-    // Record sync start for health monitoring
-    await healthMonitor.recordSyncStart();
+  void onCreateEnd(DatumEntityInterface item) {
+    print('Entity created: ${item.runtimeType} ${item.id}');
   }
 
   @override
-  Future<void> onSyncEnd(DatumSyncResult result) async {
-    // Update health metrics
-    await healthMonitor.recordSyncEnd(result);
-
+  void onSyncEnd(DatumSyncResult result) {
     // Alert on sync failures
     if (result.failedCount > 0) {
-      await alertSystem.sendAlert(
-        'Sync completed with failures',
-        'Failed operations: ${result.failedCount}',
-      );
+      print('ALERT: sync completed with ${result.failedCount} failures');
     }
   }
+}
+
+// Your app's connectivity checker (see the Utils module)
+class AppConnectivity implements DatumConnectivityChecker {
+  @override
+  Future<bool> get isConnected async => true;
+  @override
+  Stream<bool> get onStatusChange => const Stream.empty();
 }
 ```
 
 ### Registering Global Observers
 
-```dart
+```dart continue
 await Datum.initialize(
-  config: config,
-  connectivityChecker: connectivityChecker,
-  registrations: registrations,
+  config: const DatumConfig(),
+  connectivityChecker: AppConnectivity(),
+  registrations: [
+    DatumRegistration<Task>(
+      localAdapter: localAdapter,
+      remoteAdapter: remoteAdapter,
+    ),
+  ],
   observers: [
     GlobalAnalyticsObserver(),
     GlobalHealthObserver(),
@@ -286,24 +259,25 @@ await Datum.initialize(
 ```dart
 class ConditionalEncryptionMiddleware extends DatumMiddleware<Task> {
   @override
-  Future<Task> transformBeforeSave(Task entity) async {
-    // Only encrypt sensitive tasks
-    if (entity.isSensitive) {
-      final encryptedDescription = await encrypt(entity.description ?? '');
-      return entity.copyWith(description: encryptedDescription);
+  Future<Task> transformBeforeSave(Task item) async {
+    // Only encrypt high-priority tasks
+    if (item.priority > 3) {
+      return item.copyWith(description: await encrypt(item.description ?? ''));
     }
-    return entity;
+    return item;
   }
 
   @override
-  Future<Task> transformAfterFetch(Task entity) async {
-    if (entity.isSensitive) {
-      final decryptedDescription = await decrypt(entity.description ?? '');
-      return entity.copyWith(description: decryptedDescription);
+  Future<Task> transformAfterFetch(Task item) async {
+    if (item.priority > 3) {
+      return item.copyWith(description: await decrypt(item.description ?? ''));
     }
-    return entity;
+    return item;
   }
 }
+
+Future<String> encrypt(String value) async => value; // your cipher here
+Future<String> decrypt(String value) async => value; // your cipher here
 ```
 
 ### Composite Observers
@@ -315,30 +289,23 @@ class CompositeObserver extends DatumObserver<Task> {
   CompositeObserver(this._observers);
 
   @override
-  Future<void> onCreate(Task entity) async {
+  void onCreateEnd(Task item) {
     for (final observer in _observers) {
-      await observer.onCreate(entity);
+      observer.onCreateEnd(item);
     }
   }
 
   @override
-  Future<void> onUpdate(Task oldEntity, Task newEntity) async {
+  void onUpdateEnd(Task item) {
     for (final observer in _observers) {
-      await observer.onUpdate(oldEntity, newEntity);
+      observer.onUpdateEnd(item);
     }
   }
 
   @override
-  Future<void> onDelete(Task entity) async {
+  void onDeleteEnd(String id, {required bool success}) {
     for (final observer in _observers) {
-      await observer.onDelete(entity);
-    }
-  }
-
-  @override
-  Future<void> onRead(Task entity) async {
-    for (final observer in _observers) {
-      await observer.onRead(entity);
+      observer.onDeleteEnd(id, success: success);
     }
   }
 }
@@ -347,22 +314,23 @@ class CompositeObserver extends DatumObserver<Task> {
 ### Async Middleware
 
 ```dart
-class AsyncValidationMiddleware extends DatumMiddleware<User> {
+class AsyncValidationMiddleware extends DatumMiddleware<Task> {
   @override
-  Future<User> transformBeforeSave(User entity) async {
-    // Perform async validation (e.g., check uniqueness)
-    final existingUser = await userService.findByEmail(entity.email);
-    if (existingUser != null && existingUser.id != entity.id) {
-      throw ValidationException('Email already exists');
+  Future<Task> transformBeforeSave(Task item) async {
+    // Perform async validation (e.g. check uniqueness against a service)
+    final duplicate = await findByTitle(item.title);
+    if (duplicate != null && duplicate.id != item.id) {
+      throw const DatumException(
+        code: DatumExceptionCode.validationError,
+        message: 'A task with this title already exists',
+      );
     }
+    return item;
+  }
 
-    // Perform external API validation
-    final isValid = await externalApi.validateUser(entity);
-    if (!isValid) {
-      throw ValidationException('User validation failed');
-    }
-
-    return entity;
+  Future<Task?> findByTitle(String title) async {
+    // Query your backend or local store here
+    return null;
   }
 }
 ```
@@ -371,37 +339,45 @@ class AsyncValidationMiddleware extends DatumMiddleware<User> {
 
 ```dart
 class ResilientObserver extends DatumObserver<Task> {
+  final DatumLogger log = DatumLogger();
+
   @override
-  Future<void> onCreate(Task entity) async {
+  void onCreateEnd(Task item) {
     try {
-      await notificationService.sendWelcomeNotification(entity);
+      sendWelcomeNotification(item);
     } catch (e) {
-      // Log error but don't fail the operation
-      logger.error('Failed to send welcome notification: $e');
-      // Consider sending to error tracking service
-      await errorTracker.report(e, context: {'operation': 'create', 'entityId': entity.id});
+      // Log the error but never fail the operation
+      log.error('Failed to send welcome notification: $e');
     }
+  }
+
+  void sendWelcomeNotification(Task item) {
+    // Notification integration here
   }
 }
 
 class SafeMiddleware extends DatumMiddleware<Task> {
+  final DatumLogger log = DatumLogger();
+
   @override
-  Future<Task> transformBeforeSave(Task entity) async {
+  Future<Task> transformBeforeSave(Task item) async {
     try {
-      return await performTransformation(entity);
+      return await performTransformation(item);
     } catch (e) {
-      logger.error('Middleware transformation failed: $e');
-      // Return original entity to allow operation to continue
-      return entity;
+      log.error('Middleware transformation failed: $e');
+      // Return the original entity to allow the operation to continue
+      return item;
     }
   }
 
-  Future<Task> performTransformation(Task entity) async {
+  Future<Task> performTransformation(Task item) async {
     // Actual transformation logic here
-    return entity;
+    return item;
   }
 }
 ```
+
+Observer callbacks are additionally wrapped in an internal error boundary by the manager, so a throwing observer is isolated and cannot break the data operation it observes.
 
 ## Performance Considerations
 
@@ -414,8 +390,8 @@ class SafeMiddleware extends DatumMiddleware<Task> {
 
 ### Observer Performance
 
-1. **Make observers lightweight**: Avoid blocking operations
-2. **Use async observers**: Don't block main operations
+1. **Make observers lightweight**: Hooks are synchronous and run inline with operations
+2. **Offload heavy work**: Kick off futures from a hook rather than blocking in it
 3. **Batch notifications**: Send batched notifications when possible
 4. **Conditional execution**: Only execute when necessary
 
@@ -430,24 +406,40 @@ class SafeMiddleware extends DatumMiddleware<Task> {
 ### Testing Middleware
 
 ```dart
+import 'package:test/test.dart';
+
 void main() {
-  test('EncryptionMiddleware encrypts data', () async {
+  test('EncryptionMiddleware transforms the description', () async {
     final middleware = EncryptionMiddleware();
-    final task = Task(description: 'secret data');
+    final task = Task(
+      id: 't1',
+      userId: 'u1',
+      title: 'Test',
+      description: 'secret data',
+      createdAt: DateTime.now(),
+      modifiedAt: DateTime.now(),
+      version: 1,
+    );
 
     final transformed = await middleware.transformBeforeSave(task);
 
-    expect(transformed.description, isNot(equals('secret data')));
     expect(await decrypt(transformed.description!), equals('secret data'));
   });
 
-  test('ValidationMiddleware rejects invalid data', () async {
+  test('ValidationMiddleware rejects an empty title', () async {
     final middleware = ValidationMiddleware();
-    final invalidUser = User(email: '');
+    final invalid = Task(
+      id: 't2',
+      userId: 'u1',
+      title: '',
+      createdAt: DateTime.now(),
+      modifiedAt: DateTime.now(),
+      version: 1,
+    );
 
     expect(
-      () => middleware.transformBeforeSave(invalidUser),
-      throwsA(isA<ValidationException>()),
+      () => middleware.transformBeforeSave(invalid),
+      throwsA(isA<DatumException>()),
     );
   });
 }
@@ -456,26 +448,24 @@ void main() {
 ### Testing Observers
 
 ```dart
+import 'package:test/test.dart';
+
 void main() {
-  test('LoggingObserver logs operations', () async {
-    final logger = MockLogger();
-    final observer = LoggingObserver(logger);
+  test('CacheInvalidationObserver evicts updated entries', () {
+    final observer = CacheInvalidationObserver();
+    final task = Task(
+      id: 't1',
+      userId: 'u1',
+      title: 'Cached',
+      createdAt: DateTime.now(),
+      modifiedAt: DateTime.now(),
+      version: 1,
+    );
 
-    await observer.onCreate(testTask);
+    observer.cache['t1'] = task;
+    observer.onUpdateEnd(task);
 
-    verify(logger.info('Creating task: ${testTask.title}')).called(1);
-  });
-
-  test('NotificationObserver sends notifications', () async {
-    final notificationService = MockNotificationService();
-    final observer = NotificationObserver(notificationService);
-
-    await observer.onCreate(testTask);
-
-    verify(notificationService.sendNotification(
-      userId: testTask.assignedTo,
-      message: 'New task assigned: ${testTask.title}',
-    )).called(1);
+    expect(observer.cache.containsKey('t1'), isFalse);
   });
 }
 ```
@@ -499,7 +489,7 @@ void main() {
 
 ### General Best Practices
 
-1. **Order matters**: Consider the order of middleware and observers
+1. **Order matters**: Middleware runs in registration order for both hooks
 2. **Avoid dependencies**: Minimize dependencies between middleware/observers
 3. **Monitor performance**: Track the impact of middleware on performance
 4. **Version carefully**: Consider versioning when changing middleware behavior
@@ -510,13 +500,20 @@ void main() {
 ### Authentication & Authorization
 
 ```dart
-class AuthorizationMiddleware extends DatumMiddleware<Document> {
+class AuthorizationMiddleware extends DatumMiddleware<Task> {
+  final String currentUserId;
+
+  AuthorizationMiddleware(this.currentUserId);
+
   @override
-  Future<Document> transformBeforeSave(Document entity) async {
-    if (!await permissionService.canEdit(entity, currentUser)) {
-      throw AuthorizationException('Not authorized to edit document');
+  Future<Task> transformBeforeSave(Task item) async {
+    if (item.userId != currentUserId) {
+      throw const DatumException(
+        code: DatumExceptionCode.authorizationError,
+        message: 'Not authorized to edit this task',
+      );
     }
-    return entity;
+    return item;
   }
 }
 ```
@@ -524,17 +521,19 @@ class AuthorizationMiddleware extends DatumMiddleware<Document> {
 ### Data Enrichment
 
 ```dart
-class EnrichmentMiddleware extends DatumMiddleware<Post> {
+class EnrichmentMiddleware extends DatumMiddleware<Task> {
   @override
-  Future<Post> transformAfterFetch(Post entity) async {
-    // Add computed fields
-    final author = await userService.getById(entity.userId);
-    final commentCount = await commentService.countByPostId(entity.id);
-
-    return entity.copyWith(
-      authorName: author.name,
-      commentCount: commentCount,
+  Future<Task> transformAfterFetch(Task item) async {
+    // Attach computed data after fetching
+    final subtaskCount = await countSubtasks(item.id);
+    return item.copyWith(
+      description: '${item.description ?? ''} ($subtaskCount subtasks)',
     );
+  }
+
+  Future<int> countSubtasks(String taskId) async {
+    // Query your data source here
+    return 0;
   }
 }
 ```
@@ -544,14 +543,24 @@ class EnrichmentMiddleware extends DatumMiddleware<Post> {
 ```dart
 class AuditObserver extends DatumObserver<Task> {
   @override
-  Future<void> onUpdate(Task oldEntity, Task newEntity) async {
-    await auditService.logChange(
+  void onUpdateEnd(Task item) {
+    recordAudit(
       entityType: 'Task',
-      entityId: oldEntity.id,
-      userId: currentUserId,
-      changes: oldEntity.diff(newEntity),
+      entityId: item.id,
+      userId: item.userId,
+      version: item.version,
       timestamp: DateTime.now(),
     );
+  }
+
+  void recordAudit({
+    required String entityType,
+    required String entityId,
+    required String userId,
+    required int version,
+    required DateTime timestamp,
+  }) {
+    // Persist to your audit log
   }
 }
 ```
@@ -559,14 +568,18 @@ class AuditObserver extends DatumObserver<Task> {
 ### Caching
 
 ```dart
-class CacheObserver extends DatumObserver<Product> {
-  @override
-  Future<void> onUpdate(Product oldEntity, Product newEntity) async {
-    await cache.invalidate('product_${oldEntity.id}');
-    await cache.invalidate('products_list');
+class CacheObserver extends DatumObserver<Task> {
+  final Map<String, Task> cache = {};
 
-    // Update cache with new data
-    await cache.set('product_${newEntity.id}', newEntity, ttl: Duration(hours: 1));
+  @override
+  void onUpdateEnd(Task item) {
+    // Refresh the cache with the new data
+    cache[item.id] = item;
+  }
+
+  @override
+  void onDeleteEnd(String id, {required bool success}) {
+    if (success) cache.remove(id);
   }
 }
-```</content>
+```

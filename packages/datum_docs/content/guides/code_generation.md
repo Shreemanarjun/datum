@@ -28,12 +28,12 @@ Add `datum_generator` as a dependency (for annotations) and a dev dependency (fo
 
 ```yaml
 dependencies:
-  datum: ^1.0.3
-  datum_generator: ^1.0.0
+  datum: ^1.1.0
+  datum_generator: ^1.1.0
 
 dev_dependencies:
   build_runner: ^2.4.0
-  datum_generator: ^1.0.0
+  datum_generator: ^1.1.0
 ```
 
 Then run:
@@ -99,13 +99,13 @@ By using the generated mixin (`with _$TaskMixin`), you no longer need to manuall
 Execute the build runner to generate the code:
 
 ```bash
-flutter pub run build_runner build
+dart run build_runner build
 ```
 
 For continuous generation during development:
 
 ```bash
-flutter pub run build_runner watch
+dart run build_runner watch
 ```
 
 This creates a `task.g.dart` file with all the boilerplate code!
@@ -114,7 +114,7 @@ This creates a `task.g.dart` file with all the boilerplate code!
 
 The generated file includes:
 
-```dart
+```dart no-verify
 // task.g.dart (generated)
 extension $TaskDatum on Task {
   static const String tableName = 'tasks';
@@ -156,6 +156,8 @@ Task _$TaskFromMap(Map<String, dynamic> map) {
 Marks a class for code generation.
 
 ```dart
+import 'package:datum_generator/datum_generator.dart';
+
 @DatumSerializable(tableName: 'custom_table_name')
 class MyEntity extends DatumEntity {
   // ...
@@ -164,13 +166,16 @@ class MyEntity extends DatumEntity {
 
 **Parameters:**
 - `tableName` (optional): Custom table name. Defaults to snake_case of class name.
-- `generateMixin` (optional, default: `false`): If `true`, generates a mixin that implements all required `DatumEntity` methods.
+- `generateMixin` (optional, default: `true`): Generates a `_$EntityNameMixin` that implements all required `DatumEntity` methods. Set it to `false` if you prefer to write those methods yourself and only want the extension helpers.
+- `strictNullChecks` (optional, default: `false`): When `true`, the generated `fromMap` uses plain casts instead of substituting default values for missing non-nullable primitives.
 
 ### @DatumIgnore
 
 Excludes a field from serialization (but still includes it in `copyWith` and equality checks).
 
 ```dart
+import 'package:datum_generator/datum_generator.dart';
+
 class User extends DatumEntity {
   final String email;
 
@@ -192,11 +197,13 @@ class User extends DatumEntity {
 Specifies a custom database field name.
 
 ```dart
+import 'package:datum_generator/datum_generator.dart';
+
 class Product extends DatumEntity {
-  @DatumField('product_name')
+  @DatumField(name: 'product_name')
   final String name;
 
-  @DatumField('unit_price')
+  @DatumField(name: 'unit_price')
   final double price;
 
   // ...
@@ -235,6 +242,7 @@ The generator automatically handles these types:
 ```dart
 import 'dart:ui';
 import 'package:datum/datum.dart';
+import 'package:datum_generator/datum_generator.dart';
 
 part 'drawing.g.dart';
 
@@ -261,11 +269,17 @@ Generated code handles:
 The generator works seamlessly with `RelationalDatumEntity`:
 
 ```dart
-```dart
+import 'package:datum_generator/datum_generator.dart';
+
+part 'paint_canvas.g.dart';
+
 @DatumSerializable(tableName: 'paint_canvases', generateMixin: true)
 class PaintCanvas extends RelationalDatumEntity with _$PaintCanvasMixin {
   @override
   final String id;
+
+  @override
+  final String userId;
 
   final String title;
   final int strokeCount;
@@ -310,6 +324,8 @@ class PaintCanvas extends RelationalDatumEntity with _$PaintCanvasMixin {
 If you need custom logic for specific fields, you can still use the generator for most fields:
 
 ```dart
+import 'package:datum_generator/datum_generator.dart';
+
 @DatumSerializable()
 class CustomEntity extends DatumEntity {
   final String normalField;
@@ -341,7 +357,7 @@ class CustomEntity extends DatumEntity {
 
 Converts the entity to a map with automatic field name conversion:
 
-```dart
+```dart no-verify
 final task = Task(
   id: '1',
   userId: 'user1',
@@ -375,7 +391,7 @@ final remoteMap = task.datumToMap(target: MapTarget.remote);
 
 Tracks changes between versions:
 
-```dart
+```dart no-verify
 final oldTask = Task(
   id: '1',
   userId: 'user1',
@@ -403,7 +419,7 @@ final changes = newTask.datumDiff(oldTask);
 
 Creates a copy with automatic version incrementing:
 
-```dart
+```dart no-verify
 final task = Task(
   id: '1',
   userId: 'user1',
@@ -426,7 +442,7 @@ print(updated.title);    // 'Updated'
 
 Proper equality and hashing:
 
-```dart
+```dart no-verify
 final task1 = Task(id: '1', userId: 'user1', title: 'Task', ...);
 final task2 = Task(id: '1', userId: 'user1', title: 'Task', ...);
 final task3 = Task(id: '1', userId: 'user1', title: 'Different', ...);
@@ -442,7 +458,7 @@ print(set.length);  // 1 (task2 is considered duplicate)
 
 ### 1. Always Use Part Directive
 
-```dart
+```dart no-verify
 // ✅ Correct
 part 'my_entity.g.dart';
 
@@ -452,7 +468,7 @@ part 'my_entity.g.dart';
 
 ### 2. Use Const Constructors
 
-```dart
+```dart no-verify
 // ✅ Preferred
 const Task({
   required this.id,
@@ -470,7 +486,7 @@ Task({
 
 ### 3. Implement Equality Using Generated Methods
 
-```dart
+```dart no-verify
 // ✅ Correct
 @override
 bool operator ==(Object other) => other is Task && datumEquals(other);
@@ -489,10 +505,10 @@ bool operator ==(Object other) {
 
 ```bash
 # Clean build cache if you encounter issues
-flutter pub run build_runner clean
+dart run build_runner clean
 
 # Rebuild with conflict resolution
-flutter pub run build_runner build --delete-conflicting-outputs
+dart run build_runner build --delete-conflicting-outputs
 ```
 
 ### 5. Commit Generated Files
@@ -518,8 +534,8 @@ Always commit `.g.dart` files to version control for consistency across team mem
 **Solutions:**
 ```bash
 # Clean and rebuild
-flutter pub run build_runner clean
-flutter pub run build_runner build --delete-conflicting-outputs
+dart run build_runner clean
+dart run build_runner build --delete-conflicting-outputs
 ```
 
 ### Type Errors in Generated Code
@@ -549,7 +565,7 @@ flutter pub run build_runner build --delete-conflicting-outputs
 2. Use generated methods by calling `datumToMap()`, `_$EntityFromMap()`, etc.
 3. For custom logic, override and call generated methods:
 
-```dart
+```dart no-verify
 @override
 Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
   final map = datumToMap(target: target);
@@ -572,7 +588,7 @@ The code generator produces highly optimized code:
 
 ### Manual Implementation (Before)
 
-```dart
+```dart no-verify
 class Task extends DatumEntity {
   // 50+ lines of boilerplate per entity
 
@@ -618,6 +634,8 @@ class Task extends DatumEntity {
 ### Generated Implementation (After)
 
 ```dart
+import 'package:datum_generator/datum_generator.dart';
+
 part 'task.g.dart';
 
 @DatumSerializable()
@@ -657,5 +675,5 @@ class Task extends DatumEntity {
 ## Additional Resources
 
 - [datum_generator Package](https://pub.dev/packages/datum_generator)
-- [Example Project](https://github.com/yourusername/datum/tree/main/packages/datum/example)
+- [Example Project](https://github.com/shreemanarjun/datum/tree/main/packages/datum/example)
 - [API Documentation](https://pub.dev/documentation/datum_generator/latest/)

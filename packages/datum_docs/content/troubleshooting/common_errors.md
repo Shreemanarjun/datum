@@ -20,30 +20,63 @@ Common errors developers encounter when working with Datum's type system and dat
 
 **Cause:** Attempting to use the base `DatumEntityInterface` directly instead of a concrete entity type.
 
-**Solution:** Always use concrete entity classes that implement `DatumEntityInterface`:
+**Solution:** Always use concrete entity classes:
 
 ```dart
-// ❌ Wrong - Using base interface
-final stream = Datum.instance.watchAll<DatumEntityInterface>(userId: 'user1');
+// ❌ Wrong - Using the base interface as the type argument
+final wrong = Datum.instance.watchAll<DatumEntityInterface>(userId: 'user1');
 
-// ✅ Correct - Using concrete entity type
+// ✅ Correct - Using a concrete entity type
+final stream = Datum.instance.watchAll<Task>(userId: 'user1');
+final taskManager = Datum.manager<Task>();
+```
+
+A concrete entity extends `DatumEntity` and implements its required members:
+
+```dart
 class Task extends DatumEntity {
-  final String title;
-  final bool completed;
-
-  Task({
-    required super.id,
-    required super.userId,
+  const Task({
+    required this.id,
+    required this.userId,
     required this.title,
     this.completed = false,
+    required this.createdAt,
+    required this.modifiedAt,
+    required this.version,
+    this.isDeleted = false,
   });
 
-  // ... implement required methods
-}
+  @override
+  final String id;
+  @override
+  final String userId;
+  final String title;
+  final bool completed;
+  @override
+  final DateTime createdAt;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
 
-// Now use the concrete type
-final stream = Datum.instance.watchAll<Task>(userId: 'user1');
-final manager = Datum.manager<Task>();
+  @override
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
+        'id': id,
+        'userId': userId,
+        'title': title,
+        'completed': completed,
+        'createdAt': createdAt.toIso8601String(),
+        'modifiedAt': modifiedAt.toIso8601String(),
+        'version': version,
+        'isDeleted': isDeleted,
+      };
+
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) =>
+      toDatumMap(target: MapTarget.remote);
+}
 ```
 
 **Prevention:** The framework prevents using `DatumEntityInterface` directly to maintain type safety.
@@ -54,15 +87,15 @@ final manager = Datum.manager<Task>();
 
 **Cause:** Attempting to call `Datum.manager<DatumEntityInterface>()` or similar generic methods.
 
-**Solution:** Use concrete entity types:
+**Solution:** Use concrete entity types — one manager exists per registered entity class:
 
 ```dart
 // ❌ Wrong
-final manager = Datum.manager<DatumEntityInterface>();
+final broken = Datum.manager<DatumEntityInterface>();
 
-// ✅ Correct
+// ✅ Correct — request the manager for a concrete, registered type
 final taskManager = Datum.manager<Task>();
-final userManager = Datum.manager<User>();
+// final userManager = Datum.manager<User>();  // one per entity type
 ```
 
 ### Issue: Type mismatch in conflict resolvers
@@ -75,14 +108,26 @@ final userManager = Datum.manager<User>();
 
 ```dart
 // ✅ Correct - Resolver type matches entity type
-class TaskConflictResolver extends DatumConflictResolver<Task> {
+class TaskConflictResolver implements DatumConflictResolver<Task> {
   @override
-  Future<DatumConflictResolution<Task>> resolve(...) async {
+  String get name => 'TaskConflictResolver';
+
+  @override
+  Future<DatumConflictResolution<Task>> resolve({
+    Task? local,
+    Task? remote,
+    required DatumConflictContext context,
+  }) async {
     // Resolve conflicts for Task entities
-    return DatumConflictResolution.resolved(localTask, 'Resolved');
+    if (local != null) {
+      return DatumConflictResolution.useLocal(local);
+    }
+    return DatumConflictResolution.useRemote(remote!);
   }
 }
+```
 
+```dart continue
 // Use in configuration
 final config = DatumConfig<Task>(
   defaultConflictResolver: TaskConflictResolver(),
@@ -101,22 +146,19 @@ final config = DatumConfig<Task>(
 
 ```dart
 await Datum.initialize(
-  config: DatumConfig(),
-  connectivityChecker: connectivityChecker,
+  config: const DatumConfig(),
+  connectivityChecker: const SnippetConnectivity(), // your DatumConnectivityChecker
   registrations: [
-    // ✅ Register all your entity types
+    // ✅ Register every entity type your app syncs —
+    // one DatumRegistration per concrete entity class.
     DatumRegistration<Task>(
-      localAdapter: TaskHiveAdapter(),
-      remoteAdapter: TaskSupabaseAdapter(),
+      // e.g. HiveLocalAdapter<Task>(...) from package:datum_hive,
+      // or SqliteLocalAdapter<Task>(...) from package:datum_sqlite
+      localAdapter: InMemoryLocalAdapter<Task>(fromMap: Task.fromMap),
+      remoteAdapter: remoteAdapter, // your RemoteAdapter<Task>
     ),
-    DatumRegistration<User>(
-      localAdapter: UserHiveAdapter(),
-      remoteAdapter: UserSupabaseAdapter(),
-    ),
-    DatumRegistration<Project>(
-      localAdapter: ProjectHiveAdapter(),
-      remoteAdapter: ProjectSupabaseAdapter(),
-    ),
+    // DatumRegistration<User>(localAdapter: ..., remoteAdapter: ...),
+    // DatumRegistration<Project>(localAdapter: ..., remoteAdapter: ...),
   ],
 );
 ```
@@ -125,27 +167,25 @@ await Datum.initialize(
 
 ### Issue: Manager creation fails
 
-**Symptoms:** `Datum.initialize()` throws errors about missing adapters.
+**Symptoms:** `Datum.initialize()` reports errors about missing adapters.
 
 **Cause:** Incomplete registration - missing local or remote adapter.
 
-**Solution:** Ensure both adapters are provided for each entity type:
+**Solution:** Both adapters are required parameters for each entity type:
 
 ```dart
 // ✅ Complete registration
-DatumRegistration<Task>(
-  localAdapter: TaskLocalAdapter(),      // Required
-  remoteAdapter: TaskRemoteAdapter(),    // Required
-  conflictResolver: TaskResolver(),      // Optional
-  middlewares: [TaskValidationMiddleware()], // Optional
-  observers: [TaskLogger()],             // Optional
-),
+final registration = DatumRegistration<Task>(
+  localAdapter: localAdapter, // Required
+  remoteAdapter: remoteAdapter, // Required
+  conflictResolver: LastWriteWinsResolver<Task>(), // Optional
+  middlewares: [], // Optional: List<DatumMiddleware<Task>>
+  observers: [], // Optional: List<DatumObserver<Task>>
+);
 
-// ❌ Incomplete - missing remote adapter
-DatumRegistration<Task>(
-  localAdapter: TaskLocalAdapter(),
-  // Missing remoteAdapter!
-),
+// ❌ Incomplete — this does not even compile, because
+// `remoteAdapter` is a required parameter:
+// DatumRegistration<Task>(localAdapter: localAdapter);
 ```
 
 ## Choosing Local Database Adapters
@@ -159,23 +199,18 @@ DatumRegistration<Task>(
 - **Small to medium datasets** - Handles thousands of records efficiently
 
 ```dart
-// Use Hive for simple entities
-class Task extends DatumEntity {
-  final String title;
-  final DateTime dueDate;
+import 'package:datum_hive/datum_hive.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
 
-  // Simple fields, no complex relationships
-}
-
-// Registration
-DatumRegistration<Task>(
+// Hive stores entities as maps — ideal for simple, flat models.
+// (package:datum_hive; a Flutter package built on hive_ce_flutter)
+final registration = DatumRegistration<Task>(
   localAdapter: HiveLocalAdapter<Task>(
-    boxName: 'tasks',
-    fromJson: Task.fromJson,
-    toJson: (task) => task.toJson(),
+    entityBoxName: 'tasks',
+    fromMap: Task.fromMap,
   ),
-  remoteAdapter: TaskRemoteAdapter(),
-),
+  remoteAdapter: remoteAdapter,
+);
 ```
 
 **Pros:**
@@ -199,26 +234,17 @@ DatumRegistration<Task>(
 - **Relational data** - Normalized schemas
 
 ```dart
-// Use SQLite for complex entities
-class Project extends RelationalDatumEntity {
-  final String name;
-  final List<Task> tasks; // Complex relationships
-
-  @override
-  Map<String, Relation> get relations => {
-    'tasks': HasMany<Task>('projectId'),
-  };
-}
-
-// Registration
-DatumRegistration<Project>(
-  localAdapter: SQLiteLocalAdapter<Project>(
-    tableName: 'projects',
-    fromMap: Project.fromMap,
-    toMap: (project) => project.toMap(),
+// SQLite shines for relational models — pair it with
+// RelationalDatumEntity (BelongsTo / HasMany / ManyToMany relations).
+// (package:datum_sqlite over package:sqlite3)
+final registration = DatumRegistration<Task>(
+  localAdapter: SqliteLocalAdapter<Task>(
+    database: db, // a shared sqlite3 Database
+    table: 'tasks',
+    fromMap: Task.fromMap,
   ),
-  remoteAdapter: ProjectRemoteAdapter(),
-),
+  remoteAdapter: remoteAdapter,
+);
 ```
 
 **Pros:**
@@ -243,11 +269,15 @@ DatumRegistration<Project>(
 - **Caching layers** - Short-lived cached data
 
 ```dart
-// Use in-memory for testing
-DatumRegistration<Task>(
-  localAdapter: InMemoryLocalAdapter<Task>(),
-  remoteAdapter: MockRemoteAdapter<Task>(),
-),
+// In-memory local adapter, plus the test HTTP adapter from
+// package:datum_test talking to a LocalSyncServer.
+final registration = DatumRegistration<Task>(
+  localAdapter: InMemoryLocalAdapter<Task>(fromMap: Task.fromMap),
+  remoteAdapter: HttpRemoteAdapter<Task>(
+    baseUri: server.baseUri,
+    fromMap: Task.fromMap,
+  ),
+);
 ```
 
 **Pros:**
@@ -293,54 +323,91 @@ DatumRegistration<Task>(
 ### 1. Choose the Right Adapter Early
 
 ```dart
-// Consider your data model complexity
-class SimpleEntity extends DatumEntity {
-  // Use Hive - simple, fast
-}
+import 'package:datum_hive/datum_hive.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
 
-class ComplexEntity extends RelationalDatumEntity {
-  // Use SQLite - relationships, complex queries
-}
+// Flat, self-contained model → Hive
+final hiveAdapter = HiveLocalAdapter<Task>(
+  entityBoxName: 'tasks',
+  fromMap: Task.fromMap,
+);
+```
+
+```dart
+// Relational model, heavy querying → SQLite
+final sqliteAdapter = SqliteLocalAdapter<Task>(
+  database: db,
+  table: 'tasks',
+  fromMap: Task.fromMap,
+);
 ```
 
 ### 2. Plan for Growth
 
 ```dart
-// Start with Hive for simplicity, plan migration path to SQLite
-const useSQLite = false; // Feature flag for migration
+import 'package:datum_hive/datum_hive.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
 
-final adapter = useSQLite
-  ? SQLiteLocalAdapter<Entity>()
-  : HiveLocalAdapter<Entity>();
+// Start with Hive for simplicity, keep a migration path to SQLite
+const useSqlite = false; // Feature flag for migration
+
+final LocalAdapter<Task> adapter = useSqlite
+    ? SqliteLocalAdapter<Task>(
+        database: db,
+        table: 'tasks',
+        fromMap: Task.fromMap,
+      )
+    : HiveLocalAdapter<Task>(
+        entityBoxName: 'tasks',
+        fromMap: Task.fromMap,
+      );
 ```
 
 ### 3. Test with Multiple Adapters
 
-```dart
-// Use different adapters in different test groups
-@Tags(['hive'])
-test('Works with Hive', () {
-  // Test with Hive adapter
-});
+Run the ready-made conformance suite from `package:datum_test` against every
+adapter you ship — the same behavioral contract, per backend:
 
-@Tags(['sqlite'])
-test('Works with SQLite', () {
-  // Test with SQLite adapter
-});
+```dart
+void main() {
+  runLocalAdapterConformanceTests(
+    name: 'in-memory',
+    create: () async =>
+        InMemoryLocalAdapter<ConformanceEntity>(fromMap: ConformanceEntity.fromMap),
+  );
+
+  runLocalAdapterConformanceTests(
+    name: 'sqlite',
+    create: () async {
+      final adapter = SqliteLocalAdapter<ConformanceEntity>(
+        database: sqlite3.openInMemory(),
+        table: 'conformance_entities',
+        fromMap: ConformanceEntity.fromMap,
+      );
+      await adapter.initialize();
+      return adapter;
+    },
+  );
+
+  // Same pattern for HiveLocalAdapter<ConformanceEntity> in a Flutter app.
+}
 ```
 
 ### 4. Handle Adapter-Specific Features
 
+Capability mixins (`TransactionalAdapter`, `RawQueryCapable`,
+`PaginatedAdapter`, ...) tell you what an adapter supports:
+
 ```dart
-// Use adapter capabilities appropriately
-if (adapter is SQLiteLocalAdapter) {
-  // Use SQL queries, transactions
-  await adapter.transaction((txn) async {
-    // Complex multi-table operations
+if (localAdapter is SqliteLocalAdapter<Task>) {
+  // SQL adapters support real transactions...
+  await localAdapter.transaction(() async {
+    // Complex multi-row operations
   });
-} else if (adapter is HiveLocalAdapter) {
-  // Use Hive-specific features
-  await adapter.compact(); // Optimize storage
+}
+
+if (localAdapter is RawQueryCapable) {
+  // ...and raw SQL queries (SqliteLocalAdapter mixes this in).
 }
 ```
 
@@ -349,9 +416,9 @@ if (adapter is SQLiteLocalAdapter) {
 For complete, working implementations, check out these examples in the Datum codebase:
 
 ### **Hive Local Adapter Example**
-📁 `packages/datum/example/lib/data/task/adapters/hive_adapter.dart`
+📁 `packages/datum_hive/lib/src/hive_local_adapter.dart`
 
-This file contains a comprehensive `HiveLocalAdapter<T>` implementation that:
+The shipped `HiveLocalAdapter<T>` implementation:
 - Handles entity serialization/deserialization
 - Implements reactive streams with `watchAll()`, `watchById()`, `watchQuery()`
 - Manages pending operations and sync metadata
@@ -387,16 +454,23 @@ This file contains a production-ready `SupabaseRemoteAdapter<T>` implementation 
 Reference these implementations when building your own adapters:
 
 ```dart
-// Based on the Hive adapter example
-class MyEntityHiveAdapter extends HiveLocalAdapter<MyEntity> {
+import 'package:datum_hive/datum_hive.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
+
+// Based on the shipped Hive adapter
+class MyEntityHiveAdapter extends HiveLocalAdapter<Task> {
   MyEntityHiveAdapter()
       : super(
           entityBoxName: 'my_entities',
-          fromMap: MyEntity.fromMap,
+          fromMap: Task.fromMap,
         );
 }
+```
 
-// Based on the Supabase adapter example
+```dart
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+// Based on the Supabase adapter example in the example app
 class MyEntitySupabaseAdapter extends SupabaseRemoteAdapter<MyEntity> {
   MyEntitySupabaseAdapter()
       : super(

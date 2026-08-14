@@ -12,7 +12,7 @@ Isar is a high-performance database for Flutter built on top of SQLite. This ada
 
 First, add Isar to your `pubspec.yaml`:
 
-```dart
+```yaml
 dependencies:
   isar: ^4.0.0
   isar_flutter_libs: ^4.0.0
@@ -32,7 +32,7 @@ import 'package:isar/isar.dart';
 part 'task.g.dart';
 
 @collection
-class TaskEntity extends DatumEntity {
+class TaskEntity {
   Id id = Isar.autoIncrement; // Isar ID
 
   @Index(unique: true, replace: true)
@@ -165,31 +165,35 @@ class IsarLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
   }
 
   @override
-  Future<void> delete(String id, {String? userId}) async {
-    await collection.isar.writeTxn(() async {
+  Future<bool> delete(String id, {String? userId}) async {
+    return collection.isar.writeTxn(() async {
       final entity = await read(id, userId: userId);
-      if (entity != null) {
-        // Soft delete by updating the entity
-        final updated = entity.copyWith(isDeleted: true) as T;
-        await collection.put(updated);
-      }
+      if (entity == null) return false;
+      // Soft delete by updating the entity
+      final updated = entity.copyWith(isDeleted: true) as T;
+      await collection.put(updated);
+      return true;
     });
   }
 
   @override
-  Future<void> patch({
+  Future<T> patch({
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
   }) async {
-    await collection.isar.writeTxn(() async {
+    return collection.isar.writeTxn(() async {
       final entity = await read(id, userId: userId);
-      if (entity != null) {
-        // Create updated entity from delta
-        final updatedMap = entity.toDatumMap()..addAll(delta);
-        final updated = fromMap(updatedMap);
-        await collection.put(updated);
+      if (entity == null) {
+        throw EntityNotFoundException(
+          message: 'Entity with id $id not found for patch.',
+        );
       }
+      // Create updated entity from delta
+      final updatedMap = entity.toDatumMap()..addAll(delta);
+      final updated = fromMap(updatedMap);
+      await collection.put(updated);
+      return updated;
     });
   }
 
@@ -212,12 +216,12 @@ class IsarLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
     for (final sort in query.sorting) {
       switch (sort.field) {
         case 'createdAt':
-          queryBuilder = sort.direction == SortDirection.descending
+          queryBuilder = sort.descending
               ? queryBuilder.sortByCreatedAtDesc()
               : queryBuilder.sortByCreatedAt();
           break;
         case 'modifiedAt':
-          queryBuilder = sort.direction == SortDirection.descending
+          queryBuilder = sort.descending
               ? queryBuilder.sortByModifiedAtDesc()
               : queryBuilder.sortByModifiedAt();
           break;
@@ -330,7 +334,7 @@ class IsarLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
   }
 
   @override
-  Stream<DatumChangeDetail<T>>? get changeStream {
+  Stream<DatumChangeDetail<T>>? changeStream() {
     return collection.watchLazy().map((_) {
       // This is a simplified implementation
       // In a real app, you'd need to track what changed
@@ -345,14 +349,23 @@ class IsarLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
   }
 
   @override
-  Future<List<T>> readAllPaginated(PaginationConfig config, {String? userId}) async {
+  Future<PaginatedResult<T>> readAllPaginated(PaginationConfig config, {String? userId}) async {
     var query = collection.filter().isDeletedEqualTo(false);
     if (userId != null) {
       query = query.userIdEqualTo(userId);
     }
 
-    final offset = config.page * config.pageSize;
-    return await query.offset(offset).limit(config.pageSize).findAll();
+    final page = config.currentPage ?? 0;
+    final offset = page * config.pageSize;
+    final items = await query.offset(offset).limit(config.pageSize).findAll();
+    final totalCount = await query.count();
+    return PaginatedResult(
+      items: items,
+      totalCount: totalCount,
+      currentPage: page,
+      totalPages: (totalCount / config.pageSize).ceil(),
+      hasMore: offset + items.length < totalCount,
+    );
   }
 
   @override
@@ -421,8 +434,19 @@ class IsarLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
   }
 
   @override
-  Future<void> transaction<R>(Future<R> Function() action) async {
+  Future<R> transaction<R>(Future<R> Function() action) async {
     return await collection.isar.writeTxn(action);
+  }
+
+  @override
+  Future<void> saveLastSyncResult(String userId, DatumSyncResult<T> result) async {
+    // Store in a separate collection, like sync metadata
+  }
+
+  @override
+  Future<DatumSyncResult<T>?> getLastSyncResult(String userId) async {
+    // Retrieve from your metadata storage
+    return null;
   }
 
   @override
@@ -462,9 +486,17 @@ class IsarLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
 }
 ```
 
+> **Reference implementations:** the shipping adapters are the best templates for a
+> complete `LocalAdapter` — see `InMemoryLocalAdapter` in the `datum` package,
+> `HiveLocalAdapter` in `datum_hive`, and `SqliteLocalAdapter` in `datum_sqlite`.
+
 ## Usage Example
 
 ```dart
+import 'package:isar/isar.dart';
+
+import 'isar_local_adapter.dart'; // the adapter implemented above
+
 // Initialize Isar
 final isar = await Isar.open([TaskEntitySchema]);
 
@@ -474,7 +506,8 @@ final taskAdapter = IsarLocalAdapter<Task>(
   fromMap: (map) => Task.fromMap(map),
 );
 
-// Register with Datum
+// Register with Datum, paired with any RemoteAdapter (for example the
+// SupabaseRemoteAdapter from the Supabase guide).
 final registrations = [
   DatumRegistration<Task>(
     localAdapter: taskAdapter,
@@ -500,4 +533,4 @@ final registrations = [
 - **Indexing**: Proper indexing is crucial for query performance
 - **Memory Usage**: Isar is memory-efficient compared to other databases
 - **Concurrent Access**: Supports concurrent read/write operations
-- **Change Notifications**: Efficient reactive updates with watchers</content>
+- **Change Notifications**: Efficient reactive updates with watchers

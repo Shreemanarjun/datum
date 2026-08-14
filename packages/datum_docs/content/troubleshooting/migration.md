@@ -6,6 +6,17 @@ description: Debug and resolve Datum migration issues.
 
 Handle schema changes, data transformations, and version upgrades in Datum.
 
+Datum's migration system is built from a few pieces:
+
+- **`Migration`** — one step from `fromVersion` to `toVersion`, with a per-row
+  `migrate(Map) → Map` transform.
+- **`SchemaMigration`** — a `Migration` described declaratively as a list of
+  **`ColumnOperation`**s (`add`, `rename`, `remove`, `transform`, `row`).
+- **`MigrationPlan`** — resolves and validates the chain of migrations before
+  any data is touched.
+- **`MigrationExecutor`** / **`SqlMigrationExecutor`** — run the plan,
+  snapshotting the store first and restoring it on failure.
+
 ## Schema Migration Failures
 
 ### Issue: Migration execution errors
@@ -15,46 +26,49 @@ Handle schema changes, data transformations, and version upgrades in Datum.
 **Common Causes:**
 - Invalid data transformation logic
 - Missing null checks in migration code
-- Schema version conflicts between local and remote
+- A broken migration chain (gaps, duplicate starting versions, backward steps)
 
 **Debugging Steps:**
 ```dart
 // Enable detailed migration logging
-final config = DatumConfig(
-  logger: DatumLogger(
-    enabled: true,
-    level: LogLevel.debug,
-  ),
+final config = DatumConfig<Task>(
+  enableLogging: true,
+  logLevel: LogLevel.debug,
 );
 
-// Check current schema version
-final currentVersion = await localAdapter.getSchemaVersion();
+// Check the schema version currently stored by the local adapter
+final currentVersion = await localAdapter.getStoredSchemaVersion();
 print('Current schema version: $currentVersion');
 
-// Verify migration path
-final targetVersion = 3; // Your target version
+// Verify a migration is needed
+const targetVersion = 3; // Your target version
 if (currentVersion < targetVersion) {
   print('Migration needed from v$currentVersion to v$targetVersion');
 }
 ```
 
 **Migration Implementation:**
-```dart
-class Migration1To2 implements Migration {
-  @override
-  Future<Map<String, dynamic>> execute(Map<String, dynamic> data) async {
-    // Always validate input data
-    if (data == null) {
-      throw MigrationException('Migration data cannot be null');
-    }
 
-    // Create a copy to avoid modifying original
-    final migratedData = Map<String, dynamic>.from(data);
+A migration declares its version step and a per-row transform. There is no
+per-migration `rollback` to write — the executor snapshots the store before
+running and restores it automatically if any step throws.
+
+```dart
+class Migration1To2 extends Migration {
+  @override
+  int get fromVersion => 1;
+
+  @override
+  int get toVersion => 2;
+
+  @override
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
+    // Work on a copy to avoid mutating the executor's snapshot
+    final migratedData = Map<String, dynamic>.of(oldData);
 
     // Safe field transformations
     if (migratedData.containsKey('oldFieldName')) {
-      migratedData['newFieldName'] = migratedData['oldFieldName'];
-      migratedData.remove('oldFieldName');
+      migratedData['newFieldName'] = migratedData.remove('oldFieldName');
     }
 
     // Add default values for new required fields
@@ -62,21 +76,21 @@ class Migration1To2 implements Migration {
 
     return migratedData;
   }
-
-  @override
-  Future<Map<String, dynamic>> rollback(Map<String, dynamic> data) async {
-    // Implement rollback logic
-    final rolledBackData = Map<String, dynamic>.from(data);
-
-    if (rolledBackData.containsKey('newFieldName')) {
-      rolledBackData['oldFieldName'] = rolledBackData['newFieldName'];
-      rolledBackData.remove('newFieldName');
-    }
-
-    rolledBackData.remove('newRequiredField');
-    return rolledBackData;
-  }
 }
+```
+
+The same change can be written declaratively with `SchemaMigration` — no
+hand-written map surgery, and rows are copied for you:
+
+```dart
+final migration = SchemaMigration(
+  fromVersion: 1,
+  toVersion: 2,
+  operations: [
+    ColumnOperation.rename('oldFieldName', to: 'newFieldName'),
+    ColumnOperation.add('newRequiredField', defaultValue: 'defaultValue'),
+  ],
+);
 ```
 
 ### Issue: Data loss during migration
@@ -84,32 +98,40 @@ class Migration1To2 implements Migration {
 **Symptoms:** Data disappears after migration
 
 **Prevention Strategies:**
-```dart
-// Always backup before migration
-class MigrationManager {
-  static Future<void> safeMigrate(
-    LocalAdapter adapter,
-    List<Migration> migrations,
-  ) async {
-    // Create backup
-    final backup = await adapter.createBackup();
-    print('Backup created: ${backup.path}');
 
-    try {
-      // Run migrations
-      for (final migration in migrations) {
-        await adapter.runMigration(migration);
-        print('Migration ${migration.runtimeType} completed');
-      }
-    } catch (e) {
-      // Restore from backup on failure
-      await adapter.restoreFromBackup(backup);
-      print('Migration failed, restored from backup');
-      rethrow;
-    }
+The `MigrationExecutor` snapshots the adapter's raw data and stored schema
+version *before* running, validates the whole chain up front with
+`MigrationPlan`, and restores the snapshot if anything fails — so a failed
+migration never leaves the store half-migrated:
+
+```dart
+final executor = MigrationExecutor<Task>(
+  localAdapter: localAdapter,
+  migrations: [
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [ColumnOperation.add('priority', defaultValue: 0)],
+    ),
+  ],
+  targetVersion: 2,
+  logger: logger,
+);
+
+if (await executor.needsMigration()) {
+  final result = await executor.execute();
+  if (result.success) {
+    print('Migration completed');
+  } else {
+    // The store was restored to its pre-migration state
+    print('Migration failed and was rolled back: ${result.migrationError}');
   }
 }
 ```
+
+In a normal app you rarely construct the executor yourself — the manager runs
+it during `initialize()` whenever `DatumConfig.schemaVersion` is higher than
+the version stored by the adapter.
 
 ## Version Compatibility Issues
 
@@ -119,20 +141,19 @@ class MigrationManager {
 
 **Resolution Steps:**
 ```dart
-// Check schema versions
-final localVersion = await localAdapter.getSchemaVersion();
-final remoteVersion = await remoteAdapter.getSchemaVersion();
+// The stored schema version lives in the local adapter
+final localVersion = await localAdapter.getStoredSchemaVersion();
+print('Local schema version: $localVersion');
 
-if (localVersion != remoteVersion) {
-  print('Schema mismatch: local=$localVersion, remote=$remoteVersion');
-
-  // Handle version differences
-  if (localVersion < remoteVersion) {
-    // Local is behind, update local schema
-    await runMigrations(localAdapter, remoteVersion);
-  } else {
-    // Remote is behind, this might require server update
-    throw Exception('Remote schema is outdated');
+// A local/remote schema mismatch surfaces as a DatumException with
+// code `schemaMismatch` — detect it with the typed result API:
+final result = await manager.trySynchronize(userId);
+if (result case Failure(value: final error)) {
+  final cause = error.cause;
+  if (cause is DatumException &&
+      cause.code == DatumExceptionCode.schemaMismatch) {
+    print('Schema mismatch — bump DatumConfig.schemaVersion and '
+        'register migrations for it: $cause');
   }
 }
 ```
@@ -144,35 +165,72 @@ if (localVersion != remoteVersion) {
 **Entity Evolution Strategies:**
 ```dart
 class BackwardCompatibleTask extends DatumEntity {
-  // Keep old field names for backward compatibility
-  @deprecated
-  String? get oldFieldName => newFieldName;
+  const BackwardCompatibleTask({
+    required this.id,
+    required this.userId,
+    this.nickname,
+    required this.createdAt,
+    required this.modifiedAt,
+    required this.version,
+    this.isDeleted = false,
+  });
 
-  // Add new fields with defaults
-  String? newFieldName;
+  /// Handles both the old and the new field name when deserializing.
+  factory BackwardCompatibleTask.fromMap(Map<String, dynamic> map) {
+    return BackwardCompatibleTask(
+      id: map['id'] as String,
+      userId: map['userId'] as String,
+      // Read the new name first, fall back to the legacy one.
+      nickname: (map['nickname'] ?? map['displayName']) as String?,
+      createdAt: DateTime.parse(map['createdAt'] as String),
+      modifiedAt: DateTime.parse(map['modifiedAt'] as String),
+      version: map['version'] as int? ?? 1,
+      isDeleted: map['isDeleted'] as bool? ?? false,
+    );
+  }
 
-  // Custom serialization handling
+  @override
+  final String id;
+  @override
+  final String userId;
+
+  /// New field name; replaces the legacy `displayName`.
+  final String? nickname;
+
+  /// Keep the old accessor for callers that haven't migrated yet.
+  @Deprecated('Use nickname instead')
+  String? get displayName => nickname;
+
+  @override
+  final DateTime createdAt;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
+
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
-    final map = super.toDatumMap(target: target);
-
-    // Handle field name changes
-    if (target == MapTarget.remote && oldFieldName != null) {
-      map['legacyFieldName'] = oldFieldName;
+    final map = <String, dynamic>{
+      'id': id,
+      'userId': userId,
+      'nickname': nickname,
+      'createdAt': createdAt.toIso8601String(),
+      'modifiedAt': modifiedAt.toIso8601String(),
+      'version': version,
+      'isDeleted': isDeleted,
+    };
+    // Keep writing the legacy name remotely until every client migrated.
+    if (target == MapTarget.remote) {
+      map['displayName'] = nickname;
     }
-
     return map;
   }
 
-  factory BackwardCompatibleTask.fromMap(Map<String, dynamic> map) {
-    // Handle both old and new field names
-    final fieldValue = map['newFieldName'] ?? map['oldFieldName'];
-
-    return BackwardCompatibleTask(
-      newFieldName: fieldValue,
-      // ... other fields
-    );
-  }
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) =>
+      toDatumMap(target: MapTarget.remote);
 }
 ```
 
@@ -184,14 +242,21 @@ class BackwardCompatibleTask extends DatumEntity {
 
 **Advanced Migration Patterns:**
 ```dart
-class ComplexMigration2To3 implements Migration {
+class ComplexMigration2To3 extends Migration {
   @override
-  Future<Map<String, dynamic>> execute(Map<String, dynamic> data) async {
-    final migratedData = Map<String, dynamic>.from(data);
+  int get fromVersion => 2;
+
+  @override
+  int get toVersion => 3;
+
+  @override
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
+    final migratedData = Map<String, dynamic>.of(oldData);
 
     // Handle nested object restructuring
     if (migratedData['nestedObject'] is Map) {
-      final nested = migratedData['nestedObject'] as Map<String, dynamic>;
+      final nested =
+          (migratedData['nestedObject'] as Map).cast<String, dynamic>();
 
       // Flatten nested structure
       migratedData['flattenedField'] = nested['deepField'];
@@ -201,10 +266,12 @@ class ComplexMigration2To3 implements Migration {
     // Handle array transformations
     if (migratedData['tags'] is List) {
       final tags = migratedData['tags'] as List;
-      migratedData['tagObjects'] = tags.map((tag) => {
-        'name': tag,
-        'created': DateTime.now().toIso8601String(),
-      }).toList();
+      migratedData['tagObjects'] = tags
+          .map((tag) => {
+                'name': tag,
+                'created': DateTime.now().toIso8601String(),
+              })
+          .toList();
     }
 
     return migratedData;
@@ -217,30 +284,30 @@ class ComplexMigration2To3 implements Migration {
 **Symptoms:** Migration takes too long for large datasets
 
 **Performance Optimization:**
+
+`migrate` runs once per row — keep it cheap and allocation-light. For SQL
+adapters, give each operation its SQL counterpart so `SqlMigrationExecutor`
+can run the whole migration as `ALTER TABLE` / `UPDATE` statements inside the
+database instead of round-tripping every row through Dart:
+
 ```dart
-class BatchedMigration implements Migration {
-  static const batchSize = 100;
-
-  @override
-  Future<Map<String, dynamic>> execute(Map<String, dynamic> data) async {
-    // For large migrations, process in batches
-    final allRecords = await getAllRecords();
-    final batches = <List<Map<String, dynamic>>>[];
-
-    for (var i = 0; i < allRecords.length; i += batchSize) {
-      final end = (i + batchSize < allRecords.length) ? i + batchSize : allRecords.length;
-      batches.add(allRecords.sublist(i, end));
-    }
-
-    for (final batch in batches) {
-      await processBatch(batch);
-      // Allow UI to remain responsive
-      await Future.delayed(Duration(milliseconds: 10));
-    }
-
-    return data; // Return original for single record migrations
-  }
-}
+final sqlFriendly = SchemaMigration(
+  fromVersion: 2,
+  toVersion: 3,
+  operations: [
+    ColumnOperation.add(
+      'slug',
+      compute: (row) => (row['title'] as String? ?? '').toLowerCase(),
+      sqlType: 'TEXT',
+      sqlExpression: 'lower(title)', // SQL counterpart of `compute`
+    ),
+    ColumnOperation.transform(
+      'createdAt',
+      (value, row) => value ?? DateTime(2000).toIso8601String(),
+      sqlExpression: "COALESCE(createdAt, '2000-01-01T00:00:00.000')",
+    ),
+  ],
+);
 ```
 
 ## Cross-Platform Migration Issues
@@ -251,28 +318,38 @@ class BatchedMigration implements Migration {
 
 **Cross-Platform Solutions:**
 ```dart
-class CrossPlatformMigration implements Migration {
+import 'dart:io';
+
+class CrossPlatformMigration extends Migration {
   @override
-  Future<Map<String, dynamic>> execute(Map<String, dynamic> data) async {
-    final migratedData = Map<String, dynamic>.from(data);
+  int get fromVersion => 3;
+
+  @override
+  int get toVersion => 4;
+
+  @override
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
+    final migratedData = Map<String, dynamic>.of(oldData);
 
     // Normalize platform-specific data
-    migratedData['platform'] = await detectCurrentPlatform();
+    migratedData['platform'] = detectCurrentPlatform();
 
     // Handle file path differences
-    if (migratedData['filePath'] is String) {
-      migratedData['filePath'] = normalizeFilePath(migratedData['filePath']);
+    final filePath = migratedData['filePath'];
+    if (filePath is String) {
+      migratedData['filePath'] = normalizeFilePath(filePath);
     }
 
     // Standardize date formats
-    if (migratedData['createdAt'] is String) {
-      migratedData['createdAt'] = standardizeDateFormat(migratedData['createdAt']);
+    final createdAt = migratedData['createdAt'];
+    if (createdAt is String) {
+      migratedData['createdAt'] = standardizeDateFormat(createdAt);
     }
 
     return migratedData;
   }
 
-  Future<String> detectCurrentPlatform() async {
+  String detectCurrentPlatform() {
     if (Platform.isAndroid) return 'android';
     if (Platform.isIOS) return 'ios';
     if (Platform.isWindows) return 'windows';
@@ -280,45 +357,55 @@ class CrossPlatformMigration implements Migration {
     if (Platform.isLinux) return 'linux';
     return 'unknown';
   }
+
+  String normalizeFilePath(String path) =>
+      path.replaceAll(r'\', Platform.pathSeparator);
+
+  String standardizeDateFormat(String raw) =>
+      (DateTime.tryParse(raw) ?? DateTime(2000)).toUtc().toIso8601String();
 }
 ```
 
 ## Testing Migration Changes
 
-### Migration Testing Framework
+### Testing a single migration step
+
+A `Migration` is a pure per-row function, so it can be tested directly:
 
 ```dart
-class MigrationTestSuite {
-  static Future<void> testMigration(
-    Migration migration,
-    Map<String, dynamic> inputData,
-    Map<String, dynamic> expectedOutput,
-  ) async {
-    // Test forward migration
-    final migratedData = await migration.execute(inputData);
-    expect(migratedData, equals(expectedOutput));
+Future<void> main() async {
+  final migration = SchemaMigration(
+    fromVersion: 1,
+    toVersion: 2,
+    operations: [
+      ColumnOperation.rename('oldFieldName', to: 'newFieldName'),
+    ],
+  );
 
-    // Test rollback
-    final rolledBackData = await migration.rollback(migratedData);
-    expect(rolledBackData, equals(inputData));
-  }
+  // Forward migration transforms the row as expected
+  final migrated = migration.migrate({'id': 'a', 'oldFieldName': 'x'});
+  assert(migrated['newFieldName'] == 'x');
+  assert(!migrated.containsKey('oldFieldName'));
 
-  static Future<void> testLargeDatasetMigration(
-    Migration migration,
-    int recordCount,
-  ) async {
-    // Generate test data
-    final testData = generateTestRecords(recordCount);
+  // Rows without the field pass through untouched
+  final untouched = migration.migrate({'id': 'b'});
+  assert(!untouched.containsKey('newFieldName'));
+}
+```
 
-    final stopwatch = Stopwatch()..start();
-    for (final record in testData) {
-      await migration.execute(record);
-    }
-    stopwatch.stop();
+### Testing the whole migration pipeline
 
-    print('Migrated $recordCount records in ${stopwatch.elapsed.inSeconds}s');
-    print('Average: ${(stopwatch.elapsed.inMilliseconds / recordCount).round()}ms per record');
-  }
+`package:datum_test` ships a conformance suite that exercises ordering,
+rollback-on-failure, version stamping and more against a real adapter:
+
+```dart
+void main() {
+  runMigrationConformanceTests(
+    name: 'in-memory',
+    createLocal: () async => InMemoryLocalAdapter<ConformanceEntity>(
+      fromMap: ConformanceEntity.fromMap,
+    ),
+  );
 }
 ```
 
@@ -329,99 +416,90 @@ class MigrationTestSuite {
 **Symptoms:** Migration fails and app is left in broken state
 
 **Recovery Strategies:**
+
+The executor already restores its pre-migration snapshot when a step fails.
+For a last-resort recovery strategy on top of that, register
+`onMigrationError` in your config:
+
 ```dart
-class MigrationRecovery {
-  static Future<void> recoverFromFailedMigration(
-    LocalAdapter adapter,
-    String backupPath,
-  ) async {
-    try {
-      // Attempt to restore from backup
-      await adapter.restoreFromBackup(backupPath);
-      print('Successfully restored from backup');
-    } catch (e) {
-      // If backup fails, try emergency recovery
-      await emergencyRecovery(adapter);
-    }
-  }
-
-  static Future<void> emergencyRecovery(LocalAdapter adapter) async {
-    // Clear corrupted data and start fresh
-    await adapter.clearAllData();
-
-    // Reinitialize with default state
-    await adapter.initialize();
-
-    print('Emergency recovery completed - data reset to defaults');
-  }
-}
+final config = DatumConfig<Task>(
+  schemaVersion: 2,
+  migrations: [
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [ColumnOperation.add('priority', defaultValue: 0)],
+    ),
+  ],
+  onMigrationError: (error, stackTrace) async {
+    print('Migration failed: $error');
+    // Emergency recovery: clear local data and let sync rebuild it.
+    await localAdapter.clear();
+  },
+);
 ```
+
+If `onMigrationError` is null, the error is rethrown so the app never runs
+against a store it cannot understand.
 
 ## Best Practices
 
 ### 1. Test Migrations Thoroughly
 ```dart
-// Always test migrations with real data
-void main() {
-  test('Migration preserves data integrity', () async {
-    final testData = createTestData();
-    final migration = Migration1To2();
+Future<void> main() async {
+  final migration = SchemaMigration(
+    fromVersion: 1,
+    toVersion: 2,
+    operations: [ColumnOperation.add('priority', defaultValue: 0)],
+  );
 
-    final migrated = await migration.execute(testData);
-    final rolledBack = await migration.rollback(migrated);
+  final row = {'id': 't1', 'title': 'Test'};
+  final migrated = migration.migrate(row);
 
-    expect(rolledBack, equals(testData));
-  });
+  // Data integrity is preserved
+  assert(migrated['id'] == 't1');
+  assert(migrated['title'] == 'Test');
+  assert(migrated['priority'] == 0);
 }
 ```
 
 ### 2. Version Control Migrations
+
+Keep one migration file per step in version control, and let
+`MigrationPlan` validate the chain — duplicate starting versions, gaps,
+backward steps, and overshoots all fail fast, before any data is touched:
+
 ```dart
-// Keep migrations in version control
-// migrations/
-//   v1_to_v2.dart
-//   v2_to_v3.dart
-//   v3_to_v4.dart
-
-class MigrationRegistry {
-  static final migrations = <String, Migration>{
-    '1->2': Migration1To2(),
-    '2->3': Migration2To3(),
-    '3->4': Migration3To4(),
-  };
-
-  static List<Migration> getMigrationPath(int fromVersion, int toVersion) {
-    final path = <Migration>[];
-    for (var v = fromVersion; v < toVersion; v++) {
-      final migrationKey = '$v->${v + 1}';
-      final migration = migrations[migrationKey];
-      if (migration != null) {
-        path.add(migration);
-      }
-    }
-    return path;
-  }
-}
+final plan = MigrationPlan.resolve(
+  [
+    SchemaMigration(fromVersion: 1, toVersion: 2, operations: [
+      ColumnOperation.add('priority', defaultValue: 0),
+    ]),
+    SchemaMigration(fromVersion: 2, toVersion: 3, operations: [
+      ColumnOperation.rename('name', to: 'title'),
+    ]),
+  ],
+  fromVersion: 1,
+  toVersion: 3,
+);
+print('Steps to run: ${plan.steps.length}');
 ```
 
 ### 3. Monitor Migration Performance
 ```dart
 class MigrationMonitor {
-  static Future<void> monitorMigration(
+  /// Wraps a per-row migration with timing output.
+  static Map<String, dynamic> monitorMigration(
     Migration migration,
-    Map<String, dynamic> data,
-  ) async {
+    Map<String, dynamic> row,
+  ) {
     final stopwatch = Stopwatch()..start();
-    final result = await migration.execute(data);
+    final result = migration.migrate(row);
     stopwatch.stop();
 
-    // Log performance metrics
-    await logMigrationMetrics(
-      migration.runtimeType.toString(),
-      stopwatch.elapsed,
-      data.length,
-    );
-
+    print('${migration.runtimeType} '
+        'v${migration.fromVersion} -> v${migration.toVersion}: '
+        '${stopwatch.elapsedMicroseconds}us');
     return result;
   }
 }

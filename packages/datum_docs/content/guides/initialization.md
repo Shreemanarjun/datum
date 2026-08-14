@@ -15,66 +15,69 @@ Before using any Datum features, you must initialize the singleton instance:
 ```dart
 import 'package:datum/datum.dart';
 
-void main() async {
+Future<Datum> bootstrapDatum({
+  required DatumConnectivityChecker connectivityChecker,
+  required LocalAdapter<Task> localTaskAdapter,
+  required RemoteAdapter<Task> remoteTaskAdapter,
+}) async {
   // Initialize Datum
-  final datum = await Datum.initialize(
-    config: DatumConfig(
+  final result = await Datum.initialize(
+    config: const DatumConfig(
       // Configuration options
       autoSyncInterval: Duration(minutes: 15),
       enableLogging: true,
     ),
-    connectivityChecker: MyConnectivityChecker(),
+    connectivityChecker: connectivityChecker,
     registrations: [
+      // One DatumRegistration per entity type
       DatumRegistration<Task>(
-        localAdapter: HiveTaskAdapter(),
-        remoteAdapter: SupabaseTaskAdapter(),
-      ),
-      DatumRegistration<User>(
-        localAdapter: HiveUserAdapter(),
-        remoteAdapter: SupabaseUserAdapter(),
+        localAdapter: localTaskAdapter,
+        remoteAdapter: remoteTaskAdapter,
       ),
     ],
   );
 
-  // Now you can use Datum
-  runApp(MyApp());
+  // Now you can use Datum. getSuccess() throws the typed DatumError if
+  // initialization failed — see "Error Handling" below for pattern matching.
+  return result.getSuccess();
 }
 ```
 
 ### Configuration Options
 
 ```dart
-final config = DatumConfig(
+final config = DatumConfig<Task>(
   // Synchronization
-  autoSyncInterval: Duration(minutes: 15),        // How often to auto-sync
-  autoStartSync: true,                           // Start sync automatically
-  syncTimeout: Duration(seconds: 30),            // Sync operation timeout
+  autoSyncInterval: const Duration(minutes: 15),  // How often to auto-sync
+  autoStartSync: true,                            // Start sync automatically
+  syncTimeout: const Duration(seconds: 30),       // Sync operation timeout
   defaultSyncDirection: SyncDirection.pushThenPull, // Default sync behavior
 
   // Conflict Resolution
-  defaultConflictResolver: LastWriteWinsResolver(), // Default resolver
+  defaultConflictResolver: LastWriteWinsResolver<Task>(), // Default resolver
 
   // User Management
   defaultUserSwitchStrategy: UserSwitchStrategy.syncThenSwitch,
-  initialUserId: null,                           // User to sync on startup
+  initialUserId: null, // Callback returning the user to sync on startup
 
   // Performance
-  remoteEventDebounceTime: Duration(milliseconds: 50),
-  changeCacheDuration: Duration(seconds: 5),
+  remoteEventDebounceTime: const Duration(milliseconds: 50),
+  changeCacheDuration: const Duration(seconds: 5),
 
   // Error Handling
   errorRecoveryStrategy: DatumErrorRecoveryStrategy(
     maxRetries: 3,
-    backoffStrategy: ExponentialBackoffStrategy(),
+    backoffStrategy: const ExponentialBackoff(),
+    shouldRetry: (error) async => error.code == DatumExceptionCode.networkError,
   ),
 
   // Schema Management
   schemaVersion: 1,
-  migrations: [MyMigration()],
+  migrations: const [], // Your Migration implementations
 
   // Execution Strategies
-  syncExecutionStrategy: SequentialStrategy(),
-  syncRequestStrategy: SequentialRequestStrategy(),
+  syncExecutionStrategy: const SequentialStrategy(),
+  syncRequestStrategy: const SequentialRequestStrategy(),
 );
 ```
 
@@ -110,15 +113,17 @@ Register your entities with their adapters:
 ```dart
 final registrations = [
   DatumRegistration<Task>(
-    localAdapter: HiveTaskAdapter(),
-    remoteAdapter: SupabaseTaskAdapter(),
-    conflictResolver: MergeResolver(),
-    middlewares: [EncryptionMiddleware()],
-    observers: [TaskObserver()],
-    config: DatumConfig(
-      // Entity-specific config overrides
-      autoSyncInterval: Duration(minutes: 5),
+    localAdapter: localAdapter,
+    remoteAdapter: remoteAdapter,
+    // Optional: entity-specific conflict resolution
+    conflictResolver: LastWriteWinsResolver<Task>(),
+    // Optional: entity-specific config overrides
+    config: DatumConfig<Task>(
+      autoSyncInterval: const Duration(minutes: 5),
     ),
+    // Optional extras:
+    // middlewares: [MyEncryptionMiddleware()],  // List<DatumMiddleware<Task>>
+    // observers: [MyTaskObserver()],            // List<DatumObserver<Task>>
   ),
 ];
 ```
@@ -129,27 +134,33 @@ Once initialized, you can perform CRUD operations globally:
 
 ```dart
 // Create
-final newTask = await Datum.create(Task(
+final newTask = await Datum.instance.create(Task(
   id: 'task-1',
   userId: 'user-123',
   title: 'Learn Datum',
   createdAt: DateTime.now(),
   modifiedAt: DateTime.now(),
+  version: 1,
 ));
 
 // Read
-final task = await Datum.read<Task>('task-1', userId: 'user-123');
-final allTasks = await Datum.readAll<Task>(userId: 'user-123');
+final fetched = await Datum.instance.read<Task>('task-1', userId: 'user-123');
+final allTasks = await Datum.instance.readAll<Task>(userId: 'user-123');
 
 // Update
-final updatedTask = await Datum.update(task.copyWith(title: 'Learn Datum v2'));
+final updatedTask = await Datum.instance.update(
+  newTask.copyWith(title: 'Learn Datum v2'),
+);
 
 // Delete
-final deleted = await Datum.delete<Task>(id: 'task-1', userId: 'user-123');
+final deleted = await Datum.instance.delete<Task>(id: 'task-1', userId: 'user-123');
 
 // Batch operations
-final newTasks = await Datum.createMany<Task>(
-  items: [task1, task2, task3],
+final newTasks = await Datum.instance.createMany<Task>(
+  items: [
+    newTask.copyWith(title: 'Chapter 2'),
+    newTask.copyWith(title: 'Chapter 3'),
+  ],
   userId: 'user-123',
 );
 ```
@@ -163,7 +174,7 @@ Access specific managers for advanced operations:
 final taskManager = Datum.manager<Task>();
 
 // Perform manager-specific operations
-await taskManager.startAutoSync('user-123');
+taskManager.startAutoSync('user-123');
 final pendingCount = await taskManager.getPendingCount('user-123');
 ```
 
@@ -176,7 +187,7 @@ Trigger synchronization across all registered entities:
 final result = await Datum.instance.synchronize('user-123');
 
 // Sync with custom options
-final result = await Datum.instance.synchronize(
+final customResult = await Datum.instance.synchronize(
   'user-123',
   options: DatumSyncOptions(
     direction: SyncDirection.pullThenPush,
@@ -191,14 +202,14 @@ Watch for changes globally:
 
 ```dart
 // Watch all tasks
-final taskStream = Datum.watchAll<Task>(userId: 'user-123');
+final allTasksStream = Datum.instance.watchAll<Task>(userId: 'user-123');
 
 // Watch specific task
-final taskStream = Datum.watchById<Task>('task-1', 'user-123');
+final singleTaskStream = Datum.instance.watchById<Task>('task-1', 'user-123');
 
 // Watch with pagination
-final paginatedStream = Datum.watchAllPaginated<Task>(
-  PaginationConfig(limit: 20, offset: 0),
+final paginatedStream = Datum.instance.watchAllPaginated<Task>(
+  const PaginationConfig(pageSize: 20),
   userId: 'user-123',
 );
 ```
@@ -209,21 +220,27 @@ Perform queries across entities:
 
 ```dart
 // Simple query
-final completedTasks = await Datum.query<Task>(
-  DatumQuery(
+final completedTasks = await Datum.instance.query<Task>(
+  const DatumQuery(
     filters: [Filter('isCompleted', FilterOperator.equals, true)],
-    sorting: [SortDescriptor('createdAt', SortDirection.descending)],
+    sorting: [SortDescriptor('createdAt', descending: true)],
   ),
   source: DataSource.local,
   userId: 'user-123',
 );
 
-// Complex query with relationships
-final postsWithAuthors = await Datum.query<Post>(
+// Complex query: recent tasks, eager-loading a declared relation
+final recentTasks = await Datum.instance.query<Task>(
   DatumQuery(
-    filters: [Filter('createdAt', FilterOperator.greaterThan, DateTime.now().subtract(Duration(days: 7)))],
-    withRelated: ['author'],
-    sorting: [SortDescriptor('createdAt', SortDirection.descending)],
+    filters: [
+      Filter(
+        'createdAt',
+        FilterOperator.greaterThan,
+        DateTime.now().subtract(const Duration(days: 7)),
+      ),
+    ],
+    withRelated: const ['author'],
+    sorting: const [SortDescriptor('createdAt', descending: true)],
     limit: 50,
   ),
   source: DataSource.remote,
@@ -240,7 +257,7 @@ Check the health of all managers:
 final allHealths = await Datum.instance.allHealths.first;
 
 // Check health of specific manager
-final taskHealth = await Datum.checkHealth<Task>();
+final taskHealth = await Datum.instance.checkHealth<Task>();
 ```
 
 ## Metrics and Monitoring
@@ -260,21 +277,37 @@ final userStatus = Datum.instance.statusForUser('user-123');
 
 ## Error Handling
 
-Handle initialization and runtime errors:
+Handle initialization and runtime errors. `Datum.initialize` never throws — it returns a `DatumEither<DatumError, Datum>` you can pattern-match:
+
+```dart
+Future<void> initializeSafely(DatumConnectivityChecker connectivity) async {
+  final result = await Datum.initialize(
+    config: const DatumConfig(),
+    connectivityChecker: connectivity,
+  );
+
+  switch (result) {
+    case Success(value: final datum):
+      print('Datum ready: $datum');
+    case Failure(value: final error, stackTrace: _):
+      print('Initialization failed: $error');
+  }
+}
+```
+
+Runtime operations throw typed `DatumException`s you can switch on:
 
 ```dart
 try {
-  final datum = await Datum.initialize(/* ... */);
+  await manager.synchronize(userId);
 } on DatumException catch (e) {
   switch (e.code) {
-    case 'entity_already_registered':
-      print('Entity already registered');
-      break;
-    case 'network_error':
+    case DatumExceptionCode.networkError:
       print('Network connectivity issue');
-      break;
+    case DatumExceptionCode.entityNotFound:
+      print('Entity not found');
     default:
-      print('Initialization failed: ${e.message}');
+      print('Sync failed: ${e.message}');
   }
 }
 ```
@@ -301,4 +334,4 @@ await Datum.instance.dispose();
 3. **Configure appropriately**: Tune configuration options based on your app's needs
 4. **Monitor health**: Regularly check health status and handle degraded states
 5. **Clean up**: Always dispose of Datum when shutting down your app
-6. **Error handling**: Implement proper error handling for all Datum operations</content>
+6. **Error handling**: Implement proper error handling for all Datum operations

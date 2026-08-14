@@ -42,9 +42,9 @@ try {
   print('Adapter initialization failed: $e');
 }
 
-// 3. Check user permissions
-if (currentUserId == null) {
-  throw Exception('User not authenticated');
+// 3. Make sure a user is signed in before syncing
+if (userId.isEmpty) {
+  throw StateError('User not authenticated');
 }
 ```
 
@@ -53,15 +53,28 @@ if (currentUserId == null) {
 
 **Debug Steps:**
 ```dart
-// Add timeout to sync calls
-final result = await Datum.instance.synchronize(userId)
-    .timeout(Duration(seconds: 30), onTimeout: () {
-  print('Sync timeout - check network and server');
-  return null;
-});
+import 'dart:async';
 
-// Check for circular dependencies in relationships
-// Ensure no self-referencing entities
+// Add a timeout to individual sync calls...
+try {
+  final result =
+      await manager.synchronize(userId).timeout(const Duration(seconds: 30));
+  print('Synced ${result.syncedCount} operation(s)');
+} on TimeoutException {
+  print('Sync timeout - check network and server');
+}
+
+// ...or configure the timeout on the engine / per sync cycle instead:
+final config = DatumConfig<Task>(
+  syncTimeout: Duration(minutes: 1), // whole-cycle timeout
+);
+await manager.synchronize(
+  userId,
+  options: const DatumSyncOptions(timeout: Duration(seconds: 30)),
+);
+
+// Also check for circular dependencies in relationships:
+// ensure no self-referencing entities.
 ```
 
 ## Conflict Resolution Issues
@@ -71,32 +84,57 @@ final result = await Datum.instance.synchronize(userId)
 
 **Check conflict resolver configuration:**
 ```dart
-final config = DatumConfig(
+final config = DatumConfig<Task>(
+  // Used whenever no per-operation resolver is provided.
+  // If null, LastWriteWinsResolver is the default.
   defaultConflictResolver: LastWriteWinsResolver<Task>(),
-  // Or custom resolver
-  defaultConflictResolver: CustomResolver(),
 );
+```
 
-// Verify resolver logic
-class CustomResolver extends DatumConflictResolver<Task> {
+**Verify custom resolver logic** — a resolver implements `name` and
+`resolve({local, remote, context})` and returns a `DatumConflictResolution`:
+
+```dart
+class CustomResolver implements DatumConflictResolver<Task> {
   @override
-  Future<DatumConflictResolution<Task>> resolve(...) async {
+  String get name => 'CustomResolver';
+
+  @override
+  Future<DatumConflictResolution<Task>> resolve({
+    Task? local,
+    Task? remote,
+    required DatumConflictContext context,
+  }) async {
     // Add logging to debug resolution logic
-    print('Resolving conflict: ${context.entityId}');
-    return DatumConflictResolution.resolved(localEntity, 'Custom logic');
+    print('Resolving conflict: ${context.entityId} (${context.type.name})');
+    if (local != null) {
+      return DatumConflictResolution.useLocal(local);
+    }
+    return DatumConflictResolution.useRemote(remote!);
   }
 }
+```
+
+```dart continue
+final config = DatumConfig<Task>(
+  defaultConflictResolver: CustomResolver(),
+);
 ```
 
 ### Issue: Conflict resolution UI not showing
 **Symptoms:** Conflicts detected but no user prompt
 
-**Ensure proper error handling:**
+**Listen to conflict events and apply the user's choice:**
 ```dart
 manager.onConflict.listen((event) async {
-  // Show conflict resolution dialog
-  final resolution = await showConflictDialog(event.conflict);
-  await manager.resolveConflict(event.conflict.id, resolution);
+  print('Conflict on ${event.context.entityId} (${event.context.type.name})');
+
+  // Show your dialog comparing event.localData and event.remoteData,
+  // then write the winning version back as the latest change.
+  final winner = event.localData ?? event.remoteData;
+  if (winner != null) {
+    await manager.push(item: winner, userId: event.userId);
+  }
 });
 ```
 
@@ -107,29 +145,37 @@ manager.onConflict.listen((event) async {
 
 **Recovery steps:**
 ```dart
-// Clear corrupted local data
-await localAdapter.clearAll(userId);
+// Clear corrupted local data for this user
+await localAdapter.clearUserData(userId);
 
-// Force full remote sync
-final result = await manager.synchronize(userId, options: DatumSyncOptions(
-  forceFullSync: true,
-  direction: SyncDirection.pullThenPush,
-));
+// Force a full pull from the remote
+final result = await manager.synchronize(
+  userId,
+  options: const DatumSyncOptions(
+    forceFullSync: true,
+    direction: SyncDirection.pullThenPush,
+  ),
+);
 ```
 
 ### Issue: Remote adapter authentication errors
 **Symptoms:** 401/403 errors from remote API
 
-**Check authentication:**
+**Detect auth failures with the typed error API and re-authenticate:**
 ```dart
-// Verify auth token validity
-final token = await getAuthToken();
-if (token == null || isTokenExpired(token)) {
-  await refreshAuthToken();
+final result = await manager.trySynchronize(userId);
+switch (result) {
+  case Success():
+    print('Sync succeeded');
+  case Failure(value: final error):
+    final cause = error.cause;
+    if (cause is DatumException &&
+        cause.code == DatumExceptionCode.authenticationError) {
+      // Refresh your session with your auth provider, update the
+      // credentials your RemoteAdapter uses, then retry the sync.
+      await manager.synchronize(userId);
+    }
 }
-
-// Update adapter with fresh token
-remoteAdapter.updateAuthToken(newToken);
 ```
 
 ## Performance Issues
@@ -139,20 +185,24 @@ remoteAdapter.updateAuthToken(newToken);
 
 **Optimization strategies:**
 ```dart
-// 1. Use parallel processing
-final config = DatumConfig(
-  syncExecutionStrategy: ParallelStrategy(batchSize: 10),
+// 1. Process the sync queue in parallel batches
+final parallel = DatumConfig<Task>(
+  syncExecutionStrategy: const ParallelStrategy(batchSize: 10, failFast: false),
 );
 
-// 2. Implement selective sync
+// 2. Tune the pull batch sizes for your payloads
+final batching = DatumConfig<Task>(
+  remoteSyncBatchSize: 200, // remote changes handled per batch
+  remoteStreamBatchSize: 100, // items streamed from adapters at a time
+);
+
+// 3. Sync only critical data with a scoped query
 final scope = DatumSyncScope(
-  entityIds: importantEntityIds, // Only sync critical data
+  query: DatumQuery(
+    filters: [Filter('priority', FilterOperator.greaterThanOrEqual, 3)],
+  ),
 );
-
-// 3. Adjust batch sizes
-final config = DatumConfig(
-  defaultBatchSize: 50, // Larger batches for better throughput
-);
+await manager.synchronize(userId, scope: scope);
 ```
 
 ### Issue: Memory usage too high
@@ -160,12 +210,18 @@ final config = DatumConfig(
 
 **Memory optimization:**
 ```dart
-// Process in smaller chunks
+// Process in smaller chunks instead of holding everything at once
+const chunkSize = 100;
 final entities = await manager.readAll(userId: userId);
-for (final chunk in entities.chunks(100)) {
-  await processChunk(chunk);
-  // Allow garbage collection
-  await Future.delayed(Duration(milliseconds: 10));
+
+for (var i = 0; i < entities.length; i += chunkSize) {
+  final end =
+      (i + chunkSize < entities.length) ? i + chunkSize : entities.length;
+  final chunk = entities.sublist(i, end);
+  print('Processing ${chunk.length} entities...');
+
+  // Yield to the event loop between chunks
+  await Future<void>.delayed(const Duration(milliseconds: 10));
 }
 ```
 
@@ -176,11 +232,15 @@ for (final chunk in entities.chunks(100)) {
 
 **Implement retry logic:**
 ```dart
-final config = DatumConfig(
+final config = DatumConfig<Task>(
   errorRecoveryStrategy: DatumErrorRecoveryStrategy(
     maxRetries: 3,
-    backoffStrategy: ExponentialBackoffStrategy(
-      initialDelay: Duration(seconds: 1),
+    // Only retry errors that are worth retrying.
+    shouldRetry: (error) async =>
+        error is NetworkException && error.isRetryable,
+    backoffStrategy: const ExponentialBackoff(
+      baseDelay: Duration(seconds: 1),
+      multiplier: 2.0,
       maxDelay: Duration(minutes: 2),
     ),
   ),
@@ -192,11 +252,21 @@ final config = DatumConfig(
 
 **Chunk large operations:**
 ```dart
-// Split large syncs into smaller operations
+// Cap the per-cycle batch size for this sync
+await manager.synchronize(
+  userId,
+  options: const DatumSyncOptions(overrideBatchSize: 20),
+);
+
+// Or save-and-sync in explicit batches
 final allEntities = await manager.readAll(userId: userId);
-for (final batch in allEntities.batches(20)) {
-  await manager.saveMany(items: batch, userId: userId);
-  await manager.synchronize(userId); // Sync each batch
+const batchSize = 20;
+for (var i = 0; i < allEntities.length; i += batchSize) {
+  final end = (i + batchSize < allEntities.length)
+      ? i + batchSize
+      : allEntities.length;
+  final batch = allEntities.sublist(i, end);
+  await manager.saveMany(items: batch, userId: userId, andSync: true);
 }
 ```
 
@@ -207,14 +277,16 @@ for (final batch in allEntities.batches(20)) {
 
 **Handle schema updates:**
 ```dart
-final config = DatumConfig(
+final config = DatumConfig<Task>(
   schemaVersion: 2,
   migrations: [
-    Migration1To2(
-      execute: (data) async {
-        // Transform data for new schema
-        return migrateDataFormat(data);
-      },
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [
+        ColumnOperation.rename('name', to: 'title'),
+        ColumnOperation.add('priority', defaultValue: 0),
+      ],
     ),
   ],
 );
@@ -225,11 +297,11 @@ final config = DatumConfig(
 
 **Implement proper transaction handling:**
 ```dart
-// Use transactions for batch operations
-await localAdapter.transaction((txn) async {
-  for (final entity in entities) {
-    await txn.insert(entity);
-  }
+// Group writes into a single transaction so they don't
+// contend for the database lock.
+await localAdapter.transaction(() async {
+  await localAdapter.create(task);
+  await localAdapter.update(task.copyWith(isCompleted: true));
 });
 ```
 
@@ -237,26 +309,30 @@ await localAdapter.transaction((txn) async {
 
 ### Enable detailed logging
 ```dart
-final config = DatumConfig(
-  logger: DatumLogger(
-    enabled: true,
-    level: LogLevel.debug,
-  ),
+// Logging is configured on DatumConfig...
+final config = DatumConfig<Task>(
+  enableLogging: true,
+  logLevel: LogLevel.debug,
 );
 
-// Monitor logs
-Datum.instance.logger.onLog.listen((log) {
-  print('${log.level}: ${log.message}');
-});
+// ...and a custom DatumLogger can be passed to Datum.initialize
+// (use `sink:` to route log output to your own destination).
+final debugLogger = DatumLogger(
+  enabled: true,
+  minimumLevel: LogLevel.debug,
+);
 ```
 
 ### Health checks
 ```dart
+import 'dart:async';
+
 // Regular health monitoring
-Timer.periodic(Duration(minutes: 5), (_) async {
+Timer.periodic(const Duration(minutes: 5), (_) async {
   final health = await manager.checkHealth();
-  if (health.status == DatumHealthStatus.unhealthy) {
-    reportIssue('Health check failed: ${health.message}');
+  if (health.status == DatumSyncHealth.error ||
+      health.status == DatumSyncHealth.degraded) {
+    print('Health check failed:\n${health.describe()}');
   }
 });
 ```
@@ -264,23 +340,32 @@ Timer.periodic(Duration(minutes: 5), (_) async {
 ### Sync status monitoring
 ```dart
 // Track sync progress
-final subscription = manager.statusStream.listen((status) {
-  print('Sync status: ${status.status}');
-  if (status.hasError) {
-    print('Sync error: ${status.error}');
+final subscription = manager.statusStream.listen((snapshot) {
+  print('Sync status: ${snapshot.status.name} '
+      '(${(snapshot.progress * 100).toStringAsFixed(0)}%)');
+  if (snapshot.hasFailures) {
+    print('Sync errors: ${snapshot.errors}');
   }
 });
 ```
 
 ## Common Error Codes
 
+Thrown errors are `DatumException`s carrying a `DatumExceptionCode`:
+
 | Error Code | Description | Solution |
 |------------|-------------|----------|
-| `network_error` | Network connectivity issues | Check internet connection |
-| `auth_error` | Authentication failed | Refresh auth tokens |
-| `schema_mismatch` | Database schema conflict | Run migrations |
-| `conflict_detected` | Data conflicts found | Implement conflict resolution |
-| `timeout_error` | Operation timed out | Increase timeout or reduce batch size |
+| `networkError` | Network connectivity issues | Check internet connection |
+| `authenticationError` | Authentication failed | Refresh auth tokens |
+| `schemaMismatch` | Database schema conflict | Run migrations |
+| `conflictDetected` | Data conflicts found | Implement conflict resolution |
+| `timeout` | Operation timed out | Increase timeout or reduce batch size |
+| `migrationError` | Schema migration failed | Fix the migration chain, see `onMigrationError` |
+
+The non-throwing `tryX` methods (`trySynchronize`, `tryRead`, `tryPush`, ...)
+map these onto a small, pattern-matchable `DatumError` hierarchy instead:
+`NotFoundError`, `ConflictError`, `NetworkError`, `ValidationError`,
+`StorageError`, and `UnknownError`.
 
 ## Getting Help
 

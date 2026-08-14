@@ -38,6 +38,14 @@ Datum provides multiple ways to define your entities. Choose the approach that b
       final String title;
       final String? description;
       final bool isCompleted;
+      @override
+      final DateTime createdAt;
+      @override
+      final DateTime modifiedAt;
+      @override
+      final bool isDeleted;
+      @override
+      final int version;
 
       const Task({
         required this.id,
@@ -45,13 +53,46 @@ Datum provides multiple ways to define your entities. Choose the approach that b
         required this.title,
         this.description,
         this.isCompleted = false,
-        required super.createdAt,
-        required super.modifiedAt,
-        super.isDeleted = false,
-        super.version = 1,
+        required this.createdAt,
+        required this.modifiedAt,
+        this.isDeleted = false,
+        this.version = 1,
       });
 
-      // Implement required methods...
+      @override
+      Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
+            'id': id,
+            'userId': userId,
+            'title': title,
+            'description': description,
+            'isCompleted': isCompleted,
+            'createdAt': createdAt.toIso8601String(),
+            'modifiedAt': modifiedAt.toIso8601String(),
+            'isDeleted': isDeleted,
+            'version': version,
+          };
+
+      @override
+      Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) {
+        if (oldVersion is! Task) return toDatumMap();
+        final delta = <String, dynamic>{};
+        if (title != oldVersion.title) delta['title'] = title;
+        if (description != oldVersion.description) delta['description'] = description;
+        if (isCompleted != oldVersion.isCompleted) delta['isCompleted'] = isCompleted;
+        return delta.isEmpty ? null : delta;
+      }
+
+      factory Task.fromMap(Map<String, dynamic> map) => Task(
+            id: map['id'] as String,
+            userId: map['userId'] as String,
+            title: map['title'] as String,
+            description: map['description'] as String?,
+            isCompleted: map['isCompleted'] as bool? ?? false,
+            createdAt: DateTime.parse(map['createdAt'] as String),
+            modifiedAt: DateTime.parse(map['modifiedAt'] as String),
+            isDeleted: map['isDeleted'] as bool? ?? false,
+            version: map['version'] as int? ?? 1,
+          );
     }
   ```
 
@@ -59,7 +100,7 @@ Datum provides multiple ways to define your entities. Choose the approach that b
 
   Use `RelationalDatumEntity` for entities with relationships:
 
-  ```dart
+  ```dart no-verify
     class User extends RelationalDatumEntity {
       @override
       Map<String, Relation> get relations => {
@@ -67,7 +108,8 @@ Datum provides multiple ways to define your entities. Choose the approach that b
         'profile': HasOne<Profile>(this, 'userId'),
       };
 
-      // Implementation...
+      // Implementation... (see the complete relational example
+      // at the bottom of this page)
     }
   ```
 
@@ -85,91 +127,159 @@ Datum provides multiple ways to define your entities. Choose the approach that b
 
   ### DatumEntityMixin
 
-  Basic mixin with change tracking and serialization:
+  Basic mixin with change tracking and serialization. The mixin declares the
+  core sync fields (`id`, `userId`, `createdAt`, `modifiedAt`, `version`,
+  `isDeleted`) as abstract getters — your class provides them as final fields:
 
   ```dart
     class Task with DatumEntityMixin {
-      String title;
-      String description;
-      bool isCompleted;
-      DateTime? dueDate;
+      @override
+      final String id;
+      @override
+      final String userId;
+      final String title;
+      final String description;
+      final bool isCompleted;
+      final DateTime? dueDate;
+      @override
+      final DateTime createdAt;
+      @override
+      final DateTime modifiedAt;
+      @override
+      final int version;
+      @override
+      final bool isDeleted;
 
-      Task({
-        String? id,
+      const Task({
+        required this.id,
+        required this.userId,
         required this.title,
         this.description = '',
         this.isCompleted = false,
         this.dueDate,
-      }) {
-        // Initialize with mixin
-        this.id = id ?? generateId();
-        this.createdAt = DateTime.now();
-        this.modifiedAt = DateTime.now();
-      }
+        required this.createdAt,
+        required this.modifiedAt,
+        this.version = 1,
+        this.isDeleted = false,
+      });
+
+      // From Equatable (which the mixin implements): enables a
+      // readable toString() built from props.
+      @override
+      bool? get stringify => true;
 
       @override
       Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
         return {
           'id': id,
+          'userId': userId,
           'title': title,
           'description': description,
           'isCompleted': isCompleted,
           'dueDate': dueDate?.toIso8601String(),
           'createdAt': createdAt.toIso8601String(),
           'modifiedAt': modifiedAt.toIso8601String(),
+          'version': version,
+          'isDeleted': isDeleted,
         };
+      }
+
+      @override
+      Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) {
+        if (oldVersion is! Task) return toDatumMap();
+        final delta = <String, dynamic>{};
+        if (title != oldVersion.title) delta['title'] = title;
+        if (description != oldVersion.description) delta['description'] = description;
+        if (isCompleted != oldVersion.isCompleted) delta['isCompleted'] = isCompleted;
+        if (dueDate != oldVersion.dueDate) delta['dueDate'] = dueDate?.toIso8601String();
+        return delta.isEmpty ? null : delta;
       }
 
       factory Task.fromMap(Map<String, dynamic> map) {
         return Task(
-          id: map['id'],
-          title: map['title'],
-          description: map['description'],
-          isCompleted: map['isCompleted'],
-          dueDate: map['dueDate'] != null ? DateTime.parse(map['dueDate']) : null,
-        )..createdAt = DateTime.parse(map['createdAt'])
-          ..modifiedAt = DateTime.parse(map['modifiedAt']);
+          id: map['id'] as String,
+          userId: map['userId'] as String,
+          title: map['title'] as String,
+          description: (map['description'] ?? '') as String,
+          isCompleted: (map['isCompleted'] ?? false) as bool,
+          dueDate: map['dueDate'] != null ? DateTime.parse(map['dueDate'] as String) : null,
+          createdAt: DateTime.parse(map['createdAt'] as String),
+          modifiedAt: DateTime.parse(map['modifiedAt'] as String),
+          version: (map['version'] ?? 1) as int,
+          isDeleted: (map['isDeleted'] ?? false) as bool,
+        );
       }
     }
   ```
 
-  ### RelationDatumEntityMixin
+  ### RelationalDatumEntityMixin
 
-  Mixin with relationship management:
+  Marks a composed entity as relational (`isRelational` becomes `true`) and
+  gives it a default empty `relations` map. Note that the built-in `Relation`
+  constructors (`HasMany`, `BelongsTo`, ...) require a `RelationalDatumEntity`
+  parent, so to declare typed relations extend `RelationalDatumEntity`
+  (previous tab) or use the [generator annotations](code_generation_relationships):
 
   ```dart
-    class Project with RelationDatumEntityMixin {
-      String name;
-      String description;
-      List<String> taskIds;
+    class Project with RelationalDatumEntityMixin {
+      @override
+      final String id;
+      @override
+      final String userId;
+      final String name;
+      final String description;
+      @override
+      final DateTime createdAt;
+      @override
+      final DateTime modifiedAt;
+      @override
+      final int version;
+      @override
+      final bool isDeleted;
 
-      Project({
-        String? id,
+      const Project({
+        required this.id,
+        required this.userId,
         required this.name,
         this.description = '',
-        List<String>? taskIds,
-      }) : taskIds = taskIds ?? [] {
-        this.id = id ?? generateId();
-        this.createdAt = DateTime.now();
-        this.modifiedAt = DateTime.now();
-      }
+        required this.createdAt,
+        required this.modifiedAt,
+        this.version = 1,
+        this.isDeleted = false,
+      });
 
-      // Relationship management methods...
-      Future<void> addTask(String taskId) async {
-        if (!taskIds.contains(taskId)) {
-          taskIds.add(taskId);
-          await updateRelationship('tasks', taskId, RelationshipAction.add);
-        }
+      // From Equatable (which the mixin implements).
+      @override
+      bool? get stringify => true;
+
+      @override
+      Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
+            'id': id,
+            'userId': userId,
+            'name': name,
+            'description': description,
+            'createdAt': createdAt.toIso8601String(),
+            'modifiedAt': modifiedAt.toIso8601String(),
+            'version': version,
+            'isDeleted': isDeleted,
+          };
+
+      @override
+      Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) {
+        if (oldVersion is! Project) return toDatumMap();
+        final delta = <String, dynamic>{};
+        if (name != oldVersion.name) delta['name'] = name;
+        if (description != oldVersion.description) delta['description'] = description;
+        return delta.isEmpty ? null : delta;
       }
     }
-
   ```
 
   **Benefits:**
   - Flexible composition
   - Add Datum features to existing classes
   - Less coupling than inheritance
-  - Manual relationship control
+  - Compose Datum into existing class hierarchies
 
   **Complexity:** Low-Medium
 </TabItem>
@@ -178,7 +288,7 @@ Datum provides multiple ways to define your entities. Choose the approach that b
 ## Detailed Comparison & Best Practices
 
 
-|Feature | DatumEntity | RelationalDatumEntity | DatumEntityMixin | RelationDatumEntityMixin |
+|Feature | DatumEntity | RelationalDatumEntity | DatumEntityMixin | RelationalDatumEntityMixin |
 |---------|-------------|----------------------|------------------|--------------------------|
 | **Use Case** | Simple entities | Complex relationships | Simple with utilities | Utilities + relationships |
 | **Complexity** | 🟢 Low | 🔴 High | 🟢 Low | 🟡 Medium |
@@ -219,28 +329,21 @@ Datum provides multiple ways to define your entities. Choose the approach that b
 ### 🔄 Migration Between Approaches
 
 **From Mixin to Inheritance:**
-```dart
+```dart no-verify
 // Before (Mixin)
 class Task with DatumEntityMixin {
-  // Implementation
+  // Fields, toDatumMap, diff, fromMap...
 }
 
 // After (Inheritance)
 class Task extends DatumEntity {
-  // Copy properties and methods from mixin version
-  // Add required super constructor calls
-  Task({
-    required super.id,
-    required super.userId,
-    required super.createdAt,
-    required super.modifiedAt,
-    // ... other params
-  });
+  // The class body stays the same — DatumEntity already mixes in
+  // DatumEntityMixin, so only the declaration line changes.
 }
 ```
 
 **From Inheritance to Mixin:**
-```dart
+```dart no-verify
 // Before (Inheritance)
 class Task extends DatumEntity {
   // Implementation
@@ -248,13 +351,9 @@ class Task extends DatumEntity {
 
 // After (Mixin)
 class Task with DatumEntityMixin {
-  // Remove extends clause
-  // Initialize mixin properties in constructor
-  Task() {
-    this.id = generateId();
-    this.createdAt = DateTime.now();
-    this.modifiedAt = DateTime.now();
-  }
+  // Remove the extends clause. Keep the same final fields
+  // (id, userId, createdAt, modifiedAt, version, isDeleted)
+  // and method overrides — the mixin declares them as abstract members.
 }
 ```
 
@@ -265,7 +364,7 @@ class Task with DatumEntityMixin {
 ### Core Requirements
 
 1. **Always implement `toDatumMap()` and `fromMap()`**
-   ```dart
+   ```dart no-verify
    @override
    Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
      // Required for serialization
@@ -277,7 +376,7 @@ class Task with DatumEntityMixin {
    ```
 
 2. **Use meaningful relationship names**
-   ```dart
+   ```dart no-verify
    // Good
    'author': BelongsTo<User>(this, 'userId'),
    'comments': HasMany<Comment>(this, 'postId'),
@@ -289,31 +388,32 @@ class Task with DatumEntityMixin {
 
 ### Advanced Patterns
 
-3. **Validate relationships before saving**
+3. **Preview cascading deletes before running them**
    ```dart
-   Future<void> saveEntity(MyEntity entity) async {
-     await entity.validateRelationships();
-     await manager.save(entity, userId: userId);
+   final plan = await manager.getDeletePlan(task.id, userId: userId);
+   if (plan != null && plan.canDelete) {
+     await manager.cascadeDelete(id: task.id, userId: userId);
    }
    ```
 
-4. **Handle cascading deletes carefully**
-   ```dart
+4. **Declare cascade behavior on the relation itself**
+   ```dart no-verify
    @override
-   Future<void> beforeDelete() async {
-     // Clean up related entities
-     for (final relatedId in relatedIds) {
-       await deleteRelatedEntity<RelatedEntity>(relatedId);
-     }
-   }
+   Map<String, Relation> get relations => {
+     // Deleting this entity also deletes its comments
+     'comments': HasMany<Comment>(
+       this,
+       'postId',
+       cascadeDeleteBehavior: CascadeDeleteBehavior.cascade,
+     ),
+   };
    ```
 
 5. **Use lazy loading for performance**
    ```dart
-   // Load relationships on demand
-   Future<List<Comment>> getComments() async {
-     return await getRelatedEntities<Comment>('comments');
-   }
+   // Load relationships on demand instead of embedding them eagerly.
+   // Works on any RelationalDatumEntity with a declared relation.
+   final subtasks = await manager.fetchRelated<Task>(task, 'subtasks');
    ```
 
 ### Performance Considerations
@@ -326,24 +426,44 @@ class Task with DatumEntityMixin {
 ### Testing Recommendations
 
 ```dart
+import 'package:test/test.dart';
+
 void main() {
   group('Entity Tests', () {
     test('should serialize correctly', () {
-      final entity = Task(title: 'Test Task');
+      final entity = Task(
+        id: '1',
+        userId: 'user1',
+        title: 'Test Task',
+        createdAt: DateTime.now(),
+        modifiedAt: DateTime.now(),
+      );
       final map = entity.toDatumMap();
       expect(map['title'], equals('Test Task'));
     });
 
     test('should deserialize correctly', () {
-      final map = {'id': '1', 'title': 'Test', 'userId': 'user1'};
+      final map = {
+        'id': '1',
+        'title': 'Test',
+        'userId': 'user1',
+        'createdAt': DateTime.now().toIso8601String(),
+        'modifiedAt': DateTime.now().toIso8601String(),
+      };
       final entity = Task.fromMap(map);
       expect(entity.title, equals('Test'));
     });
 
-    test('should handle relationships', () async {
-      final project = Project(name: 'Test Project');
-      await project.addTask('task1');
-      expect(project.taskIds, contains('task1'));
+    test('should report changes through diff', () {
+      final task = Task(
+        id: '1',
+        userId: 'user1',
+        title: 'Before',
+        createdAt: DateTime.now(),
+        modifiedAt: DateTime.now(),
+      );
+      final updated = Task.fromMap({...task.toDatumMap(), 'title': 'After'});
+      expect(updated.diff(task), containsPair('title', 'After'));
     });
   });
 }
@@ -405,7 +525,6 @@ class Task extends DatumEntity {
     this.version = 1,
   });
 
-  @override
   Task copyWith({
     String? id,
     String? userId,

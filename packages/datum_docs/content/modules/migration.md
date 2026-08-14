@@ -6,151 +6,177 @@ The Migration module handles database schema and data migrations when upgrading 
 
 ## Overview
 
-Migrations are essential when you need to modify your entity structure, add new fields, or transform existing data. Datum provides a robust migration system that works across both local and remote adapters.
+Migrations are essential when you need to modify your entity structure, add new fields, or transform existing data. Datum provides a robust migration system: a **declarative API** (`SchemaMigration` + `ColumnOperation`) for the common cases, a low-level `Migration` base class for arbitrary transformations, and a **SQL executor** that runs the same declarative migrations natively on SQL stores.
 
 ## Key Components
 
 ### Migration
 
-Abstract base class for implementing schema migrations.
+Abstract base class representing a single migration step from one schema version to another.
 
-**Required Properties:**
-- `version`: Target schema version (integer)
-- `description`: Human-readable description of the migration
+**Required Members:**
+- `fromVersion`: The schema version this migration starts from (integer)
+- `toVersion`: The schema version this migration migrates to (integer)
+- `migrate(Map<String, dynamic> oldData)`: Transforms a single raw entity map
 
-**Required Methods:**
-- `execute(Map<String, dynamic> data)`: Transforms individual data records
-- `rollback(Map<String, dynamic> data)`: Reverses the migration (optional)
+### SchemaMigration (Recommended)
+
+A `Migration` described as a list of `ColumnOperation`s instead of hand-written map surgery.
+
+**Constructor Parameters:**
+- `fromVersion` / `toVersion`: The version step (toVersion must be greater)
+- `operations`: The `ColumnOperation`s applied, in order, to every matching row
+- `entityType`: Optional — only rows whose `__typename` matches are migrated
+- `where`: Optional predicate scoping which rows are migrated
+- `sqlWhere`: Optional SQL `WHERE` clause counterpart of `where` for the SQL path
+
+### ColumnOperation
+
+Declarative row transformations with factory shorthands:
+
+- `ColumnOperation.add(name, {defaultValue, compute, overwrite, sqlType, sqlExpression})`
+- `ColumnOperation.rename(from, to: ...)`
+- `ColumnOperation.remove(name)`
+- `ColumnOperation.transform(name, (value, row) => ..., {applyIfAbsent, sqlExpression})`
+- `ColumnOperation.row((row) => ..., {sql})` — whole-row rewrite
 
 ### MigrationExecutor
 
-Handles the execution of migrations in the correct order.
+Orchestrates the execution of schema migrations against a local adapter.
+
+**Constructor Parameters:**
+- `localAdapter`: The `LocalAdapter` whose data is migrated
+- `migrations`: The available `Migration`s
+- `targetVersion`: The version to migrate up to
+- `logger`: A `DatumLogger`
 
 **Key Methods:**
-- `executeMigrations(List<Migration> migrations, int targetVersion)`: Runs migrations to target version
-- `rollbackMigration(Migration migration)`: Reverses a specific migration
+- `needsMigration()`: Whether the stored schema version is behind `targetVersion`
+- `execute()`: Resolves the chain with `MigrationPlan`, snapshots the store, runs the migrations inside a transaction, and returns a `MigrationResult`
+
+### MigrationResult
+
+A record describing the outcome of a migration run:
+
+```dart no-verify
+typedef MigrationResult = ({
+  bool success,
+  Object? migrationError,
+  StackTrace? migrationStack,
+});
+```
+
+### MigrationPlan
+
+Resolves and validates the chain of migrations from one version to another **before any data is touched**. It throws a `MigrationException` describing every problem found — duplicate starting versions, steps that don't move forward, gaps in the chain, or steps that overshoot the target.
 
 ## Creating Migrations
 
-### Basic Migration Structure
+### Declarative Migrations (Recommended)
+
+Most migrations are column additions, renames, removals, or value transformations — express them with `SchemaMigration`:
+
+```dart
+final addPriority = SchemaMigration(
+  fromVersion: 1,
+  toVersion: 2,
+  operations: [
+    // Add priority field with a default value
+    ColumnOperation.add('priority', defaultValue: 3),
+  ],
+);
+
+final renameDescription = SchemaMigration(
+  fromVersion: 2,
+  toVersion: 3,
+  operations: [
+    // Rename "description" to "content"; rows without the field pass through
+    ColumnOperation.rename('description', to: 'content'),
+  ],
+);
+
+final convertStatus = SchemaMigration(
+  fromVersion: 3,
+  toVersion: 4,
+  operations: [
+    // Convert string status to integer enum values
+    ColumnOperation.transform('status', (value, row) {
+      switch (value) {
+        case 'pending':
+          return 0;
+        case 'in_progress':
+          return 1;
+        case 'completed':
+          return 2;
+        default:
+          return value;
+      }
+    }),
+  ],
+);
+```
+
+Computed columns and whole-row rewrites are also supported:
+
+```dart
+final computed = SchemaMigration(
+  fromVersion: 4,
+  toVersion: 5,
+  operations: [
+    // Compute a value from the rest of the row
+    ColumnOperation.add(
+      'slug',
+      compute: (row) => (row['title'] as String? ?? '').toLowerCase(),
+    ),
+    // Arbitrary whole-row rewrite — spread the input to keep untouched columns
+    ColumnOperation.row(
+      (row) => {...row, 'fullName': '${row['firstName']} ${row['lastName']}'},
+    ),
+  ],
+);
+```
+
+### Custom Migration Classes
+
+For logic that doesn't fit the declarative operations, extend `Migration` directly:
 
 ```dart
 class AddPriorityToTasksMigration extends Migration {
   @override
-  int get version => 2;
+  int get fromVersion => 1;
 
   @override
-  String get description => 'Add priority field to Task entities';
+  int get toVersion => 2;
 
   @override
-  Map<String, dynamic> execute(Map<String, dynamic> data) {
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
     // Add priority field with default value
     return {
-      ...data,
-      'priority': data['priority'] ?? 3, // Default medium priority
+      ...oldData,
+      'priority': oldData['priority'] ?? 3, // Default medium priority
     };
   }
-
-  @override
-  Map<String, dynamic> rollback(Map<String, dynamic> data) {
-    // Remove priority field
-    final result = Map<String, dynamic>.from(data);
-    result.remove('priority');
-    return result;
-  }
 }
 ```
 
-### Complex Data Transformations
-
 ```dart
-class RenameFieldMigration extends Migration {
+class NormalizeDatesMigration extends Migration {
   @override
-  int get version => 3;
-
-  @override
-  String get description => 'Rename "description" field to "content"';
+  int get fromVersion => 2;
 
   @override
-  Map<String, dynamic> execute(Map<String, dynamic> data) {
-    final result = Map<String, dynamic>.from(data);
-
-    // Rename field if it exists
-    if (result.containsKey('description')) {
-      result['content'] = result['description'];
-      result.remove('description');
-    }
-
-    return result;
-  }
+  int get toVersion => 3;
 
   @override
-  Map<String, dynamic> rollback(Map<String, dynamic> data) {
-    final result = Map<String, dynamic>.from(data);
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
+    final result = Map<String, dynamic>.from(oldData);
 
-    // Reverse the rename
-    if (result.containsKey('content')) {
-      result['description'] = result['content'];
-      result.remove('content');
-    }
-
-    return result;
-  }
-}
-```
-
-### Data Type Conversions
-
-```dart
-class ConvertStatusToEnumMigration extends Migration {
-  @override
-  int get version => 4;
-
-  @override
-  String get description => 'Convert status string to integer enum values';
-
-  @override
-  Map<String, dynamic> execute(Map<String, dynamic> data) {
-    final result = Map<String, dynamic>.from(data);
-
-    // Convert string status to integer
-    if (result['status'] is String) {
-      switch (result['status']) {
-        case 'pending':
-          result['status'] = 0;
-          break;
-        case 'in_progress':
-          result['status'] = 1;
-          break;
-        case 'completed':
-          result['status'] = 2;
-          break;
-        default:
-          result['status'] = 0; // Default to pending
-      }
-    }
-
-    return result;
-  }
-
-  @override
-  Map<String, dynamic> rollback(Map<String, dynamic> data) {
-    final result = Map<String, dynamic>.from(data);
-
-    // Convert back to string
-    if (result['status'] is int) {
-      switch (result['status']) {
-        case 0:
-          result['status'] = 'pending';
-          break;
-        case 1:
-          result['status'] = 'in_progress';
-          break;
-        case 2:
-          result['status'] = 'completed';
-          break;
-        default:
-          result['status'] = 'pending';
+    // Normalize createdAt to UTC ISO-8601
+    final createdAt = result['createdAt'];
+    if (createdAt is String) {
+      final parsed = DateTime.tryParse(createdAt);
+      if (parsed != null) {
+        result['createdAt'] = parsed.toUtc().toIso8601String();
       }
     }
 
@@ -167,21 +193,33 @@ class ConvertStatusToEnumMigration extends Migration {
 final config = DatumConfig(
   schemaVersion: 4, // Current schema version
   migrations: [
-    AddPriorityToTasksMigration(),
-    RenameFieldMigration(),
-    ConvertStatusToEnumMigration(),
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [ColumnOperation.add('priority', defaultValue: 3)],
+    ),
+    SchemaMigration(
+      fromVersion: 2,
+      toVersion: 3,
+      operations: [ColumnOperation.rename('description', to: 'content')],
+    ),
+    SchemaMigration(
+      fromVersion: 3,
+      toVersion: 4,
+      operations: [ColumnOperation.remove('legacyField')],
+    ),
   ],
 );
 ```
 
 ### Migration Execution Order
 
-Migrations are executed in version order automatically. The system:
+Migrations are executed in version order automatically. Before touching data, `MigrationPlan.resolve` validates the whole chain:
 
-1. Checks current stored schema version
-2. Identifies migrations needed to reach target version
-3. Executes migrations in ascending version order
-4. Updates stored schema version
+1. Reads the current stored schema version from the local adapter
+2. Builds the ordered chain of migrations to reach the target version
+3. Fails fast (throwing `MigrationException`) on gaps, duplicates, backwards steps, or overshooting steps
+4. Executes migrations in ascending version order and updates the stored version after each step
 
 ## Migration Lifecycle
 
@@ -190,57 +228,171 @@ Migrations are executed in version order automatically. The system:
 Migrations run automatically during Datum initialization if the stored schema version is lower than the configured version.
 
 ```dart
+class MyConnectivityChecker implements DatumConnectivityChecker {
+  @override
+  Future<bool> get isConnected async => true;
+  @override
+  Stream<bool> get onStatusChange => const Stream.empty();
+}
+```
+
+```dart continue
 // Migrations run automatically during initialization
 await Datum.initialize(
   config: DatumConfig(
     schemaVersion: 4,
     migrations: [/* migration list */],
   ),
-  // ... other config
+  connectivityChecker: MyConnectivityChecker(),
 );
 ```
 
 ### Manual Execution
 
-You can also execute migrations manually:
+You can also execute migrations manually with `MigrationExecutor`:
 
 ```dart
-final executor = MigrationExecutor();
-await executor.executeMigrations(
-  migrations: myMigrations,
-  targetVersion: 4,
+final executor = MigrationExecutor<Task>(
+  localAdapter: localAdapter,
+  migrations: [
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [ColumnOperation.add('priority', defaultValue: 0)],
+    ),
+  ],
+  targetVersion: 2,
+  logger: logger,
 );
+
+if (await executor.needsMigration()) {
+  final result = await executor.execute();
+  if (result.success) {
+    print('Migration completed');
+  } else {
+    print('Migration failed: ${result.migrationError}');
+  }
+}
 ```
+
+## SQL Migrations
+
+For SQL-backed adapters (like `SqliteLocalAdapter` from `datum_sqlite`), the map-based executor's serialize-rewrite-overwrite cycle can't add or drop real table columns. `SqlMigrationExecutor` runs the *same* `SchemaMigration`s natively as `ALTER TABLE`/`UPDATE` statements through the adapter's `RawQueryCapable.rawQuery`:
+
+```dart
+final executor = SqlMigrationExecutor<Task>(
+  localAdapter: localAdapter, // must mix in RawQueryCapable
+  table: 'tasks',
+  migrations: [
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [
+        // sqlType overrides the column type inferred from defaultValue
+        ColumnOperation.add('priority', defaultValue: 0, sqlType: 'INTEGER'),
+        // sqlExpression is the SQL counterpart of the Dart transform closure
+        ColumnOperation.transform(
+          'title',
+          (value, row) => (value as String).trim(),
+          sqlExpression: 'TRIM(title)',
+        ),
+      ],
+    ),
+  ],
+  targetVersion: 2,
+  logger: logger,
+);
+
+final result = await executor.execute();
+print(result.success ? 'Migrated' : 'Failed: ${result.migrationError}');
+```
+
+Every statement for the whole chain is generated (and therefore validated) up front, and execution runs inside the adapter's transaction, so an invalid or partially-expressible chain never touches the database.
+
+`SqlMigrationGenerator` can be used directly to inspect the generated statements:
+
+```dart
+final generator = SqlMigrationGenerator(dialect: SqlDialect.sqlite);
+final statements = generator.statementsFor(
+  SchemaMigration(
+    fromVersion: 1,
+    toVersion: 2,
+    operations: [ColumnOperation.add('priority', defaultValue: 0, sqlType: 'INTEGER')],
+  ),
+  table: 'tasks',
+);
+statements.forEach(print);
+```
+
+Custom `ColumnOperation` implementations can participate in the SQL path by implementing `SqlConvertibleOperation` and its `toSqlStatements(table, dialect)` method.
 
 ## Error Handling
 
 ### Migration Failures
 
-Handle migration errors gracefully:
+`MigrationExecutor.execute()` never leaves the store in a partially-migrated state: it snapshots the adapter's raw data and stored version before running, executes inside a transaction where possible, and restores the snapshot on failure. Errors are reported through the returned `MigrationResult` rather than thrown:
 
 ```dart
-try {
-  await Datum.initialize(config: config, /* ... */);
-} on MigrationException catch (e) {
-  print('Migration failed: ${e.message}');
-  print('Failed at version: ${e.failedVersion}');
+final executor = MigrationExecutor<Task>(
+  localAdapter: localAdapter,
+  migrations: [
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [ColumnOperation.add('priority', defaultValue: 0)],
+    ),
+  ],
+  targetVersion: 2,
+  logger: logger,
+);
 
-  // Handle migration failure
-  // Options: rollback, manual fix, or abort
+final result = await executor.execute();
+if (!result.success) {
+  print('Migration failed: ${result.migrationError}');
+  print(result.migrationStack);
+  // The store was restored to its pre-migration state
 }
 ```
 
-### Rollback Strategy
-
-Implement rollback for critical migrations:
+During `Datum.initialize`, migration failures are routed to `DatumConfig.onMigrationError` if provided — otherwise they are rethrown so the app never runs against a corrupted database:
 
 ```dart
-class CriticalMigration extends Migration {
-  @override
-  Map<String, dynamic> rollback(Map<String, dynamic> data) {
-    // Implement rollback logic
-    return originalDataTransformation(data);
-  }
+final config = DatumConfig(
+  schemaVersion: 2,
+  migrations: [/* ... */],
+  onMigrationError: (error, stackTrace) async {
+    // Custom recovery strategy, e.g. report and clear local data
+    print('Migration failed: $error');
+  },
+);
+```
+
+### Invalid Migration Chains
+
+`MigrationPlan.resolve` validates a chain without executing it:
+
+```dart
+try {
+  final plan = MigrationPlan.resolve(
+    [
+      SchemaMigration(
+        fromVersion: 1,
+        toVersion: 2,
+        operations: [ColumnOperation.add('priority', defaultValue: 0)],
+      ),
+      // Gap: nothing starts at version 2
+      SchemaMigration(
+        fromVersion: 3,
+        toVersion: 4,
+        operations: [ColumnOperation.remove('legacyField')],
+      ),
+    ],
+    fromVersion: 1,
+    toVersion: 4,
+  );
+  print('${plan.steps.length} steps to run');
+} on MigrationException catch (e) {
+  print('Invalid migration configuration: ${e.message}');
 }
 ```
 
@@ -251,124 +403,91 @@ class CriticalMigration extends Migration {
 1. **Make migrations idempotent**: They should be safe to run multiple times
 2. **Test migrations thoroughly**: Test on sample data before production
 3. **Keep migrations small**: One migration per logical change
-4. **Document changes clearly**: Use descriptive migration descriptions
-5. **Implement rollbacks**: Always provide rollback logic for critical migrations
+4. **Prefer declarative operations**: `SchemaMigration` is validated, SQL-convertible, and never mutates its input rows
+5. **Rely on the automatic snapshot**: The executor restores the pre-migration state on failure — you don't write rollback code
 
 ### Data Safety
 
 1. **Backup data first**: Always backup before running migrations
 2. **Validate data**: Check data integrity after migration
 3. **Handle edge cases**: Account for unexpected data formats
-4. **Use transactions**: Ensure migrations are atomic where possible
+4. **Use transactions**: The executor wraps the run in `LocalAdapter.transaction` when the adapter supports it
 
 ### Version Management
 
-1. **Increment versions sequentially**: Use consecutive integers
-2. **Never skip versions**: Each version should represent a migration
-3. **Document version changes**: Keep changelog of what each version changes
+1. **Increment versions sequentially**: Each step's `toVersion` must chain to the next step's `fromVersion`
+2. **Never skip versions**: `MigrationPlan` rejects chains with gaps
+3. **Document version changes**: Keep a changelog of what each version changes
 4. **Test version upgrades**: Test upgrades from multiple previous versions
 
 ### Performance Considerations
 
 1. **Batch operations**: Process data in batches for large datasets
-2. **Index optimization**: Consider indexing needs during migrations
+2. **Prefer the SQL executor for SQL stores**: `ALTER TABLE`/`UPDATE` beats a full serialize-rewrite cycle
 3. **Memory management**: Be mindful of memory usage with large datasets
 4. **Timeout handling**: Implement timeouts for long-running migrations
-
-## Schema Versioning
-
-Datum uses incremental schema versioning to track database schema evolution. Each migration increments the schema version by one.
-
-### Built-in Migrations
-
-**V0toV1Migration**: Adds enhanced sync metadata fields
-- `conflictCount`: Number of conflicts encountered
-- `devices`: Device tracking information
-- `lastSuccessfulSyncTime`: Timestamp of last successful sync
-- `syncStatus`: Current synchronization status
-- `syncVersion`: Sync protocol version
-- `serverTimestamp`: Server-side timestamp
-- `errorMessage`: Last sync error message
-- `retryCount`: Number of sync retries
-- `syncDuration`: Duration of last sync operation
 
 ## Migration Examples
 
 ### Adding a New Field
 
 ```dart
-class AddCreatedByMigration extends Migration {
-  @override
-  int get version => 5;
-
-  @override
-  String get description => 'Add createdBy field to track entity creators';
-
-  @override
-  Map<String, dynamic> execute(Map<String, dynamic> data) {
-    return {
-      ...data,
-      'createdBy': data['userId'], // Default to current user
-    };
-  }
-}
+final addCreatedBy = SchemaMigration(
+  fromVersion: 4,
+  toVersion: 5,
+  operations: [
+    // Default the new field from another column on the same row
+    ColumnOperation.add('createdBy', compute: (row) => row['userId']),
+  ],
+);
 ```
 
 ### Splitting Fields
 
 ```dart
-class SplitNameFieldMigration extends Migration {
-  @override
-  int get version => 6;
-
-  @override
-  String get description => 'Split fullName into firstName and lastName';
-
-  @override
-  Map<String, dynamic> execute(Map<String, dynamic> data) {
-    final result = Map<String, dynamic>.from(data);
-
-    if (result['fullName'] is String) {
-      final parts = (result['fullName'] as String).split(' ');
-      result['firstName'] = parts.isNotEmpty ? parts.first : '';
-      result['lastName'] = parts.length > 1 ? parts.sublist(1).join(' ') : '';
-      result.remove('fullName');
-    }
-
-    return result;
-  }
-}
+final splitName = SchemaMigration(
+  fromVersion: 5,
+  toVersion: 6,
+  operations: [
+    ColumnOperation.row((row) {
+      final fullName = row['fullName'];
+      if (fullName is! String) return row;
+      row.remove('fullName');
+      final parts = fullName.split(' ');
+      return {
+        ...row,
+        'firstName': parts.isNotEmpty ? parts.first : '',
+        'lastName': parts.length > 1 ? parts.sublist(1).join(' ') : '',
+      };
+    }),
+  ],
+);
 ```
 
-### Data Cleanup
+### Scoped Cleanup
+
+A migration cannot drop rows, but it can scope itself to the rows that need fixing and flag them:
 
 ```dart
-class CleanupInvalidDataMigration extends Migration {
-  @override
-  int get version => 7;
-
-  @override
-  String get description => 'Remove entities with invalid data';
-
-  @override
-  Map<String, dynamic> execute(Map<String, dynamic> data) {
-    // Return null to indicate this record should be removed
-    if (data['status'] == 'invalid') {
-      return null;
-    }
-    return data;
-  }
-}
+final flagInvalid = SchemaMigration(
+  fromVersion: 6,
+  toVersion: 7,
+  // Only rows matching the predicate are migrated; others pass through
+  where: (row) => row['status'] == 'invalid',
+  operations: [
+    ColumnOperation.add('isDeleted', defaultValue: true, overwrite: true),
+  ],
+);
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Migration fails mid-execution**: Implement proper rollback or recovery logic
+1. **Migration fails mid-execution**: The executor restores its pre-migration snapshot automatically; inspect `MigrationResult.migrationError`
 2. **Data corruption**: Always backup before migrating
 3. **Performance issues**: Optimize migrations for large datasets
-4. **Version conflicts**: Ensure version numbers are unique and sequential
+4. **Version conflicts**: `MigrationPlan` rejects duplicate or non-sequential version steps up front
 
 ### Debugging Migrations
 
@@ -376,11 +495,17 @@ class CleanupInvalidDataMigration extends Migration {
 // Enable detailed logging
 final config = DatumConfig(
   enableLogging: true,
-  // ... other config
+  logLevel: LogLevel.debug,
 );
 
-// Test migrations on sample data
-final testData = [{'id': '1', 'name': 'Test'}];
-final migratedData = migration.execute(testData.first);
-print('Migration result: $migratedData');
-```</content>
+// Test a migration on sample data
+final migration = SchemaMigration(
+  fromVersion: 1,
+  toVersion: 2,
+  operations: [ColumnOperation.add('priority', defaultValue: 3)],
+);
+
+final migrated = migration.migrate({'id': '1', 'title': 'Test'});
+print('Migration result: $migrated');
+// {id: 1, title: Test, priority: 3}
+```

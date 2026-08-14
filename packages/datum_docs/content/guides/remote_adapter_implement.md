@@ -8,64 +8,87 @@ title: Remote Adapter Implementation
 
 
 ```dart
-
-
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:example/custom_connectivity_checker.dart';
-import 'package:example/data/user/entity/user.dart';
 
-class UserRemoteAdapter extends RemoteAdapter<UserEntity> {
-
+class TaskRemoteAdapter extends RemoteAdapter<Task> {
   final _changeController =
-      StreamController<DatumChangeDetail<UserEntity>>.broadcast();
+      StreamController<DatumChangeDetail<Task>>.broadcast();
 
   @override
-  Stream<DatumChangeDetail<UserEntity>>? get changeStream =>
+  Stream<DatumChangeDetail<Task>>? get changeStream =>
       _changeController.stream;
 
   @override
-  Future<void> create(UserEntity entity) { }
+  Future<void> initialize() async {
+    // Authenticate and set up listeners here.
+  }
 
   @override
-  Future<void> delete(String id, {String? userId}) {}
+  Future<void> create(Task entity) async {
+    // POST the entity to your backend.
+  }
 
   @override
-  Future<DatumSyncMetadata?> getSyncMetadata(String userId) { }
+  Future<void> update(Task entity) async {
+    // PUT the full entity to your backend.
+  }
 
   @override
-  Future<void> initialize() { }
+  Future<bool> delete(String id, {String? userId}) async {
+    // DELETE on your backend; return false when nothing was deleted.
+    return true;
+  }
 
   @override
-  Future<bool> isConnected() {}
+  Future<Task?> read(String id, {String? userId}) async {
+    // GET a single entity; return null when it doesn't exist.
+    return null;
+  }
 
   @override
-  Future<UserEntity> patch({
+  Future<List<Task>> readAll({String? userId, DatumSyncScope? scope}) async {
+    // GET all entities for the user, optionally narrowed by [scope].
+    return [];
+  }
+
+  @override
+  Future<List<Task>> query(DatumQuery query, {String? userId}) async {
+    // Translate the DatumQuery into your backend's query language.
+    return [];
+  }
+
+  @override
+  Future<Task> patch({
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
-  }) { }
+  }) async {
+    // PATCH the delta and return the updated entity.
+    throw UnimplementedError();
+  }
 
   @override
-  Future<List<UserEntity>> query(DatumQuery query, {String? userId}) {}
+  Future<DatumSyncMetadata?> getSyncMetadata(String userId) async => null;
 
   @override
-  Future<UserEntity?> read(String id, {String? userId}) { }
+  Future<void> updateSyncMetadata(
+      DatumSyncMetadata metadata, String userId) async {}
 
   @override
-  Future<List<UserEntity>> readAll({String? userId, DatumSyncScope? scope}) {}
+  Future<bool> isConnected() async => true;
 
   @override
-  Future<void> update(UserEntity entity) {}
-
-  @override
-  Future<void> updateSyncMetadata(DatumSyncMetadata metadata, String userId) {}
-
-  @override
-  Future<void> dispose() {}
+  Future<void> dispose() async {
+    await _changeController.close();
+  }
 }
 ```
+
+> **Reference implementation:** `HttpRemoteAdapter` in the `datum_test` package is
+> a complete REST `RemoteAdapter` (with `DeltaSyncCapable` incremental pulls and
+> proper exception mapping) that you can copy as a starting point.
 
 ## Complete Supabase Adapter Example
 
@@ -101,8 +124,9 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
   String get _metadataTableName => 'sync_metadata';
 
   @override
-  Future<void> delete(String id, {String? userId}) async {
+  Future<bool> delete(String id, {String? userId}) async {
     await _client.from(tableName).delete().eq('id', id);
+    return true;
   }
 
   @override
@@ -366,22 +390,24 @@ Map<String, dynamic> _toCamelCase(Map<String, dynamic> map) {
 ### Using the Supabase Adapter
 
 ```dart
+import 'supabase_remote_adapter.dart'; // the adapter implemented above
+
 // Create the adapter
-final userAdapter = SupabaseRemoteAdapter<User>(
-  tableName: 'users',
-  fromMap: (map) => User.fromMap(map),
+final taskRemoteAdapter = SupabaseRemoteAdapter<Task>(
+  tableName: 'tasks',
+  fromMap: Task.fromMap,
 );
 
 // Register with Datum
 final registrations = [
-  DatumRegistration<User>(
-    localAdapter: HiveUserAdapter(),
-    remoteAdapter: userAdapter,
+  DatumRegistration<Task>(
+    localAdapter: localAdapter,
+    remoteAdapter: taskRemoteAdapter,
   ),
 ];
 
 // Initialize Datum
-await Datum.initialize(
+final result = await Datum.initialize(
   config: config,
   connectivityChecker: connectivityChecker,
   registrations: registrations,
@@ -392,7 +418,7 @@ await Datum.initialize(
 
 For the Supabase adapter to work, you need to set up your database tables with the correct structure and permissions:
 
-```dart
+```sql
 -- Enable Row Level Security
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sync_metadata ENABLE ROW LEVEL SECURITY;
@@ -418,8 +444,8 @@ The example Supabase adapter includes several advanced features for production u
 
 #### Authentication Monitoring
 
-```dart
-// Monitor authentication state changes
+```dart no-verify
+// Monitor authentication state changes (excerpt of the Supabase adapter above)
 void startAuthMonitoring() {
   _authSubscription = _client.auth.onAuthStateChange.listen((authState) {
     final isAuthenticated = authState.session != null;
@@ -440,7 +466,7 @@ void startAuthMonitoring() {
 
 #### Retry Logic for Subscriptions
 
-```dart
+```dart no-verify
 class _SubscriptionRetryManager {
   static const int maxRetries = 5;
   static const Duration baseRetryDelay = Duration(seconds: 1);
@@ -474,7 +500,7 @@ class _SubscriptionRetryManager {
 
 #### Relationship Fetching
 
-```dart
+```dart no-verify
 Future<List<R>> fetchRelated<R extends DatumEntityInterface>(
   RelationalDatumEntity parent,
   String relationName,
@@ -535,7 +561,7 @@ Future<List<R>> fetchRelated<R extends DatumEntityInterface>(
 
 #### Real-time Relationship Watching
 
-```dart
+```dart no-verify
 Stream<List<R>> watchRelated<R extends DatumEntityInterface>(
   RelationalDatumEntity parent,
   String relationName,
@@ -630,9 +656,9 @@ The adapter includes comprehensive error handling for common Supabase issues:
 
 #### Connection Management
 
-```dart
-// Proper cleanup in dispose
-@Override
+```dart no-verify
+// Proper cleanup in dispose (excerpt of the Supabase adapter above)
+@override
 Future<void> dispose() async {
   _retryManager.dispose();
   await unsubscribeFromChanges();
@@ -645,8 +671,8 @@ Future<void> dispose() async {
 
 #### Health Monitoring
 
-```dart
-@Override
+```dart no-verify
+@override
 Future<AdapterHealthStatus> checkHealth() async {
   final hasSession = Supabase.instance.client.auth.currentSession?.accessToken != null;
   return hasSession ? AdapterHealthStatus.healthy : AdapterHealthStatus.unhealthy;

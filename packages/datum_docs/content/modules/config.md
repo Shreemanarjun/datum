@@ -18,42 +18,50 @@ The main configuration class that controls Datum's behavior globally and per-ent
 ### Basic Configuration
 
 ```dart
-final config = DatumConfig(
+final config = DatumConfig<Task>(
   // Logging and debugging
   enableLogging: true,
+  logLevel: LogLevel.debug,
 
   // Auto-sync behavior
   autoStartSync: true,
   autoSyncInterval: Duration(minutes: 5),
-  initialUserId: 'user123',
+  initialUserId: () async => 'user123',
 
   // Delete behavior
-  deleteBehavior: DeleteBehavior.hardDelete, // or softDelete
+  deleteBehavior: DeleteBehavior.softDelete, // or hardDelete (default)
 
   // Sync behavior
   defaultSyncDirection: SyncDirection.pushThenPull,
   syncTimeout: Duration(seconds: 30),
-  defaultSyncOptions: DatumSyncOptions(
+  defaultSyncOptions: DatumSyncOptions<Task>(
     forceFullSync: false,
     resolveConflicts: true,
   ),
 
   // Schema management
-  schemaVersion: 1,
-  migrations: [Migration1To2()],
+  schemaVersion: 2,
+  migrations: [
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [ColumnOperation.add('priority', defaultValue: 0)],
+    ),
+  ],
 
   // Error handling
   errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+    shouldRetry: (error) async => error is NetworkException && error.isRetryable,
     maxRetries: 3,
-    backoffStrategy: ExponentialBackoffStrategy(),
+    backoffStrategy: const ExponentialBackoff(),
   ),
 
   // User switching
   defaultUserSwitchStrategy: UserSwitchStrategy.syncThenSwitch,
 
   // Performance tuning
-  syncExecutionStrategy: SequentialStrategy(),
-  syncRequestStrategy: SequentialRequestStrategy(),
+  syncExecutionStrategy: const SequentialStrategy(),
+  syncRequestStrategy: const SequentialRequestStrategy(),
   remoteEventDebounceTime: Duration(milliseconds: 100),
   changeCacheDuration: Duration(seconds: 30),
 
@@ -77,10 +85,15 @@ final config = DatumConfig(
 Configure how delete operations are handled globally:
 
 ```dart
-final config = DatumConfig(
-  deleteBehavior: DeleteBehavior.hardDelete, // Default: immediately remove from local storage
-  // Or
-  deleteBehavior: DeleteBehavior.softDelete, // Mark as deleted locally, queue for sync
+// Hard delete (the default): items are removed from local storage immediately
+final hardDeleteConfig = DatumConfig<Task>(
+  deleteBehavior: DeleteBehavior.hardDelete,
+);
+
+// Soft delete: items are marked as deleted locally and removed only after
+// the delete operation has synced — recommended for offline-first apps
+final softDeleteConfig = DatumConfig<Task>(
+  deleteBehavior: DeleteBehavior.softDelete,
 );
 ```
 
@@ -93,7 +106,7 @@ final config = DatumConfig(
 
 ```dart
 // Items are immediately removed from local storage
-await manager.delete('task123', userId: 'user1');
+await manager.delete(id: 'task123', userId: 'user1');
 // Item is gone from local storage immediately
 // Delete operation is queued for remote sync
 ```
@@ -102,7 +115,7 @@ await manager.delete('task123', userId: 'user1');
 
 ```dart
 // Items are marked as deleted locally but remain in storage
-await manager.delete('task123', userId: 'user1');
+await manager.delete(id: 'task123', userId: 'user1');
 // Item remains in local storage with isDeleted = true
 // Delete operation is queued for remote sync
 // Item will be removed after successful sync
@@ -115,14 +128,14 @@ Override the global delete behavior for specific operations:
 ```dart
 // Override global config for specific delete operations
 await manager.delete(
-  'task123',
+  id: 'task123',
   userId: 'user1',
   behavior: DeleteBehavior.softDelete, // Override global hardDelete setting
 );
 
 // Or use the sync method with behavior override
 await manager.deleteAndSync(
-  'task123',
+  id: 'task123',
   userId: 'user1',
   behavior: DeleteBehavior.hardDelete, // Override global softDelete setting
 );
@@ -137,8 +150,8 @@ await manager.deleteAndSync(
 Configure default synchronization behavior that applies to all sync operations:
 
 ```dart
-final config = DatumConfig(
-  defaultSyncOptions: DatumSyncOptions(
+final config = DatumConfig<Task>(
+  defaultSyncOptions: DatumSyncOptions<Task>(
     forceFullSync: false,        // Force full sync bypassing metadata comparison
     resolveConflicts: true,      // Whether to resolve conflicts during sync
     includeDeletes: true,        // Include delete operations in sync
@@ -152,8 +165,11 @@ final config = DatumConfig(
 - **`forceFullSync`**: When `true`, forces a complete sync regardless of metadata comparison results
 - **`resolveConflicts`**: Whether conflicts should be resolved during sync (default: `true`)
 - **`includeDeletes`**: Whether delete operations should be included in sync (default: `true`)
-- **`direction`**: The sync direction (push-then-pull, pull-then-push, etc.)
-- **`timeout`**: Maximum time allowed for sync operations
+- **`direction`**: The sync direction for this sync, overriding the config default
+- **`timeout`**: Maximum time allowed for this sync, overriding the config default
+- **`overrideBatchSize`**: A custom batch size for this sync
+- **`conflictResolver`**: A conflict resolver overriding the default for this sync only
+- **`query`**: A query used to filter the data fetched from the remote source
 
 ### Sync Direction Options
 
@@ -188,7 +204,7 @@ final config = DatumConfig(
 );
 ```
 
-Processes multiple operations concurrently. Faster for large batches but uses more resources.
+Processes multiple operations concurrently. Faster for large batches but uses more resources. Pass `failFast: false` to keep processing the remaining operations after the first error.
 
 ### Request Strategies
 
@@ -216,14 +232,15 @@ Skips new sync requests if a sync is already in progress.
 
 ### Error Recovery
 
-Configure automatic retry behavior for failed operations:
+Configure automatic retry behavior for failed operations. `shouldRetry` receives the `DatumException` and decides whether a retry is worthwhile:
 
 ```dart
 final config = DatumConfig(
   errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+    shouldRetry: (error) async => error is NetworkException && error.isRetryable,
     maxRetries: 3,
-    backoffStrategy: ExponentialBackoffStrategy(
-      initialDelay: Duration(seconds: 1),
+    backoffStrategy: ExponentialBackoff(
+      baseDelay: Duration(seconds: 1),
       maxDelay: Duration(minutes: 5),
       multiplier: 2.0,
     ),
@@ -233,10 +250,10 @@ final config = DatumConfig(
 
 #### Built-in Backoff Strategies
 
-- **`ExponentialBackoffStrategy`**: Exponential backoff with configurable parameters
-- **`LinearBackoffStrategy`**: Linear delay increase
-- **`FixedBackoffStrategy`**: Fixed delay between retries
-- **`ImmediateRetryStrategy`**: No delay between retries
+- **`ExponentialBackoff`**: Exponential backoff with configurable `baseDelay`, `multiplier`, and `maxDelay`
+- **`LinearBackoff`**: Delay increases by a fixed `increment` per attempt
+- **`FixedBackoff`**: Fixed `delay` between retries
+- **`CustomBackoff`**: Delay computed by a custom function of the attempt number
 
 ### User Switch Strategies
 
@@ -249,32 +266,83 @@ Control behavior when switching between users:
 
 ### Conflict Resolution
 
-Set default conflict resolution strategies:
+Set the default conflict resolution strategy. If none is provided, `LastWriteWinsResolver` is used:
 
 ```dart
-final config = DatumConfig(
+final config = DatumConfig<Task>(
   defaultConflictResolver: LastWriteWinsResolver<Task>(),
-  // Or use custom resolver
-  defaultConflictResolver: CustomResolver(),
 );
 ```
 
+Other built-in resolvers are `LocalPriorityResolver`, `RemotePriorityResolver`, `MergeResolver`, and `UserPromptResolver`. Implement `DatumConflictResolver<T>` for custom resolution logic.
+
 ### Migration Configuration
 
-Handle schema evolution:
+Handle schema evolution declaratively with `SchemaMigration`:
 
 ```dart
 final config = DatumConfig(
   schemaVersion: 2,
   migrations: [
-    Migration1To2(execute: migrateV1ToV2, rollback: rollbackV1ToV2),
+    SchemaMigration(
+      fromVersion: 1,
+      toVersion: 2,
+      operations: [
+        ColumnOperation.add('priority', defaultValue: 0),
+        ColumnOperation.rename('description', to: 'content'),
+      ],
+    ),
   ],
-  onMigrationError: (error, stack) {
-    // Handle migration failures
-    reportError(error, stack);
+  onMigrationError: (error, stack) async {
+    // Handle migration failures (e.g. report and recover)
+    print('Migration failed: $error');
   },
 );
 ```
+
+If `onMigrationError` is null, migration errors are rethrown so the app never runs against a corrupted store.
+
+### Sync Optimization & Cache Flags
+
+Newer `DatumConfig` fields fine-tune how much work a sync cycle does:
+
+```dart
+final config = DatumConfig(
+  // Treat entities missing from a full remote pull as remote deletions and
+  // route them through the conflict resolver (default: false)
+  detectRemoteDeletions: false,
+
+  // Cache local query() results (default: false — the local DB is already fast,
+  // and cached shared instances can go stale)
+  enableQueryCache: false,
+  maxQueryCacheSize: 100,
+
+  // Cache the per-user content hash used for sync metadata so idle cycles skip
+  // an O(n) readAll + rehash (default: true)
+  enableMetadataHashCache: true,
+
+  // Allow incremental pulls when the remote adapter mixes in DeltaSyncCapable
+  // or CursorSyncCapable (default: true)
+  enableDeltaSync: true,
+  // Clock-skew tolerance subtracted from the delta-sync watermark
+  deltaSyncOverlap: Duration(minutes: 5),
+
+  // Local-only/system user IDs that must never be auto-discovered or synced
+  excludedSyncUserIds: {'automatic-system'},
+
+  // Offload the entire sync cycle to a background isolate. Requires adapters
+  // that can be sent to (or re-established in) another isolate.
+  useIsolateSync: false,
+);
+```
+
+**Key Flags:**
+- **`detectRemoteDeletions`**: On a *full* pull, entities that exist locally but not remotely are surfaced as deletion conflicts. The default `LastWriteWinsResolver` keeps local data; use a remote-priority resolver to propagate deletions.
+- **`enableQueryCache`** / **`maxQueryCacheSize`**: Opt-in caching for local `query()` calls.
+- **`enableMetadataHashCache`**: Keeps sync-metadata hashing O(1) for idle cycles. Disable only if something writes to local storage completely out-of-band.
+- **`enableDeltaSync`** / **`deltaSyncOverlap`**: Incremental pulls fetch only entities modified since the last sync watermark. First syncs and `detectRemoteDeletions` cycles still perform full pulls.
+- **`excludedSyncUserIds`**: Explicit `synchronize(userId)` calls for excluded users are skipped too.
+- **`useIsolateSync`**: Runs synchronization off the main isolate.
 
 ## Entity-Specific Configuration
 
@@ -288,58 +356,83 @@ final taskConfig = DatumConfig<Task>(
   syncExecutionStrategy: ParallelStrategy(batchSize: 5),
 );
 
-DatumRegistration<Task>(
-  localAdapter: HiveTaskAdapter(),
-  remoteAdapter: RestApiTaskAdapter(),
+final registration = DatumRegistration<Task>(
+  localAdapter: localAdapter,
+  remoteAdapter: remoteAdapter,
   config: taskConfig,
 );
 ```
 
 ## Connectivity Configuration
 
-Configure network connectivity checking:
+Datum needs a `DatumConnectivityChecker` implementation, passed to `Datum.initialize` (not to `DatumConfig`):
 
 ```dart
-class CustomConnectivityChecker extends DatumConnectivityChecker {
+class CustomConnectivityChecker implements DatumConnectivityChecker {
   @override
-  Future<bool> isConnected() async {
-    // Custom connectivity logic
-    return await checkNetworkStatus();
+  Future<bool> get isConnected async {
+    // Custom connectivity logic (e.g. connectivity_plus, a ping, ...)
+    return true;
+  }
+
+  @override
+  Stream<bool> get onStatusChange {
+    // Emit whenever connectivity changes
+    return const Stream.empty();
   }
 }
+```
 
-final config = DatumConfig(
+```dart continue
+await Datum.initialize(
+  config: const DatumConfig(),
   connectivityChecker: CustomConnectivityChecker(),
 );
 ```
 
 ## Observer Configuration
 
-Add global and local observers:
+Add global and entity-specific observers:
 
 ```dart
-// Global observers (applied to all entities)
-final globalObservers = [
-  AuditObserver(),
-  MetricsObserver(),
-];
+// Entity-specific observer
+class TaskAuditObserver extends DatumObserver<Task> {
+  @override
+  void onCreateEnd(Task item) => print('Task created: ${item.id}');
+}
 
-// Local observers (entity-specific)
-final localObservers = [
-  TaskObserver(),
-  ValidationObserver(),
-];
+// Global observer (sees events for every entity type)
+class MetricsObserver extends GlobalDatumObserver {
+  @override
+  void onSyncEnd(DatumSyncResult result) =>
+      print('Sync finished: ${result.syncedCount} synced');
+}
+```
 
-DatumRegistration<Task>(
-  // ... adapters
-  observers: localObservers,
-);
+```dart continue
+// Your app's connectivity checker (see the Utils module)
+class AppConnectivity implements DatumConnectivityChecker {
+  @override
+  Future<bool> get isConnected async => true;
+  @override
+  Stream<bool> get onStatusChange => const Stream.empty();
+}
+```
 
-// Add global observers during initialization
+Register both kinds during initialization:
+
+```dart continue
 await Datum.initialize(
-  config: config,
-  observers: globalObservers,
-  // ... other params
+  config: const DatumConfig(),
+  connectivityChecker: AppConnectivity(),
+  registrations: [
+    DatumRegistration<Task>(
+      localAdapter: localAdapter,
+      remoteAdapter: remoteAdapter,
+      observers: [TaskAuditObserver()], // entity-specific
+    ),
+  ],
+  observers: [MetricsObserver()], // global
 );
 ```
 
@@ -361,7 +454,9 @@ Control how long recent changes are cached to prevent duplicates:
 
 ```dart
 final config = DatumConfig(
-  changeCacheDuration: Duration(minutes: 1), // Cache changes for 1 minute
+  changeCacheDuration: Duration(minutes: 1),        // Cache changes for 1 minute
+  maxChangeCacheSize: 1000,                         // Bound the cache size
+  changeCacheCleanupInterval: Duration(seconds: 30), // Periodic cleanup
 );
 ```
 
@@ -410,8 +505,8 @@ final config = DatumConfig(
 #### Cold Start Strategies
 
 - **`ColdStartStrategy.disabled`**: No automatic sync on cold start
-- **`ColdStartStrategy.fullSync`**: Always perform full sync on cold start (default behavior)
-- **`ColdStartStrategy.adaptive`**: Smart sync based on time since last sync and other factors
+- **`ColdStartStrategy.fullSync`**: Always perform full sync on cold start
+- **`ColdStartStrategy.adaptive`**: Smart sync based on time since last sync and other factors (default)
 - **`ColdStartStrategy.incremental`**: Only sync changes since last successful sync
 - **`ColdStartStrategy.priorityBased`**: Sync critical/high-priority data first, then background sync remaining data
 
@@ -427,8 +522,17 @@ final config = DatumConfig(
 Configure Datum initialization behavior:
 
 ```dart
+class MyConnectivityChecker implements DatumConnectivityChecker {
+  @override
+  Future<bool> get isConnected async => true; // plug in connectivity_plus here
+  @override
+  Stream<bool> get onStatusChange => const Stream.empty();
+}
+```
+
+```dart continue
 await Datum.initialize(
-  config: DatumConfig(
+  config: const DatumConfig(
     // Global config applied to all entities
     enableLogging: true,
     autoStartSync: true,
@@ -437,19 +541,18 @@ await Datum.initialize(
   registrations: [
     // Entity-specific configs override globals
     DatumRegistration<Task>(
-      localAdapter: HiveTaskAdapter(),
-      remoteAdapter: RestApiTaskAdapter(),
+      localAdapter: localAdapter,
+      remoteAdapter: remoteAdapter,
       config: DatumConfig<Task>(
         autoSyncInterval: Duration(minutes: 1), // Override global setting
       ),
     ),
   ],
-  observers: [GlobalObserver()],
 );
 ```
 
 <Warning>
-**Critical Settings**: Always test configuration changes in development first. Settings like `syncExecutionStrategy` and `conflictResolver` can significantly impact performance and data integrity.
+**Critical Settings**: Always test configuration changes in development first. Settings like `syncExecutionStrategy` and `defaultConflictResolver` can significantly impact performance and data integrity.
 </Warning>
 
 ## Configuration Best Practices
@@ -462,9 +565,11 @@ DatumConfig getConfig(String environment) {
     case 'development':
       return DatumConfig(
         enableLogging: true,
+        logLevel: LogLevel.debug,
         autoSyncInterval: Duration(seconds: 30), // Frequent sync for testing
         errorRecoveryStrategy: DatumErrorRecoveryStrategy(
-          maxRetries: 1, // Fail fast in development
+          shouldRetry: (error) async => false, // Fail fast in development
+          maxRetries: 1,
         ),
       );
 
@@ -473,6 +578,7 @@ DatumConfig getConfig(String environment) {
         enableLogging: false,
         autoSyncInterval: Duration(minutes: 5),
         errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+          shouldRetry: (error) async => error is NetworkException && error.isRetryable,
           maxRetries: 5, // More retries in production
         ),
       );
@@ -514,6 +620,8 @@ class FeatureConfig {
 ### Environment-Specific Settings
 
 ```dart
+import 'dart:io';
+
 DatumConfig getEnvironmentConfig() {
   final environment = Platform.environment['ENVIRONMENT'] ?? 'development';
 
@@ -532,20 +640,26 @@ DatumConfig getEnvironmentConfig() {
 
 ## Monitoring Configuration
 
-Configure health checks and monitoring:
+Performance logging and runtime monitoring are configured through `DatumConfig` and observed through the manager and `Datum` streams:
 
 ```dart
 final config = DatumConfig(
-  // Enable detailed health monitoring
-  enableHealthChecks: true,
-
-  // Configure health check intervals
-  healthCheckInterval: Duration(minutes: 5),
-
-  // Set up metrics collection
-  metricsEnabled: true,
-  metricsRetentionPeriod: Duration(days: 7),
+  // Log operations that exceed the threshold
+  enablePerformanceLogging: true,
+  performanceLogThreshold: Duration(milliseconds: 100),
 );
+```
+
+```dart
+// Observe global metrics
+datum.metrics.listen((m) {
+  print('Syncs: ${m.totalSyncOperations} '
+      '(ok: ${m.successfulSyncs}, failed: ${m.failedSyncs})');
+});
+
+// Run a health check on demand
+final health = await manager.checkHealth();
+print(health.describe());
 ```
 
 ## Migration Strategies
@@ -557,62 +671,52 @@ class AppMigrations {
   static const currentVersion = 3;
 
   static List<Migration> get all => [
-    Migration1To2(execute: _migrateToV2, rollback: _rollbackToV1),
-    Migration2To3(execute: _migrateToV3, rollback: _rollbackToV2),
-  ];
-
-  static Map<String, dynamic> _migrateToV2(Map<String, dynamic> data) {
-    // Add new fields with defaults
-    return {
-      ...data,
-      'priority': data['priority'] ?? 'medium',
-      'version': 2,
-    };
-  }
-
-  static Map<String, dynamic> _rollbackToV1(Map<String, dynamic> data) {
-    // Remove added fields
-    return Map.from(data)..remove('priority')..remove('version');
-  }
-
-  // ... more migration methods
+        SchemaMigration(
+          fromVersion: 1,
+          toVersion: 2,
+          operations: [
+            ColumnOperation.add('priority', defaultValue: 'medium'),
+          ],
+        ),
+        SchemaMigration(
+          fromVersion: 2,
+          toVersion: 3,
+          operations: [
+            ColumnOperation.rename('description', to: 'content'),
+          ],
+        ),
+      ];
 }
 ```
 
 Use in configuration:
 
-```dart
+```dart continue
 final config = DatumConfig(
   schemaVersion: AppMigrations.currentVersion,
   migrations: AppMigrations.all,
 );
 ```
 
-## DatumConfigPresets
+## Configuration Recipes
 
-Configuration presets provide optimized settings for common use cases, allowing you to quickly configure Datum for different environments and scenarios without manually tuning every parameter.
+`DatumConfig`'s defaults are production-safe. These recipes show complete configurations tuned for common scenarios — start from the one closest to your use case and adjust.
 
-### Available Presets
+### Development
 
-#### Development Preset
-
-Optimized for development environments with verbose logging, short timeouts, and frequent cleanup:
+Verbose logging, fast feedback, fail-fast retries:
 
 ```dart
-final config = DatumConfigPresets.development();
-
-// Equivalent to:
-DatumConfig(
-  autoSyncInterval: Duration(minutes: 5),
-  autoStartSync: true,
-  syncTimeout: Duration(seconds: 30),
+final developmentConfig = DatumConfig(
   enableLogging: true,
   logLevel: LogLevel.debug,
   enablePerformanceLogging: true,
   performanceLogThreshold: Duration(milliseconds: 50),
+  autoStartSync: true,
+  autoSyncInterval: Duration(minutes: 5),
+  syncTimeout: Duration(seconds: 30),
   changeCacheDuration: Duration(seconds: 10),
   maxChangeCacheSize: 500,
-  changeCacheCleanupInterval: Duration(seconds: 15),
   remoteSyncBatchSize: 50,
   remoteStreamBatchSize: 25,
   progressEventFrequency: 25,
@@ -620,27 +724,17 @@ DatumConfig(
 );
 ```
 
-**Features:**
-- Verbose logging for debugging
-- Short timeouts for faster feedback
-- Frequent cache cleanup
-- Auto-sync enabled with short intervals
+### Production
 
-#### Production Preset
-
-Optimized for production environments with minimal logging, longer timeouts, and performance tuning:
+Minimal logging, longer timeouts, larger batches:
 
 ```dart
-final config = DatumConfigPresets.production();
-
-// Equivalent to:
-DatumConfig(
-  autoSyncInterval: Duration(minutes: 30),
-  autoStartSync: true,
-  syncTimeout: Duration(minutes: 5),
+final productionConfig = DatumConfig(
   enableLogging: true,
   logLevel: LogLevel.warn,
-  enablePerformanceLogging: false,
+  autoStartSync: true,
+  autoSyncInterval: Duration(minutes: 30),
+  syncTimeout: Duration(minutes: 5),
   changeCacheDuration: Duration(minutes: 2),
   maxChangeCacheSize: 2000,
   changeCacheCleanupInterval: Duration(minutes: 5),
@@ -651,92 +745,34 @@ DatumConfig(
 );
 ```
 
-**Features:**
-- Minimal logging for performance
-- Longer timeouts for reliability
-- Optimized batch sizes
-- Auto-sync enabled with reasonable intervals
+### Low Memory
 
-#### High Performance Preset
-
-Maximum performance configuration with large batches and minimal overhead:
+Small caches, small batches, sync on demand:
 
 ```dart
-final config = DatumConfigPresets.highPerformance();
-
-// Equivalent to:
-DatumConfig(
-  autoSyncInterval: Duration(hours: 1),
-  autoStartSync: true,
-  syncTimeout: Duration(minutes: 10),
-  enableLogging: false,
-  logLevel: LogLevel.error,
-  enablePerformanceLogging: false,
-  changeCacheDuration: Duration(minutes: 5),
-  maxChangeCacheSize: 5000,
-  changeCacheCleanupInterval: Duration(minutes: 15),
-  remoteSyncBatchSize: 500,
-  remoteStreamBatchSize: 250,
-  progressEventFrequency: 250,
-  remoteEventDebounceTime: Duration(milliseconds: 200),
-);
-```
-
-**Features:**
-- Minimal logging and overhead
-- Large batch sizes for efficiency
-- Extended cache durations
-- Auto-sync with longer intervals
-
-#### Low Memory Preset
-
-Memory-efficient configuration with small caches and frequent cleanup:
-
-```dart
-final config = DatumConfigPresets.lowMemory();
-
-// Equivalent to:
-DatumConfig(
-  autoSyncInterval: Duration(hours: 2),
+final lowMemoryConfig = DatumConfig(
   autoStartSync: false,
   syncTimeout: Duration(minutes: 2),
-  enableLogging: true,
-  logLevel: LogLevel.info,
-  enablePerformanceLogging: false,
   changeCacheDuration: Duration(seconds: 30),
   maxChangeCacheSize: 200,
   changeCacheCleanupInterval: Duration(seconds: 30),
   remoteSyncBatchSize: 25,
   remoteStreamBatchSize: 10,
   progressEventFrequency: 10,
-  remoteEventDebounceTime: Duration(milliseconds: 10),
 );
 ```
 
-**Features:**
-- Small cache sizes
-- Frequent cache cleanup
-- Minimal batch sizes
-- Auto-sync disabled by default
+### Testing
 
-#### Testing Preset
-
-Optimized for testing environments with minimal logging and fast timeouts:
+No auto-sync, tiny caches, immediate event processing:
 
 ```dart
-final config = DatumConfigPresets.testing();
-
-// Equivalent to:
-DatumConfig(
-  autoSyncInterval: Duration(hours: 1),
+final testingConfig = DatumConfig(
+  enableLogging: false,
   autoStartSync: false,
   syncTimeout: Duration(seconds: 10),
-  enableLogging: false,
-  logLevel: LogLevel.error,
-  enablePerformanceLogging: false,
   changeCacheDuration: Duration(seconds: 5),
   maxChangeCacheSize: 50,
-  changeCacheCleanupInterval: Duration(seconds: 5),
   remoteSyncBatchSize: 10,
   remoteStreamBatchSize: 5,
   progressEventFrequency: 5,
@@ -744,135 +780,50 @@ DatumConfig(
 );
 ```
 
-**Features:**
-- Minimal logging
-- Very short timeouts
-- Small caches for fast cleanup
-- Auto-sync disabled
+### Real-Time
 
-#### Offline-First Preset
-
-Optimized for offline-first applications with extended caching and moderate sync intervals:
+Frequent sync, short debounce, delta pulls:
 
 ```dart
-final config = DatumConfigPresets.offlineFirst();
-
-// Equivalent to:
-DatumConfig(
-  autoSyncInterval: Duration(minutes: 15),
+final realTimeConfig = DatumConfig(
   autoStartSync: true,
-  syncTimeout: Duration(minutes: 3),
-  enableLogging: true,
-  logLevel: LogLevel.info,
-  enablePerformanceLogging: false,
-  changeCacheDuration: Duration(minutes: 10),
-  maxChangeCacheSize: 1000,
-  changeCacheCleanupInterval: Duration(minutes: 10),
-  remoteSyncBatchSize: 100,
-  remoteStreamBatchSize: 50,
-  progressEventFrequency: 50,
-  remoteEventDebounceTime: Duration(milliseconds: 50),
-);
-```
-
-**Features:**
-- Extended cache durations
-- Auto-sync enabled with moderate intervals
-- Larger batch sizes for efficiency
-- Moderate logging
-
-#### Real-Time Preset
-
-Optimized for real-time applications with short debounce times and frequent sync:
-
-```dart
-final config = DatumConfigPresets.realTime();
-
-// Equivalent to:
-DatumConfig(
   autoSyncInterval: Duration(seconds: 30),
-  autoStartSync: true,
   syncTimeout: Duration(seconds: 30),
-  enableLogging: true,
-  logLevel: LogLevel.warn,
-  enablePerformanceLogging: false,
-  changeCacheDuration: Duration(seconds: 10),
-  maxChangeCacheSize: 100,
-  changeCacheCleanupInterval: Duration(seconds: 10),
+  enableDeltaSync: true,
   remoteSyncBatchSize: 20,
   remoteStreamBatchSize: 10,
-  progressEventFrequency: 10,
   remoteEventDebounceTime: Duration(milliseconds: 10),
 );
 ```
 
-**Features:**
-- Very short debounce times
-- Frequent auto-sync
-- Small batch sizes for responsiveness
-- Minimal caching
+### Recipe Selection Guide
 
-### Customizing Presets
-
-Extend existing presets with custom values:
-
-```dart
-// Start with production preset and customize
-final customConfig = DatumConfigPresets.custom(
-  base: DatumConfigPresets.production(),
-  autoSyncInterval: Duration(minutes: 10), // Override sync interval
-  enableLogging: true,                      // Override logging
-  maxChangeCacheSize: 3000,                 // Override cache size
-);
-
-// Or create entirely custom configuration
-final customConfig = DatumConfig(
-  // Mix and match settings from different presets
-  autoSyncInterval: DatumConfigPresets.development().autoSyncInterval,
-  remoteSyncBatchSize: DatumConfigPresets.highPerformance().remoteSyncBatchSize,
-  enableLogging: true,
-  // ... other custom settings
-);
-```
-
-### Preset Selection Guide
-
-Choose the appropriate preset based on your use case:
-
-| Preset | Environment | Use Case |
+| Recipe | Environment | Use Case |
 |--------|-------------|----------|
-| `development()` | Development | Fast feedback, debugging, testing |
-| `production()` | Production | Balanced performance and reliability |
-| `highPerformance()` | High-throughput | Maximum performance, large datasets |
-| `lowMemory()` | Memory-constrained | Mobile apps, embedded systems |
-| `testing()` | Automated testing | Fast test execution, minimal overhead |
-| `offlineFirst()` | Offline-capable | Apps that work offline extensively |
-| `realTime()` | Live collaboration | Real-time sync, instant updates |
+| Development | Development | Fast feedback, debugging, testing |
+| Production | Production | Balanced performance and reliability |
+| Low Memory | Memory-constrained | Mobile apps, embedded systems |
+| Testing | Automated testing | Fast test execution, minimal overhead |
+| Real-Time | Live collaboration | Real-time sync, instant updates |
 
 ### Environment-Based Configuration
 
 ```dart
-DatumConfig getConfigForEnvironment(String environment) {
+import 'dart:io';
+
+DatumConfig configForEnvironment() {
+  final environment = Platform.environment['ENVIRONMENT'] ?? 'development';
   switch (environment) {
-    case 'development':
-      return DatumConfigPresets.development();
-    case 'staging':
-      return DatumConfigPresets.custom(
-        base: DatumConfigPresets.production(),
-        enableLogging: true,
-        logLevel: LogLevel.debug,
-      );
     case 'production':
-      return DatumConfigPresets.production();
+      return DatumConfig(logLevel: LogLevel.warn, autoSyncInterval: Duration(minutes: 30));
+    case 'staging':
+      return DatumConfig(logLevel: LogLevel.debug, autoSyncInterval: Duration(minutes: 30));
     case 'testing':
-      return DatumConfigPresets.testing();
+      return DatumConfig(enableLogging: false, autoStartSync: false);
     default:
-      return DatumConfigPresets.production();
+      return DatumConfig(logLevel: LogLevel.debug, autoSyncInterval: Duration(seconds: 30));
   }
 }
-
-// Usage
-final config = getConfigForEnvironment(Platform.environment['ENVIRONMENT'] ?? 'development');
 ```
 
 This configuration system provides extensive control over Datum's behavior while maintaining sensible defaults for most use cases.

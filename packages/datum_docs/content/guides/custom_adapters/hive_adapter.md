@@ -746,26 +746,42 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface>
 ```dart
 // Define your entity
 class Task extends DatumEntity {
-  final String title;
-  final bool isCompleted;
-
-  Task({
-    required super.id,
-    required super.userId,
+  const Task({
+    required this.id,
+    required this.userId,
     required this.title,
     this.isCompleted = false,
-    required super.createdAt,
-    required super.modifiedAt,
+    required this.createdAt,
+    required this.modifiedAt,
+    this.version = 1,
+    this.isDeleted = false,
   });
 
   factory Task.fromMap(Map<String, dynamic> map) => Task(
-    id: map['id'],
-    userId: map['userId'],
-    title: map['title'],
-    isCompleted: map['isCompleted'] ?? false,
-    createdAt: DateTime.parse(map['createdAt']),
-    modifiedAt: DateTime.parse(map['modifiedAt']),
+    id: map['id'] as String,
+    userId: map['userId'] as String,
+    title: map['title'] as String,
+    isCompleted: map['isCompleted'] as bool? ?? false,
+    createdAt: DateTime.parse(map['createdAt'] as String),
+    modifiedAt: DateTime.parse(map['modifiedAt'] as String),
+    version: map['version'] as int? ?? 1,
+    isDeleted: map['isDeleted'] as bool? ?? false,
   );
+
+  @override
+  final String id;
+  @override
+  final String userId;
+  final String title;
+  final bool isCompleted;
+  @override
+  final DateTime createdAt;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
 
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
@@ -775,40 +791,50 @@ class Task extends DatumEntity {
     'isCompleted': isCompleted,
     'createdAt': createdAt.toIso8601String(),
     'modifiedAt': modifiedAt.toIso8601String(),
+    'version': version,
+    'isDeleted': isDeleted,
   };
 
   @override
-  Task copyWith({
-    String? id,
-    String? userId,
-    String? title,
-    bool? isCompleted,
-    DateTime? createdAt,
-    DateTime? modifiedAt,
-  }) => Task(
-    id: id ?? this.id,
-    userId: userId ?? this.userId,
+  Map<String, dynamic>? diff(covariant Task oldVersion) {
+    final delta = <String, dynamic>{};
+    if (title != oldVersion.title) delta['title'] = title;
+    if (isCompleted != oldVersion.isCompleted) delta['isCompleted'] = isCompleted;
+    if (delta.isEmpty) return null;
+    delta['modifiedAt'] = modifiedAt.toIso8601String();
+    delta['version'] = version;
+    return delta;
+  }
+
+  Task copyWith({String? title, bool? isCompleted, bool? isDeleted}) => Task(
+    id: id,
+    userId: userId,
     title: title ?? this.title,
     isCompleted: isCompleted ?? this.isCompleted,
-    createdAt: createdAt ?? this.createdAt,
-    modifiedAt: modifiedAt ?? this.modifiedAt,
+    createdAt: createdAt,
+    modifiedAt: DateTime.now(),
+    version: version + 1,
+    isDeleted: isDeleted ?? this.isDeleted,
   );
-}
 
+  @override
+  List<Object?> get props => [...super.props, title, isCompleted];
+}
+```
+
+```dart
 // Create and use the adapter
 final taskAdapter = HiveLocalAdapter<Task>(
-  boxName: 'tasks',
-  fromMap: (map) => Task.fromMap(map),
+  entityBoxName: 'tasks',
+  fromMap: Task.fromMap,
 );
 
-// Register with Datum
+// Register with Datum, paired with any RemoteAdapter (for example the
+// SupabaseRemoteAdapter from the Supabase guide).
 final registrations = [
   DatumRegistration<Task>(
     localAdapter: taskAdapter,
-    remoteAdapter: SupabaseRemoteAdapter<Task>(
-      tableName: 'tasks',
-      fromMap: (map) => Task.fromMap(map),
-    ),
+    remoteAdapter: remoteAdapter,
   ),
 ];
 ```
@@ -828,4 +854,4 @@ final registrations = [
 - **Memory Usage**: Hive loads entire boxes into memory
 - **Query Performance**: Complex queries are executed in-memory
 - **Storage Size**: JSON serialization for size estimation
-- **No Change Streams**: Reactive updates not supported natively</content>
+- **No Change Streams**: Reactive updates not supported natively

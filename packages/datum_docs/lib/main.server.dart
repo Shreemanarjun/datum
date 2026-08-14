@@ -22,7 +22,9 @@ import 'components/code_block.dart';
 import 'components/steps.dart';
 import 'components/card.dart';
 import 'components/badge.dart';
+import 'components/sync_animation.dart';
 import 'components/tip.dart';
+import 'components/home_layout.dart';
 import 'components/responsive_docs_layout.dart';
 import 'page_extensions.dart';
 
@@ -75,6 +77,8 @@ void main() {
         Badge(),
         // Custom tip component for helpful information
         Tip(),
+        // Animated sync hero visual for the landing page
+        SyncAnimation(),
         // Comparison table component for feature comparisons
         //// ComparisonTable(),
         // Adds a custom Jaspr component to be used as <Clicker/> in markdown.
@@ -88,7 +92,7 @@ void main() {
       ],
 
       layouts: [
-        // Enhanced responsive layout for documentation sites.
+        // Enhanced responsive layout for documentation sites (default).
         ResponsiveDocsLayout(
           header: CustomHeader(
             title: 'Datum',
@@ -146,12 +150,23 @@ void main() {
                   SidebarLink(text: "Datum Singleton API", href: '/guides/singleton_api'),
                   SidebarLink(text: "Sync Patterns", href: '/guides/sync_patterns'),
                   SidebarLink(text: "Advanced Sync Patterns", href: '/guides/advanced_sync'),
+                  SidebarLink(text: "Schema Migrations", href: '/guides/migrations'),
+                  SidebarLink(text: "Collaborative Editing & CRDTs", href: '/guides/collaborative_editing'),
+                  SidebarLink(text: "Testing Your Sync Stack", href: '/guides/testing'),
+                ],
+              ),
+              SidebarGroup(
+                title: 'Performance',
+                links: [
+                  SidebarLink(text: "Incremental Sync", href: '/guides/performance/incremental_sync'),
+                  SidebarLink(text: "Performance Tuning", href: '/guides/performance/tuning'),
                 ],
               ),
               SidebarGroup(
                 title: 'Custom Adapters',
                 links: [
                   SidebarLink(text: "Hive Local Adapter", href: '/guides/custom_adapters/hive_adapter'),
+                  SidebarLink(text: "SQLite Local Adapter", href: '/guides/custom_adapters/sqlite_adapter'),
                   SidebarLink(text: "Isar Local Adapter", href: '/guides/custom_adapters/isar_adapter'),
                   SidebarLink(text: "REST API Remote Adapter", href: '/guides/custom_adapters/rest_api_adapter'),
                   SidebarLink(text: "Firebase Remote Adapter", href: '/guides/custom_adapters/firebase_adapter'),
@@ -231,6 +246,19 @@ void main() {
                 ],
               );
             },
+          ),
+        ),
+        // Landing page: raw-Jaspr hero, no sidebar (frontmatter `layout: home`).
+        HomeLayout(
+          header: CustomHeader(
+            title: 'Datum',
+            subtitle: "Data, Seamlessly Synced",
+            logo: '/images/logo.webp',
+            includeSearch: true,
+            navigationItems: [
+              EnhancedThemeToggle(),
+              CachedGitHubButton(repo: 'shreemanarjun/datum'),
+            ],
           ),
         ),
       ],

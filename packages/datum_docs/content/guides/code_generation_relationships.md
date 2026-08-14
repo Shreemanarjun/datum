@@ -20,7 +20,7 @@ Instead of manually writing the `relations` getter, you can use relationship ann
 
 Use when **this entity** has a foreign key pointing to another entity.
 
-```dart
+```dart no-verify
 @BelongsToRelation<User>('userId', cascadeDelete: 'none')
 final String? _author = null;
 ```
@@ -34,7 +34,7 @@ final String? _author = null;
 
 Use when **another entity** has a foreign key pointing to this entity (one-to-many).
 
-```dart
+```dart no-verify
 @HasManyRelation<Post>('userId', cascadeDelete: 'cascade')
 final List<Post>? _posts = null;
 ```
@@ -48,7 +48,7 @@ final List<Post>? _posts = null;
 
 Use when **another entity** has a foreign key pointing to this entity (one-to-one).
 
-```dart
+```dart no-verify
 @HasOneRelation<Profile>('userId')
 final Profile? _profile = null;
 ```
@@ -62,7 +62,7 @@ final Profile? _profile = null;
 
 Use for many-to-many relationships through a pivot entity.
 
-```dart
+```dart no-verify
 @ManyToManyRelation<Tag, PostTag>(
   pivotEntity: PostTag,
   thisForeignKey: 'postId',
@@ -85,6 +85,8 @@ final List<Tag>? _tags = null;
 ### Before (Manual)
 
 ```dart
+import 'package:datum_generator/datum_generator.dart';
+
 @DatumSerializable(tableName: 'users')
 class User extends RelationalDatumEntity {
   @override
@@ -102,7 +104,7 @@ class User extends RelationalDatumEntity {
     'profile': HasOne<Profile>(this, 'userId'),
     'groups': ManyToMany<Group>(
       this,
-      const UserGroup() as DatumEntityInterface,
+      UserGroup, // the pivot entity type
       'userId',
       'groupId',
     ),
@@ -113,6 +115,8 @@ class User extends RelationalDatumEntity {
 ### After (Automated with Mixin)
 
 ```dart
+import 'package:datum_generator/datum_generator.dart';
+
 part 'user.g.dart';
 
 @DatumSerializable(tableName: 'users', generateMixin: true)
@@ -151,7 +155,7 @@ class User extends RelationalDatumEntity with _$UserMixin {
 
 **Note:** In the example above, the mixin will automatically provide public `posts`, `profile`, and `groups` getters/setters that proxy to the private `_posts`, `_profile`, and `_groups` fields while ensuring the `datumRelations` map remains synchronized.
 
-```dart
+```dart no-verify
 // user.g.dart (generated)
 extension $UserDatum on User {
   // ... other generated methods
@@ -171,7 +175,7 @@ extension $UserDatum on User {
     )..setRaw(_profile),
     'groups': ManyToMany<Group>(
       this,
-      const UserGroup() as DatumEntityInterface,
+      UserGroup,
       'userId',
       'groupId',
       thisLocalKey: 'id',
@@ -197,6 +201,8 @@ mixin _$UserMixin on RelationalDatumEntity {
 ```
 
 ```dart
+import 'package:datum_generator/datum_generator.dart';
+
 part 'paint_canvas.g.dart';
 
 @DatumSerializable(tableName: 'paint_canvases', generateMixin: true)
@@ -265,7 +271,7 @@ To migrate existing code from manual to automated relationships:
 
 ### Step 1: Add Placeholder Fields with Annotations
 
-```dart
+```dart no-verify
 // Add annotated fields for each relationship
 @HasManyRelation<Post>('userId', cascadeDelete: 'cascade')
 final List<Post>? _posts = null;
@@ -276,7 +282,7 @@ final Profile? _profile = null;
 
 ### Step 2: Replace Manual Relations Getter
 
-```dart
+```dart no-verify
 // Before
 @override
 Map<String, Relation> get relations => {
@@ -292,7 +298,7 @@ Map<String, Relation> get relations => datumRelations;
 ### Step 3: Run the Generator
 
 ```bash
-flutter pub run build_runner build --delete-conflicting-outputs
+dart run build_runner build --delete-conflicting-outputs
 ```
 
 ### Step 4: Verify Generated Code
@@ -304,12 +310,12 @@ Check the generated `.g.dart` file to ensure all relationships are correctly gen
 1. **Use Descriptive Field Names**: Even though the field is a placeholder, use meaningful names like `_posts`, `_profile`, etc.
 
 2. **Specify Cascade Behavior**: Always explicitly set `cascadeDelete` to make the behavior clear:
-   ```dart
+   ```dart no-verify
    @HasManyRelation<Comment>('postId', cascadeDelete: 'cascade')
    ```
 
 3. **Document Complex Relationships**: Add comments for many-to-many relationships:
-   ```dart
+   ```dart no-verify
    // Tags associated with this post through the post_tags pivot table
    @ManyToManyRelation<Tag, PostTag>(
      pivotEntity: PostTag,
@@ -331,7 +337,7 @@ Check the generated `.g.dart` file to ensure all relationships are correctly gen
 1. Ensure the field has a relationship annotation
 2. Verify the class extends `RelationalDatumEntity`
 3. Check that the field is not `static`
-4. Run `flutter pub run build_runner clean` and rebuild
+4. Run `dart run build_runner clean` and rebuild
 
 ### Type Mismatch Errors
 

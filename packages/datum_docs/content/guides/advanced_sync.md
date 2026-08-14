@@ -49,22 +49,22 @@ Control how sync operations are processed:
 
 ```dart
 // Sequential processing (default) - process operations one by one
-final config = DatumConfig(
+final sequentialConfig = DatumConfig(
   syncExecutionStrategy: SequentialStrategy(),
 );
 
 // Parallel processing - process multiple operations concurrently
-final config = DatumConfig(
+final parallelConfig = DatumConfig(
   syncExecutionStrategy: ParallelStrategy(batchSize: 10),
 );
 
 // Background isolate processing - run sync in separate thread to avoid UI blocking
-final config = DatumConfig(
+final isolateConfig = DatumConfig(
   syncExecutionStrategy: IsolateStrategy(SequentialStrategy()),
 );
 
 // Parallel processing in background isolate
-final config = DatumConfig(
+final parallelIsolateConfig = DatumConfig(
   syncExecutionStrategy: IsolateStrategy(
     ParallelStrategy(batchSize: 5, failFast: true),
   ),
@@ -81,12 +81,12 @@ Control how concurrent synchronization requests are handled:
 
 ```dart
 // Queue concurrent requests with retry (default)
-final config = DatumConfig(
+final queuedConfig = DatumConfig(
   syncRequestStrategy: SequentialRequestStrategy(retryCount: 3),
 );
 
 // Skip concurrent requests if sync is already running
-final config = DatumConfig(
+final skipConfig = DatumConfig(
   syncRequestStrategy: SkipConcurrentStrategy(),
 );
 ```
@@ -104,20 +104,30 @@ Ensures all sync requests are processed in order, preventing lost updates:
 final config = DatumConfig(
   syncRequestStrategy: SequentialRequestStrategy(retryCount: 5),
 );
+```
 
+```dart
 // Handle rapid user interactions
-class TaskManager {
+class TaskManagerService {
+  TaskManagerService(this.manager, this.currentUserId);
+
+  final DatumManager<Task> manager;
+  final String currentUserId;
+
   Future<void> saveAndSync(Task task) async {
-    await manager.save(task, userId: currentUserId);
+    await manager.push(item: task, userId: currentUserId);
     await manager.synchronize(currentUserId); // Queued if another sync is running
   }
 }
+```
 
+```dart continue
 // Multiple rapid calls are queued and processed sequentially
+final taskManager = TaskManagerService(manager, userId);
 await Future.wait([
-  taskManager.saveAndSync(task1),
-  taskManager.saveAndSync(task2),
-  taskManager.saveAndSync(task3),
+  taskManager.saveAndSync(task),
+  taskManager.saveAndSync(task.copyWith(title: 'Second')),
+  taskManager.saveAndSync(task.copyWith(title: 'Third')),
 ]);
 ```
 
@@ -152,29 +162,28 @@ Datum provides several conflict resolution strategies:
 
 ```dart
 // Last write wins - choose the most recently modified version
-final config = DatumConfig(
+final lwwConfig = DatumConfig<Task>(
   defaultConflictResolver: LastWriteWinsResolver<Task>(),
 );
 
 // Local priority - always prefer local changes
-final config = DatumConfig(
+final localWinsConfig = DatumConfig<Task>(
   defaultConflictResolver: LocalPriorityResolver<Task>(),
 );
 
 // Remote priority - always prefer remote changes
-final config = DatumConfig(
+final remoteWinsConfig = DatumConfig<Task>(
   defaultConflictResolver: RemotePriorityResolver<Task>(),
 );
 
 // Intelligent merging - attempt to merge conflicting changes
-final config = DatumConfig(
+final mergeConfig = DatumConfig<Task>(
   defaultConflictResolver: MergeResolver<Task>(
-    mergeFunction: (local, remote) {
+    onMerge: (local, remote, context) {
       // Custom merge logic
       return local.copyWith(
         title: local.title, // Keep local title
         description: remote.description, // Take remote description
-        modifiedAt: DateTime.now(),
       );
     },
   ),
@@ -192,22 +201,30 @@ Implement custom resolution logic:
 ```dart
 class CustomResolver extends DatumConflictResolver<Task> {
   @override
-  Future<DatumConflictResolution<Task>> resolve(
-    ConflictContext<Task> context,
-  ) async {
-    final local = context.localEntity;
-    final remote = context.remoteEntity;
+  String get name => 'CustomResolver';
+
+  @override
+  Future<DatumConflictResolution<Task>> resolve({
+    Task? local,
+    Task? remote,
+    required DatumConflictContext context,
+  }) async {
+    if (local == null || remote == null) {
+      // One side is missing (e.g. a deletion conflict) - keep whichever exists
+      final survivor = local ?? remote;
+      return survivor == null
+          ? const DatumConflictResolution.abort('Nothing to resolve')
+          : DatumConflictResolution.merge(survivor);
+    }
 
     // Custom logic: prefer local for titles, remote for other fields
     if (local.title != remote.title) {
-      // Conflict in title - prompt user
-      final userChoice = await promptUser(local.title, remote.title);
-      final resolved = userChoice == 'local' ? local : remote;
-      return DatumConflictResolution.resolved(resolved, 'User choice');
+      final resolved = remote.copyWith(title: local.title);
+      return DatumConflictResolution.merge(resolved);
     }
 
-    // No conflict or auto-resolved
-    return DatumConflictResolution.resolved(local, 'No conflict');
+    // No conflict in the title - keep the local version
+    return DatumConflictResolution.useLocal(local);
   }
 }
 ```
@@ -219,16 +236,18 @@ Monitor and handle conflicts reactively:
 ```dart
 // Listen for conflict events
 manager.onConflict.listen((event) {
-  print('Conflict detected: ${event.conflict}');
+  print('Conflict detected for ${event.context.entityId}');
+  print('local: ${event.localData}, remote: ${event.remoteData}');
   // Handle conflict resolution UI
 });
 
 // Listen for resolution events
 manager.eventStream
-  .whereType<ConflictResolvedEvent<Task>>()
-  .listen((event) {
-    print('Conflict resolved: ${event.resolution}');
-  });
+    .where((event) => event is ConflictResolvedEvent<Task>)
+    .cast<ConflictResolvedEvent<Task>>()
+    .listen((event) {
+  print('Conflict resolved: ${event.resolution.strategy.name}');
+});
 ```
 
 ## User Switching
@@ -284,17 +303,15 @@ manager.onUserSwitched.listen((event) {
 Datum can automatically monitor device connectivity and trigger synchronization when the device regains network access. This ensures that any pending operations queued while offline are automatically synchronized once connectivity is restored.
 
 ```dart
-// Enable connectivity monitoring in DatumConfig
-final config = DatumConfig(
-  connectivityChecker: DefaultConnectivityChecker(),
-  // Auto-sync is enabled by default when connectivity monitoring is configured
-);
-
-// The system will automatically:
+// The connectivity checker is provided to Datum.initialize (its required
+// `connectivityChecker` parameter — see the custom checker below). Once
+// configured, the system will automatically:
 // 1. Monitor connectivity status changes
-// 2. Queue sync operations when offline
+// 2. Queue sync operations while offline
 // 3. Automatically trigger sync when connectivity is restored
 // 4. Handle network failures gracefully with retry logic
+final online = await Datum.instance.connectivityChecker.isConnected;
+print(online ? 'Online' : 'Offline - operations will be queued');
 ```
 
 ### Custom Connectivity Checker
@@ -302,26 +319,29 @@ final config = DatumConfig(
 Implement custom connectivity monitoring logic:
 
 ```dart
-class CustomConnectivityChecker extends DatumConnectivityChecker {
+class CustomConnectivityChecker implements DatumConnectivityChecker {
   @override
-  Future<bool> isConnected() async {
-    // Implement your connectivity check logic
-    // Return true if connected, false if offline
-    final result = await Connectivity().checkConnectivity();
-    return result != ConnectivityResult.none;
+  Future<bool> get isConnected async {
+    // Implement your connectivity check logic, e.g. with connectivity_plus:
+    //   final result = await Connectivity().checkConnectivity();
+    //   return !result.contains(ConnectivityResult.none);
+    return true;
   }
 
   @override
-  Stream<bool> get onConnectivityChanged {
-    // Return a stream that emits connectivity status changes
-    return Connectivity().onConnectivityChanged.map(
-      (result) => result != ConnectivityResult.none,
-    );
+  Stream<bool> get onStatusChange {
+    // Return a stream that emits connectivity status changes, e.g.:
+    //   return Connectivity().onConnectivityChanged
+    //       .map((result) => !result.contains(ConnectivityResult.none));
+    return const Stream<bool>.empty();
   }
 }
+```
 
-// Use custom checker
-final config = DatumConfig(
+```dart continue
+// Use the custom checker at initialization time
+final either = await Datum.initialize(
+  config: DatumConfig(),
   connectivityChecker: CustomConnectivityChecker(),
 );
 ```
@@ -354,7 +374,7 @@ manager.stopAutoSync();
 
 ```dart
 // Monitor next sync time
-manager.watchNextSyncTime?.listen((nextTime) {
+manager.watchNextSyncTime.listen((nextTime) {
   if (nextTime != null) {
     print('Next sync at: $nextTime');
   } else {
@@ -363,7 +383,7 @@ manager.watchNextSyncTime?.listen((nextTime) {
 });
 
 // Monitor time until next sync
-manager.watchNextSyncDuration?.listen((duration) {
+manager.watchNextSyncDuration.listen((duration) {
   if (duration != null) {
     print('Next sync in: ${duration.inMinutes} minutes');
   }
@@ -383,8 +403,8 @@ Datum.instance.pauseSync();
 // Resume all sync operations
 Datum.instance.resumeSync();
 
-// Check if sync is paused
-final isPaused = Datum.instance.currentStatus.status == DatumSyncStatus.paused;
+// Check if a manager's sync is paused
+final isPaused = manager.currentStatus.status == DatumSyncStatus.paused;
 ```
 
 ### Remote Change Subscriptions
@@ -438,7 +458,7 @@ Streams are automatically refreshed in certain scenarios:
 ```dart
 // Clear specific caches
 manager.clearCaches(); // Clear all caches
-manager.clearRelationshipCacheForType(User); // Clear relationship caches for User type
+manager.clearRelationshipCacheForType(Task); // Clear relationship caches for Task type
 
 // Get cache statistics
 final stats = manager.getCacheStats();
@@ -473,7 +493,9 @@ class AuditObserver extends GlobalDatumObserver {
     print('Switching user from $oldUserId to $newUserId');
   }
 }
+```
 
+```dart continue
 // Register global observer
 Datum.instance.addObserver(AuditObserver());
 ```
@@ -499,10 +521,13 @@ class TaskObserver extends DatumObserver<Task> {
     print('Deleting task: $id');
   }
 }
+```
 
+```dart continue
 // Register during initialization
-DatumRegistration<Task>(
-  // ... adapters
+final registration = DatumRegistration<Task>(
+  localAdapter: localAdapter,
+  remoteAdapter: remoteAdapter,
   observers: [TaskObserver()],
 );
 ```
@@ -518,10 +543,10 @@ class ValidationMiddleware extends DatumMiddleware<Task> {
   @override
   Future<Task> transformBeforeSave(Task item) async {
     if (item.title.isEmpty) {
-      throw ValidationException('Task title cannot be empty');
+      throw const ValidationException(message: 'Task title cannot be empty');
     }
-    if (item.dueDate.isBefore(DateTime.now())) {
-      throw ValidationException('Due date cannot be in the past');
+    if (item.priority < 0) {
+      throw const ValidationException(message: 'Priority cannot be negative');
     }
     return item;
   }
@@ -531,16 +556,19 @@ class EncryptionMiddleware extends DatumMiddleware<Task> {
   @override
   Future<Task> transformBeforeSave(Task item) async {
     // Encrypt sensitive fields before saving
-    final encryptedDescription = await encrypt(item.description);
+    final encryptedDescription = await encrypt(item.description ?? '');
     return item.copyWith(description: encryptedDescription);
   }
 
   @override
   Future<Task> transformAfterFetch(Task item) async {
     // Decrypt sensitive fields after fetching
-    final decryptedDescription = await decrypt(item.description);
+    final decryptedDescription = await decrypt(item.description ?? '');
     return item.copyWith(description: decryptedDescription);
   }
+
+  Future<String> encrypt(String value) async => value; // your crypto here
+  Future<String> decrypt(String value) async => value; // your crypto here
 }
 
 class AuditMiddleware extends DatumMiddleware<Task> {
@@ -548,18 +576,21 @@ class AuditMiddleware extends DatumMiddleware<Task> {
   Future<Task> transformBeforeSave(Task item) async {
     // Add audit trail
     final auditEntry = {
-      'modifiedBy': currentUserId,
-      'modifiedAt': DateTime.now(),
-      'changes': item.diff ?? {},
+      'entityId': item.id,
+      'modifiedBy': item.userId,
+      'modifiedAt': DateTime.now().toIso8601String(),
     };
-    await logAudit(auditEntry);
+    print('AUDIT: $auditEntry'); // forward to your audit log
     return item;
   }
 }
+```
 
+```dart continue
 // Register middleware pipeline
-DatumRegistration<Task>(
-  // ... adapters
+final registration = DatumRegistration<Task>(
+  localAdapter: localAdapter,
+  remoteAdapter: remoteAdapter,
   middlewares: [
     ValidationMiddleware(),
     EncryptionMiddleware(),
@@ -576,15 +607,15 @@ DatumRegistration<Task>(
 
 ```dart
 class CompressionMiddleware extends DatumMiddleware<Task> {
+  static const _marker = 'gzip:';
+
   @override
   Future<Task> transformBeforeSave(Task item) async {
     // Compress large text fields
-    if (item.description.length > 1000) {
-      final compressed = await compress(item.description);
-      return item.copyWith(
-        description: compressed,
-        metadata: {...item.metadata, 'compressed': true},
-      );
+    final description = item.description ?? '';
+    if (description.length > 1000) {
+      final compressed = await compress(description);
+      return item.copyWith(description: '$_marker$compressed');
     }
     return item;
   }
@@ -592,30 +623,31 @@ class CompressionMiddleware extends DatumMiddleware<Task> {
   @override
   Future<Task> transformAfterFetch(Task item) async {
     // Decompress if needed
-    if (item.metadata['compressed'] == true) {
-      final decompressed = await decompress(item.description);
-      return item.copyWith(
-        description: decompressed,
-        metadata: {...item.metadata}..remove('compressed'),
-      );
+    final description = item.description ?? '';
+    if (description.startsWith(_marker)) {
+      final decompressed =
+          await decompress(description.substring(_marker.length));
+      return item.copyWith(description: decompressed);
     }
     return item;
   }
+
+  Future<String> compress(String value) async => value; // your codec here
+  Future<String> decompress(String value) async => value;
 }
 
 class RelationshipEnrichmentMiddleware extends DatumMiddleware<Task> {
+  RelationshipEnrichmentMiddleware(this.commentCounts);
+
+  /// Precomputed enrichment data, e.g. comment counts per task id.
+  final Map<String, int> commentCounts;
+
   @override
   Future<Task> transformAfterFetch(Task item) async {
     // Enrich with related data
-    final assignee = await fetchUser(item.assigneeId);
-    final comments = await fetchComments(item.id);
-
+    final commentCount = commentCounts[item.id] ?? 0;
     return item.copyWith(
-      metadata: {
-        ...item.metadata,
-        'assigneeName': assignee.name,
-        'commentCount': comments.length,
-      },
+      description: '${item.description ?? ''} ($commentCount comments)',
     );
   }
 }
@@ -634,9 +666,11 @@ Configure automatic error recovery:
 ```dart
 final config = DatumConfig(
   errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+    shouldRetry: (error) async =>
+        error is NetworkException && error.isRetryable,
     maxRetries: 3,
-    backoffStrategy: ExponentialBackoffStrategy(
-      initialDelay: Duration(seconds: 1),
+    backoffStrategy: ExponentialBackoff(
+      baseDelay: Duration(seconds: 1),
       maxDelay: Duration(minutes: 5),
     ),
   ),
@@ -656,11 +690,14 @@ try {
     case DatumExceptionCode.networkError:
       // Handle network issues
       break;
-    case DatumExceptionCode.authError:
+    case DatumExceptionCode.authenticationError:
       // Handle authentication issues
       break;
     case DatumExceptionCode.schemaMismatch:
       // Handle schema conflicts
+      break;
+    default:
+      // Other errors
       break;
   }
 }
@@ -683,17 +720,21 @@ manager.onSyncError.listen((event) {
 Use batch operations for multiple items:
 
 ```dart
+final taskList = [task, task.copyWith(title: 'Another task')];
+
 // Batch create
 await manager.saveMany(
   items: taskList,
-  userId: 'user123',
+  userId: userId,
   andSync: true, // Sync after all items are saved
 );
 
-// Batch with immediate sync for each
-for (final batch in taskList.batches(10)) {
-  await manager.saveMany(items: batch, userId: 'user123');
-  await manager.synchronize('user123'); // Sync each batch
+// Batch with immediate sync for each chunk
+const chunkSize = 10;
+for (var i = 0; i < taskList.length; i += chunkSize) {
+  final end = i + chunkSize > taskList.length ? taskList.length : i + chunkSize;
+  await manager.saveMany(items: taskList.sublist(i, end), userId: userId);
+  await manager.synchronize(userId); // Sync each batch
 }
 ```
 
@@ -702,9 +743,13 @@ for (final batch in taskList.batches(10)) {
 Use sync scopes for partial synchronization:
 
 ```dart
-// Sync only specific entities
+// Pull only entities matching a scope query
 final scope = DatumSyncScope(
-  entityIds: ['task1', 'task2', 'task3'],
+  query: DatumQuery(
+    filters: [
+      Filter('id', FilterOperator.isIn, ['task1', 'task2', 'task3']),
+    ],
+  ),
 );
 
 final result = await manager.synchronize(
@@ -718,26 +763,36 @@ final result = await manager.synchronize(
 Adapt sync behavior based on connectivity:
 
 ```dart
-class SmartConnectivityChecker extends DatumConnectivityChecker {
+enum ConnectionQuality { none, poor, fair, good }
+
+class SmartConnectivityChecker implements DatumConnectivityChecker {
   @override
-  Future<bool> isConnected() async {
+  Future<bool> get isConnected async {
     // Check connection quality
     final quality = await checkConnectionQuality();
     return quality != ConnectionQuality.none;
   }
 
+  @override
+  Stream<bool> get onStatusChange => const Stream<bool>.empty();
+
   Future<ConnectionQuality> checkConnectionQuality() async {
-    // Return poor/fair/good/none
+    // Probe your backend and return none/poor/fair/good
+    return ConnectionQuality.good;
   }
 }
+```
 
-// Use in config
-final config = DatumConfig(
-  connectivityChecker: SmartConnectivityChecker(),
+```dart continue
+// Wire it in at initialization
+final checker = SmartConnectivityChecker();
+final either = await Datum.initialize(
+  config: DatumConfig(),
+  connectivityChecker: checker,
 );
 
 // Adaptive sync intervals
-if (await connectivityChecker.isConnected()) {
+if (await checker.isConnected) {
   manager.startAutoSync('user123', interval: Duration(minutes: 5));
 } else {
   manager.startAutoSync('user123', interval: Duration(hours: 1));
@@ -771,11 +826,15 @@ final urgentTasks = await manager.query(complexQuery, userId: 'user123');
 Watch query results in real-time:
 
 ```dart
+final complexQuery = DatumQueryBuilder<Task>()
+    .where('priority', isGreaterThan: 3)
+    .build();
+
 final subscription = manager.watchQuery(complexQuery, userId: 'user123')
-  ?.listen((tasks) {
-    print('Urgent tasks updated: ${tasks.length}');
-    // UI updates automatically
-  });
+    .listen((tasks) {
+  print('Urgent tasks updated: ${tasks.length}');
+  // UI updates automatically
+});
 ```
 
 ## Migration and Schema Evolution
@@ -785,53 +844,64 @@ final subscription = manager.watchQuery(complexQuery, userId: 'user123')
 Handle database schema changes:
 
 ```dart
+class MigrateTaskV1ToV2 extends Migration {
+  @override
+  int get fromVersion => 1;
+
+  @override
+  int get toVersion => 2;
+
+  @override
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
+    // Transform v1 data to v2 format
+    return {
+      ...oldData,
+      'newField': oldData['oldField'] ?? 'default',
+    };
+  }
+}
+```
+
+```dart continue
 final config = DatumConfig(
   schemaVersion: 2,
-  migrations: [
-    Migration1To2(
-      execute: (data) {
-        // Transform v1 data to v2 format
-        return {
-          ...data,
-          'newField': data['oldField'] ?? 'default',
-        };
-      },
-    ),
-  ],
-  onMigrationError: (error, stack) {
-    // Handle migration failures
-    reportError(error, stack);
+  migrations: [MigrateTaskV1ToV2()],
+  onMigrationError: (error, stack) async {
+    // Handle migration failures (report, alert, etc.)
+    print('Migration failed: $error');
   },
 );
 ```
 
 ### Migration Strategies
 
+A `Migration` declares the version pair it covers and transforms one serialized
+entity map at a time:
+
 ```dart
-class Migration1To2 implements Migration {
+class Migration1To2 extends Migration {
   @override
-  Future<Map<String, dynamic>> execute(Map<String, dynamic> data) async {
-    // Add new required fields
-    return {
-      ...data,
-      'version': 2,
-      'migratedAt': DateTime.now().toIso8601String(),
-      // Transform existing fields
-      'status': data['isCompleted'] ? 'completed' : 'pending',
-    };
-  }
+  int get fromVersion => 1;
 
   @override
-  Future<Map<String, dynamic>> rollback(Map<String, dynamic> data) async {
-    // Revert changes if needed
+  int get toVersion => 2;
+
+  @override
+  Map<String, dynamic> migrate(Map<String, dynamic> oldData) {
+    // Add new fields and transform existing ones
     return {
-      ...data,
-      'isCompleted': data['status'] == 'completed',
-      // Remove added fields
-    }..remove('version')..remove('migratedAt');
+      ...oldData,
+      'migratedAt': DateTime.now().toIso8601String(),
+      'status':
+          (oldData['isCompleted'] as bool? ?? false) ? 'completed' : 'pending',
+    };
   }
 }
 ```
+
+For multi-step chains — including ones that must also run real `ALTER TABLE`
+DDL on SQL stores — prefer the declarative `SchemaMigration` +
+`MigrationExecutor` / `SqlMigrationExecutor` API.
 
 ## Production Monitoring
 
@@ -840,21 +910,23 @@ class Migration1To2 implements Migration {
 Monitor system health:
 
 ```dart
+import 'dart:async';
+
 // Periodic health checks
 Timer.periodic(Duration(minutes: 5), (_) async {
   final health = await manager.checkHealth();
-  if (health.status == DatumHealthStatus.unhealthy) {
-    alertSystem('Manager unhealthy: ${health.message}');
+  if (health.status == DatumSyncHealth.error) {
+    print('Manager unhealthy:\n${health.describe()}');
   }
 });
 
 // Global health monitoring
 Datum.instance.allHealths.listen((healthMap) {
   final unhealthy = healthMap.entries
-    .where((e) => e.value.status == DatumHealthStatus.unhealthy);
+      .where((e) => e.value.status == DatumSyncHealth.error);
 
   if (unhealthy.isNotEmpty) {
-    alertSystem('Unhealthy managers: ${unhealthy.map((e) => e.key).join(', ')}');
+    print('Unhealthy managers: ${unhealthy.map((e) => e.key).join(', ')}');
   }
 });
 ```
@@ -864,13 +936,18 @@ Datum.instance.allHealths.listen((healthMap) {
 Track performance metrics:
 
 ```dart
+void reportMetric(String name, num value) {
+  // Forward to your monitoring system
+  print('$name = $value');
+}
+
 Datum.instance.metrics.listen((metrics) {
   // Report to monitoring system
   reportMetric('total_syncs', metrics.totalSyncOperations);
   reportMetric('successful_syncs', metrics.successfulSyncs);
   reportMetric('failed_syncs', metrics.failedSyncs);
   reportMetric('bytes_synced',
-    metrics.totalBytesPushed + metrics.totalBytesPulled);
+      metrics.totalBytesPushed + metrics.totalBytesPulled);
 });
 ```
 
@@ -887,7 +964,8 @@ final duration = stopwatch.elapsed;
 final throughput = result.syncedCount / duration.inSeconds;
 
 print('Sync performance: $throughput items/second');
-print('Data transferred: ${result.totalBytesTransferred} bytes');
+print('Data transferred: '
+    '${result.bytesPushedInCycle + result.bytesPulledInCycle} bytes');
 ```
 
 This guide covers the advanced patterns you'll need for building robust, scalable applications with Datum. Combine these patterns based on your specific requirements and constraints.

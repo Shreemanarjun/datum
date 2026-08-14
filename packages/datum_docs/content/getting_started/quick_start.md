@@ -53,28 +53,23 @@ class Task extends DatumEntity {
     this.version = 1,
   });
 
-  @override
   Task copyWith({
-    String? id,
-    String? userId,
     String? title,
     String? description,
     bool? isCompleted,
-    DateTime? createdAt,
-    DateTime? modifiedAt,
     bool? isDeleted,
-    int? version,
   }) {
     return Task(
-      id: id ?? this.id,
-      userId: userId ?? this.userId,
+      id: id,
+      userId: userId,
       title: title ?? this.title,
       description: description ?? this.description,
       isCompleted: isCompleted ?? this.isCompleted,
-      createdAt: createdAt ?? this.createdAt,
-      modifiedAt: modifiedAt ?? this.modifiedAt,
+      createdAt: createdAt,
+      // Bump the sync metadata on every copy so changes are detected.
+      modifiedAt: DateTime.now(),
       isDeleted: isDeleted ?? this.isDeleted,
-      version: version ?? this.version,
+      version: version + 1,
     );
   }
 
@@ -93,6 +88,19 @@ class Task extends DatumEntity {
     };
   }
 
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) {
+    if (oldVersion is! Task) return toDatumMap();
+    final delta = <String, dynamic>{};
+    if (title != oldVersion.title) delta['title'] = title;
+    if (description != oldVersion.description) delta['description'] = description;
+    if (isCompleted != oldVersion.isCompleted) delta['isCompleted'] = isCompleted;
+    if (delta.isEmpty) return null;
+    delta['modifiedAt'] = modifiedAt.toIso8601String();
+    delta['version'] = version;
+    return delta;
+  }
+
   factory Task.fromMap(Map<String, dynamic> map) {
     return Task(
       id: map['id'] as String,
@@ -106,58 +114,57 @@ class Task extends DatumEntity {
       version: map['version'] as int? ?? 1,
     );
   }
+
+  @override
+  List<Object?> get props => [...super.props, title, description, isCompleted];
 }
 ```
 
 ## Create Adapters
 
-Implement local and remote adapters for your entity:
+Datum talks to your storage through adapters. For local storage you can use a ready-made adapter — `InMemoryLocalAdapter` ships with `datum` itself, and `datum_hive` provides a Hive-backed one:
 
 ```dart
-// Local adapter (using Hive as example)
-class HiveTaskAdapter extends LocalAdapter<Task> {
-  final Box<Task> _box;
+// Built into datum — great for getting started and for tests
+final localAdapter = InMemoryLocalAdapter<Task>(fromMap: Task.fromMap);
+```
 
-  HiveTaskAdapter(this._box);
+```dart no-verify
+// Or persist to disk with the datum_hive package
+import 'package:datum_hive/datum_hive.dart';
 
-  @override
-  Future<void> create(Task item) async {
-    await _box.put(item.id, item);
-  }
+final localAdapter = HiveLocalAdapter<Task>(
+  entityBoxName: 'tasks',
+  fromMap: Task.fromMap,
+);
+```
 
-  @override
-  Future<Task?> read(String id, {String? userId}) async {
-    return _box.get(id);
-  }
+For the remote side, implement `RemoteAdapter` against your backend. Here is the shape of a REST implementation:
 
-  @override
-  Future<List<Task>> readAll({String? userId}) async {
-    return _box.values.where((task) => task.userId == userId).toList();
-  }
-
-  @override
-  Future<void> update(Task item) async {
-    await _box.put(item.id, item);
-  }
-
-  @override
-  Future<bool> delete(String id, {String? userId}) async {
-    await _box.delete(id);
-    return true;
-  }
-
-  // ... implement other required methods
-}
-
+```dart
 // Remote adapter (REST API example)
+import 'package:dio/dio.dart';
+
 class RestTaskAdapter extends RemoteAdapter<Task> {
   final Dio _dio;
 
   RestTaskAdapter(this._dio);
 
   @override
-  Future<void> create(Task item) async {
-    await _dio.post('/tasks', data: item.toDatumMap(target: MapTarget.remote));
+  Future<void> initialize() async {}
+
+  @override
+  Future<bool> isConnected() async => true;
+
+  @override
+  Future<void> create(Task entity) async {
+    await _dio.post('/tasks', data: entity.toDatumMap(target: MapTarget.remote));
+  }
+
+  @override
+  Future<Task?> read(String id, {String? userId}) async {
+    final response = await _dio.get('/tasks/$id');
+    return response.data == null ? null : Task.fromMap(response.data);
   }
 
   @override
@@ -168,7 +175,20 @@ class RestTaskAdapter extends RemoteAdapter<Task> {
         .toList();
   }
 
-  // ... implement other required methods
+  @override
+  Future<void> update(Task entity) async {
+    await _dio.put('/tasks/${entity.id}',
+        data: entity.toDatumMap(target: MapTarget.remote));
+  }
+
+  @override
+  Future<bool> delete(String id, {String? userId}) async {
+    await _dio.delete('/tasks/$id');
+    return true;
+  }
+
+  // ... implement the remaining RemoteAdapter members
+  // (query, changeStream, getSyncMetadata, updateSyncMetadata)
 }
 ```
 
@@ -178,25 +198,29 @@ Set up Datum in your app:
 
 ```dart
 import 'package:datum/datum.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/widgets.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Hive (or your local storage)
-  await Hive.initFlutter();
-  final taskBox = await Hive.openBox<Task>('tasks');
-
-  // Initialize Datum
-  final datum = await Datum.initialize(
+  // Initialize Datum. `initialize` returns a result you can inspect —
+  // see the Initialization guide for full error handling.
+  final result = await Datum.initialize(
     config: const DatumConfig(),
-    connectivityChecker: ConnectivityChecker(), // Implement this
+    connectivityChecker: MyConnectivityChecker(), // Implement DatumConnectivityChecker
     registrations: [
       DatumRegistration<Task>(
-        localAdapter: HiveTaskAdapter(taskBox),
+        localAdapter: HiveLocalAdapter<Task>(
+          entityBoxName: 'tasks',
+          fromMap: Task.fromMap,
+        ),
         remoteAdapter: RestTaskAdapter(Dio()),
       ),
     ],
   );
+
+  final datum = result.getSuccess(); // Throws if initialization failed
 
   runApp(MyApp());
 }
@@ -207,6 +231,9 @@ void main() async {
 Now you can use Datum for data operations:
 
 ```dart
+import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
+
 class TaskList extends StatefulWidget {
   @override
   _TaskListState createState() => _TaskListState();
@@ -219,7 +246,8 @@ class _TaskListState extends State<TaskList> {
   void initState() {
     super.initState();
     // Watch for task changes
-    _tasksStream = Datum.watchAll<Task>(userId: 'current-user-id') ?? Stream.empty();
+    _tasksStream =
+        Datum.instance.watchAll<Task>(userId: 'current-user-id') ?? Stream.empty();
   }
 
   Future<void> _addTask(String title) async {
@@ -229,9 +257,10 @@ class _TaskListState extends State<TaskList> {
       title: title,
       createdAt: DateTime.now(),
       modifiedAt: DateTime.now(),
+      version: 1,
     );
 
-    await Datum.create(task);
+    await Datum.instance.create(task);
     // Changes will automatically sync and update the UI via the stream
   }
 
@@ -251,7 +280,7 @@ class _TaskListState extends State<TaskList> {
               trailing: Checkbox(
                 value: task.isCompleted,
                 onChanged: (value) async {
-                  await Datum.update(task.copyWith(isCompleted: value));
+                  await Datum.instance.update(task.copyWith(isCompleted: value));
                 },
               ),
             );

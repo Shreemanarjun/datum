@@ -17,44 +17,58 @@ Debug and resolve issues specific to Datum adapters (local and remote).
 **Symptoms:** `Hive.initFlutter()` or box opening fails
 
 **Common Causes:**
-- Incorrect path configuration
+- Hive not initialized before `Datum.initialize()`
 - Permission issues on device storage
-- Concurrent access conflicts
+- Concurrent access conflicts / corrupted box files
 
 **Resolution Steps:**
-```dart
-// 1. Check storage permissions
-final hasPermission = await Permission.storage.request();
-if (!hasPermission) {
-  throw Exception('Storage permission required for Hive');
-}
 
-// 2. Proper initialization order
+`datum_hive`'s `HiveLocalAdapter` opens its own boxes inside `initialize()` —
+you only need to initialize Hive itself first:
+
+```dart
+import 'package:flutter/widgets.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Hive first
-  final appDir = await getApplicationDocumentsDirectory();
-  Hive.init(appDir.path);
+  // Initialize Hive BEFORE Datum — the adapter opens its boxes
+  // ('<entityBoxName>', '<entityBoxName>_pending_ops',
+  //  '<entityBoxName>_metadata') during Datum initialization.
+  await Hive.initFlutter();
 
-  // Register adapters
-  Hive.registerAdapter(TaskAdapter());
-
-  // Open boxes
-  final taskBox = await Hive.openBox<Task>('tasks');
-
-  // Then initialize Datum
-  final datum = await Datum.initialize(/* config */);
+  await Datum.initialize(
+    config: const DatumConfig(),
+    connectivityChecker: const SnippetConnectivity(),
+    registrations: [
+      DatumRegistration<Task>(
+        localAdapter: HiveLocalAdapter<Task>(
+          entityBoxName: 'tasks',
+          fromMap: Task.fromMap,
+        ),
+        remoteAdapter: MyTaskRemoteAdapter(),
+      ),
+    ],
+  );
 }
+```
 
-// 3. Handle box opening errors
-Future<Box<Task>> openTaskBox() async {
+Entities are stored as plain maps, so no Hive `TypeAdapter` registration or
+code generation is required.
+
+If a box file is corrupted, delete it and let the next full sync rebuild it:
+
+```dart
+import 'package:hive_ce_flutter/hive_flutter.dart';
+
+Future<void> recoverCorruptedBox(String boxName) async {
   try {
-    return await Hive.openBox<Task>('tasks');
+    await Hive.openBox<Map<dynamic, dynamic>>(boxName);
   } catch (e) {
-    // Try opening with different encryption or recovery
-    await Hive.deleteBoxFromDisk('tasks'); // Clear corrupted box
-    return await Hive.openBox<Task>('tasks');
+    // Clear the corrupted box, then re-open a fresh one
+    await Hive.deleteBoxFromDisk(boxName);
+    await Hive.openBox<Map<dynamic, dynamic>>(boxName);
   }
 }
 ```
@@ -65,6 +79,9 @@ Future<Box<Task>> openTaskBox() async {
 
 **Recovery Strategies:**
 ```dart
+import 'dart:io';
+import 'package:isar/isar.dart';
+
 class IsarRecoveryManager {
   static Future<void> recoverCorruptedDatabase(
     String databasePath,
@@ -99,34 +116,29 @@ class IsarRecoveryManager {
 **Symptoms:** "Database locked" errors during concurrent operations
 
 **Transaction Management:**
+
+`datum_sqlite`'s `SqliteLocalAdapter` shares one `sqlite3` `Database` between
+adapters (one per entity type) and supports real transactions via the
+`TransactionalAdapter` capability:
+
 ```dart
-class SQLiteAdapter extends LocalAdapter<Task> {
-  final Database _db;
+final adapter = SqliteLocalAdapter<Task>(
+  database: db, // the shared sqlite3 Database
+  table: 'tasks',
+  fromMap: Task.fromMap,
+);
+await adapter.initialize();
 
-  @override
-  Future<void> saveMany(List<Task> items, String userId) async {
-    // Use transactions to prevent locking
-    await _db.transaction((txn) async {
-      for (final item in items) {
-        await txn.insert(
-          'tasks',
-          item.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-    });
-  }
-
-  @override
-  Future<List<Task>> readAll({String? userId}) async {
-    // Use read-only transactions for queries
-    return _db.transaction((txn) async {
-      final maps = await txn.query('tasks');
-      return maps.map((map) => Task.fromMap(map)).toList();
-    });
-  }
-}
+// Group writes into a single transaction so they don't
+// contend for the database lock.
+await adapter.transaction(() async {
+  await adapter.createAll([task]);
+  await adapter.update(task.copyWith(isCompleted: true));
+});
 ```
+
+Note that `LocalAdapter.transaction` takes a zero-argument callback — you keep
+using the adapter itself inside the transaction, not a separate `txn` handle.
 
 ## Remote Adapter Issues
 
@@ -138,16 +150,13 @@ class SQLiteAdapter extends LocalAdapter<Task> {
 
 **Connection Setup:**
 ```dart
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 // 1. Verify Supabase configuration
 void main() async {
   await Supabase.initialize(
     url: 'https://your-project.supabase.co',
-    anonKey: 'your-anon-key',
-    // Add auth options for better error handling
-    authOptions: const AuthClientOptions(
-      autoRefreshToken: true,
-      persistSession: true,
-    ),
+    publishableKey: 'your-publishable-key',
   );
 }
 
@@ -162,7 +171,7 @@ class SupabaseHealthCheck {
           .limit(1)
           .single();
 
-      return response != null;
+      return response.isNotEmpty;
     } catch (e) {
       print('Supabase connection failed: $e');
       return false;
@@ -173,6 +182,9 @@ class SupabaseHealthCheck {
 
 **Authentication Issues:**
 ```dart
+import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 // Handle auth state changes
 class SupabaseAuthManager {
   StreamSubscription<AuthState>? _authSubscription;
@@ -183,16 +195,18 @@ class SupabaseAuthManager {
         switch (event.event) {
           case AuthChangeEvent.signedIn:
             print('User signed in: ${event.session?.user.id}');
-            // Initialize Datum sync
+            // Start Datum sync for the signed-in user
             break;
           case AuthChangeEvent.signedOut:
             print('User signed out');
-            // Pause sync and clear data
+            // Pause sync while nobody is signed in
             Datum.instance.pauseSync();
             break;
           case AuthChangeEvent.tokenRefreshed:
             print('Token refreshed');
-            // Update adapter with new token
+            // The Supabase client picks the new token up automatically
+            break;
+          default:
             break;
         }
       },
@@ -211,6 +225,9 @@ class SupabaseAuthManager {
 
 **RLS (Row Level Security) Issues:**
 ```dart
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
+
 // Debug RLS policies
 class SupabaseRLSDebugger {
   static Future<void> testRLSPolicies(String userId) async {
@@ -225,17 +242,14 @@ class SupabaseRLSDebugger {
       print('Read access: ✅');
 
       // Test write access
-      final writeTest = await Supabase.instance.client
-          .from('tasks')
-          .insert({
-            'id': const Uuid().v4(),
-            'user_id': userId,
-            'title': 'RLS Test',
-            'created_at': DateTime.now().toIso8601String(),
-          });
+      await Supabase.instance.client.from('tasks').insert({
+        'id': const Uuid().v4(),
+        'user_id': userId,
+        'title': 'RLS Test',
+        'created_at': DateTime.now().toIso8601String(),
+      });
 
       print('Write access: ✅');
-
     } catch (e) {
       print('RLS Error: $e');
       print('Check your RLS policies in Supabase dashboard');
@@ -249,75 +263,37 @@ class SupabaseRLSDebugger {
 
 **Real-time Subscription Issues:**
 ```dart
+import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 class SupabaseRealtimeManager {
-  RealtimeChannel? _channel;
   StreamSubscription? _subscription;
 
   void setupRealtimeSubscription(String userId) {
     // Clean up existing subscription
-    _channel?.unsubscribe();
     _subscription?.cancel();
 
-    // Create new channel
-    _channel = Supabase.instance.client.channel('tasks_$userId');
-
-    // Subscribe to changes
-    _channel!.on(
-      RealtimeListenTypes.postgresChanges,
-      ChannelFilter(
-        event: '*',
-        schema: 'public',
-        table: 'tasks',
-        filter: 'user_id=eq.$userId',
-      ),
-      (payload, [ref]) {
-        print('Realtime event: ${payload['eventType']}');
-        handleRealtimeEvent(payload);
-      },
-    ).subscribe(
-      (status, [err]) {
-        if (status == RealtimeSubscribeStatus.subscribed) {
-          print('Successfully subscribed to realtime updates');
-        } else {
-          print('Realtime subscription failed: $err');
-          // Retry logic
-          Future.delayed(Duration(seconds: 5), () {
-            setupRealtimeSubscription(userId);
-          });
-        }
-      },
-    );
-  }
-
-  void handleRealtimeEvent(Map<String, dynamic> payload) {
-    final eventType = payload['eventType'];
-    final newRecord = payload['new'] as Map<String, dynamic>?;
-    final oldRecord = payload['old'] as Map<String, dynamic>?;
-
-    switch (eventType) {
-      case 'INSERT':
-        if (newRecord != null) {
-          final task = Task.fromJson(newRecord);
-          // Update local cache
-        }
-        break;
-      case 'UPDATE':
-        if (newRecord != null) {
-          final task = Task.fromJson(newRecord);
-          // Update local cache
-        }
-        break;
-      case 'DELETE':
-        if (oldRecord != null) {
-          final taskId = oldRecord['id'] as String;
-          // Remove from local cache
-        }
-        break;
-    }
+    // Subscribe to changes for this user's rows
+    _subscription = Supabase.instance.client
+        .from('tasks')
+        .stream(primaryKey: ['id'])
+        .eq('user_id', userId)
+        .listen(
+          (rows) {
+            print('Realtime update: ${rows.length} rows');
+            // Feed the change into your RemoteAdapter's changeStream
+          },
+          onError: (error) {
+            print('Realtime subscription failed: $error');
+            // Retry with a delay
+            Future.delayed(const Duration(seconds: 5), () {
+              setupRealtimeSubscription(userId);
+            });
+          },
+        );
   }
 
   void dispose() {
-    _channel?.unsubscribe();
     _subscription?.cancel();
   }
 }
@@ -325,6 +301,9 @@ class SupabaseRealtimeManager {
 
 **Storage and File Upload Issues:**
 ```dart
+import 'dart:typed_data';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 class SupabaseStorageManager {
   static Future<String?> uploadFile(
     String bucket,
@@ -335,18 +314,15 @@ class SupabaseStorageManager {
       final fileExt = fileName.split('.').last;
       final filePath = '${DateTime.now().millisecondsSinceEpoch}.$fileExt';
 
-      final response = await Supabase.instance.client.storage
+      await Supabase.instance.client.storage
           .from(bucket)
           .uploadBinary(filePath, fileData);
 
-      if (response != null) {
-        // Get public URL
-        final publicUrl = Supabase.instance.client.storage
-            .from(bucket)
-            .getPublicUrl(filePath);
+      // Get public URL
+      final publicUrl =
+          Supabase.instance.client.storage.from(bucket).getPublicUrl(filePath);
 
-        return publicUrl;
-      }
+      return publicUrl;
     } catch (e) {
       print('File upload failed: $e');
 
@@ -366,6 +342,8 @@ class SupabaseStorageManager {
 
 **Authentication Handling:**
 ```dart
+import 'package:dio/dio.dart';
+
 class AuthenticatedRestAdapter extends RemoteAdapter<Task> {
   final Dio _dio;
   String? _authToken;
@@ -423,18 +401,25 @@ class AuthenticatedRestAdapter extends RemoteAdapter<Task> {
 }
 ```
 
+Inside a Datum adapter, prefer throwing the typed exceptions so the sync
+engine can classify failures — e.g. `NetworkException(message: ..., isRetryable: true)`
+for transient transport errors, or a `DatumException` with
+`DatumExceptionCode.authenticationError` when credentials are rejected.
+
 ### Issue: GraphQL adapter query failures
 
 **Symptoms:** GraphQL queries return errors or null data
 
 **Query Debugging:**
 ```dart
+import 'package:graphql/client.dart';
+
 class GraphQLAdapter extends RemoteAdapter<Task> {
   final GraphQLClient _client;
 
   @override
   Future<List<Task>> readAll({String? userId, DatumSyncScope? scope}) async {
-    const query = '''
+    const query = r'''
       query GetTasks($userId: ID!, $limit: Int) {
         tasks(userId: $userId, limit: $limit) {
           id
@@ -451,7 +436,8 @@ class GraphQLAdapter extends RemoteAdapter<Task> {
       document: gql(query),
       variables: {
         'userId': userId,
-        'limit': scope?.limit ?? 100,
+        // scope.query carries the filters/limit for a scoped pull
+        'limit': scope?.query.limit ?? 100,
       },
     );
 
@@ -469,7 +455,7 @@ class GraphQLAdapter extends RemoteAdapter<Task> {
     }
 
     final tasks = result.data?['tasks'] as List? ?? [];
-    return tasks.map((json) => Task.fromJson(json)).toList();
+    return tasks.map((json) => Task.fromMap(json)).toList();
   }
 }
 ```
@@ -480,6 +466,9 @@ class GraphQLAdapter extends RemoteAdapter<Task> {
 
 **Subscription Management:**
 ```dart
+import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 class SupabaseAdapter extends RemoteAdapter<Task> {
   final SupabaseClient _client;
   StreamSubscription? _subscription;
@@ -491,44 +480,21 @@ class SupabaseAdapter extends RemoteAdapter<Task> {
         .from('tasks')
         .stream(primaryKey: ['id'])
         .eq('user_id', userId)
-        .listen((data) {
-          // Handle real-time updates
-          for (final change in data) {
-            switch (change.eventType) {
-              case PostgresChangeEvent.insert:
-                _handleInsert(change.newRecord);
-                break;
-              case PostgresChangeEvent.update:
-                _handleUpdate(change.newRecord);
-                break;
-              case PostgresChangeEvent.delete:
-                _handleDelete(change.oldRecord);
-                break;
-            }
+        .listen((rows) {
+          // Emit the change through the adapter's changeStream so the
+          // manager can merge it (do NOT write to the local adapter
+          // directly — that bypasses conflict resolution).
+          for (final row in rows) {
+            final task = Task.fromMap(row);
+            emitChange(task);
           }
         });
   }
 
-  void _handleInsert(Map<String, dynamic> record) {
-    final task = Task.fromJson(record);
-    // Update local cache
-    localAdapter.create(task);
-  }
-
-  void _handleUpdate(Map<String, dynamic> record) {
-    final task = Task.fromJson(record);
-    localAdapter.update(task);
-  }
-
-  void _handleDelete(Map<String, dynamic> record) {
-    final taskId = record['id'] as String;
-    localAdapter.delete(taskId);
-  }
-
   @override
-  void dispose() {
-    _subscription?.cancel();
-    super.dispose();
+  Future<void> dispose() async {
+    await _subscription?.cancel();
+    await super.dispose();
   }
 }
 ```
@@ -541,6 +507,9 @@ class SupabaseAdapter extends RemoteAdapter<Task> {
 
 **Security Rules Debugging:**
 ```dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 // Debug security rules locally
 class FirestoreDebugAdapter extends RemoteAdapter<Task> {
   final FirebaseFirestore _firestore;
@@ -548,7 +517,10 @@ class FirestoreDebugAdapter extends RemoteAdapter<Task> {
   @override
   Future<void> create(Task item) async {
     try {
-      await _firestore.collection('tasks').doc(item.id).set(item.toMap());
+      await _firestore
+          .collection('tasks')
+          .doc(item.id)
+          .set(item.toDatumMap(target: MapTarget.remote));
     } catch (e) {
       print('Firestore create error: $e');
       // Check if it's a permission error
@@ -579,104 +551,96 @@ service cloud.firestore {
 
 **Symptoms:** Local changes conflict with server state
 
-**Offline Persistence Configuration:**
+Datum is already your offline layer — disable Firestore's own persistence so
+the two don't fight over who owns offline state:
+
 ```dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class FirebaseAdapter extends RemoteAdapter<Task> {
   final FirebaseFirestore _firestore;
 
   FirebaseAdapter() : _firestore = FirebaseFirestore.instance {
-    // Configure offline persistence
+    // Let Datum's local adapter be the single source of offline truth
     _firestore.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      persistenceEnabled: false,
     );
-
-    // Enable network calls
-    _firestore.enableNetwork();
   }
 
   @override
   Future<List<Task>> readAll({String? userId, DatumSyncScope? scope}) async {
-    // Force server data for critical reads
-    final source = scope?.forceServer ?? false
-        ? Source.server
-        : Source.cache;
-
+    // Always read server state — Datum handles caching locally
     final snapshot = await _firestore
         .collection('tasks')
         .where('userId', isEqualTo: userId)
-        .get(GetOptions(source: source));
+        .get(const GetOptions(source: Source.server));
 
-    return snapshot.docs
-        .map((doc) => Task.fromMap(doc.data()))
-        .toList();
+    return snapshot.docs.map((doc) => Task.fromMap(doc.data())).toList();
   }
 }
 ```
 
 ## Adapter Testing
 
-### Unit Testing Adapters
+### Conformance Suites
+
+`package:datum_test` ships behavioral conformance suites — run them against
+every adapter you build instead of hand-writing CRUD assertions:
 
 ```dart
-class AdapterTestSuite {
-  static Future<void> testLocalAdapter(LocalAdapter<Task> adapter) async {
-    // Test basic CRUD operations
-    final testTask = Task.create(title: 'Test Task');
+Future<void> main() async {
+  // Local adapter contract: CRUD round-trips, queries, watch streams,
+  // pending operations, schema versioning, user isolation, ...
+  runLocalAdapterConformanceTests(
+    name: 'sqlite',
+    create: () async {
+      final adapter = SqliteLocalAdapter<ConformanceEntity>(
+        database: sqlite3.openInMemory(),
+        table: 'conformance_entities',
+        fromMap: ConformanceEntity.fromMap,
+      );
+      await adapter.initialize();
+      return adapter;
+    },
+  );
 
-    // Create
-    await adapter.create(testTask);
-    expect(await adapter.read(testTask.id), equals(testTask));
+  // Remote adapter contract, over real sockets against a LocalSyncServer
+  final server = LocalSyncServer();
+  await server.start();
 
-    // Update
-    final updatedTask = testTask.copyWith(title: 'Updated Task');
-    await adapter.update(updatedTask);
-    expect(await adapter.read(testTask.id), equals(updatedTask));
-
-    // Delete
-    await adapter.delete(testTask.id);
-    expect(await adapter.read(testTask.id), isNull);
-  }
-
-  static Future<void> testRemoteAdapter(RemoteAdapter<Task> adapter) async {
-    // Mock HTTP responses for testing
-    final mockTasks = [
-      Task.create(title: 'Mock Task 1'),
-      Task.create(title: 'Mock Task 2'),
-    ];
-
-    // Test read operations
-    final tasks = await adapter.readAll(userId: 'test-user');
-    expect(tasks.length, greaterThan(0));
-
-    // Test create operations
-    final newTask = Task.create(title: 'New Task');
-    await adapter.create(newTask);
-
-    // Verify creation
-    final readTask = await adapter.read(newTask.id);
-    expect(readTask?.title, equals(newTask.title));
-  }
+  runRemoteAdapterConformanceTests(
+    name: 'http',
+    create: () async => HttpRemoteAdapter<ConformanceEntity>(
+      baseUri: server.baseUri,
+      fromMap: ConformanceEntity.fromMap,
+    ),
+  );
 }
 ```
+
+The `LocalSyncServer` test double also lets you inject latency, failures,
+corrupted responses, and offline periods to exercise your error handling.
 
 ## Performance Optimization
 
 ### Connection Pooling
 
 ```dart
+import 'package:dio/dio.dart';
+
 class PooledHttpAdapter extends RemoteAdapter<Task> {
   final List<Dio> _clients;
   int _currentClient = 0;
 
-  PooledHttpAdapter(int poolSize) : _clients = List.generate(
-    poolSize,
-    (i) => Dio(BaseOptions(
-      baseUrl: 'https://api.example.com',
-      connectTimeout: Duration(seconds: 5),
-      receiveTimeout: Duration(seconds: 10),
-    )),
-  );
+  PooledHttpAdapter(int poolSize)
+      : _clients = List.generate(
+          poolSize,
+          (i) => Dio(BaseOptions(
+            baseUrl: 'https://api.example.com',
+            connectTimeout: Duration(seconds: 5),
+            receiveTimeout: Duration(seconds: 10),
+          )),
+        );
 
   Dio get _client {
     final client = _clients[_currentClient];
@@ -688,11 +652,8 @@ class PooledHttpAdapter extends RemoteAdapter<Task> {
   Future<List<Task>> readAll({String? userId, DatumSyncScope? scope}) async {
     final response = await _client.get('/tasks', queryParameters: {
       'userId': userId,
-      'limit': scope?.limit,
     });
-    return (response.data as List)
-        .map((json) => Task.fromJson(json))
-        .toList();
+    return (response.data as List).map((json) => Task.fromMap(json)).toList();
   }
 }
 ```
@@ -700,9 +661,22 @@ class PooledHttpAdapter extends RemoteAdapter<Task> {
 ### Caching Strategies
 
 ```dart
-class CachedAdapter extends RemoteAdapter<Task> {
-  final RemoteAdapter<Task> _remoteAdapter;
-  final Map<String, CachedItem<Task>> _cache = {};
+class CachedItem<T> {
+  CachedItem(this.data, Duration ttl) : expiry = DateTime.now().add(ttl);
+
+  final T data;
+  final DateTime expiry;
+
+  bool get isExpired => DateTime.now().isAfter(expiry);
+}
+
+/// Wraps a real adapter with a short-lived read cache.
+/// (Shown partially — forward the remaining members to [inner].)
+abstract class CachedAdapter extends RemoteAdapter<Task> {
+  CachedAdapter(this.inner);
+
+  final RemoteAdapter<Task> inner;
+  final Map<String, CachedItem<List<Task>>> _cache = {};
 
   @override
   Future<List<Task>> readAll({String? userId, DatumSyncScope? scope}) async {
@@ -715,60 +689,64 @@ class CachedAdapter extends RemoteAdapter<Task> {
     }
 
     // Fetch from remote
-    final data = await _remoteAdapter.readAll(userId: userId, scope: scope);
+    final data = await inner.readAll(userId: userId, scope: scope);
 
     // Cache the result
-    _cache[cacheKey] = CachedItem(data, Duration(minutes: 5));
+    _cache[cacheKey] = CachedItem(data, const Duration(minutes: 5));
 
     return data;
   }
-}
-
-class CachedItem<T> {
-  final T data;
-  final DateTime expiry;
-
-  CachedItem(this.data, Duration ttl) : expiry = DateTime.now().add(ttl);
-
-  bool get isExpired => DateTime.now().isAfter(expiry);
 }
 ```
 
 ## Best Practices
 
 ### 1. Error Handling
+
+The sync engine already retries via `DatumConfig.errorRecoveryStrategy` — an
+adapter-level retry wrapper is only needed for reads outside the sync cycle:
+
 ```dart
-class ResilientAdapter extends RemoteAdapter<Task> {
+/// (Shown partially — forward the remaining members to [inner].)
+abstract class ResilientAdapter extends RemoteAdapter<Task> {
+  ResilientAdapter(this.inner);
+
+  final RemoteAdapter<Task> inner;
+
   @override
   Future<List<Task>> readAll({String? userId, DatumSyncScope? scope}) async {
     const maxRetries = 3;
     var attempt = 0;
 
-    while (attempt < maxRetries) {
+    while (true) {
       try {
-        return await _performReadAll(userId, scope);
+        return await inner.readAll(userId: userId, scope: scope);
       } catch (e) {
         attempt++;
         if (attempt >= maxRetries) rethrow;
 
         // Exponential backoff
-        await Future.delayed(Duration(seconds: attempt * 2));
+        await Future<void>.delayed(Duration(seconds: attempt * 2));
       }
     }
-
-    throw Exception('Failed after $maxRetries attempts');
   }
 }
 ```
 
 ### 2. Logging and Monitoring
+
 ```dart
-class MonitoredAdapter extends RemoteAdapter<Task> {
+/// (Shown partially — forward the remaining members to [inner].)
+abstract class MonitoredAdapter extends RemoteAdapter<Task> {
+  MonitoredAdapter(this.inner);
+
+  final RemoteAdapter<Task> inner;
+
   @override
-  Future<void> create(Task item) async {
+  Future<void> create(Task entity) async {
     final stopwatch = Stopwatch()..start();
     try {
-      await super.create(item);
+      await inner.create(entity);
       stopwatch.stop();
       await logOperation('create', stopwatch.elapsed, success: true);
     } catch (e) {
@@ -784,8 +762,8 @@ class MonitoredAdapter extends RemoteAdapter<Task> {
     required bool success,
     Object? error,
   }) async {
-    // Send to monitoring service
-    await monitoringService.logOperation({
+    // Send to your monitoring service
+    print({
       'adapter': runtimeType.toString(),
       'operation': operation,
       'duration_ms': duration.inMilliseconds,
@@ -798,14 +776,18 @@ class MonitoredAdapter extends RemoteAdapter<Task> {
 ```
 
 ### 3. Resource Cleanup
+
 ```dart
-class DisposableAdapter extends RemoteAdapter<Task> implements Disposable {
-  StreamSubscription? _subscription;
+import 'dart:async';
+
+/// Adapters own their subscriptions and timers — release them in dispose().
+abstract class DisposableAdapter extends RemoteAdapter<Task> {
+  StreamSubscription<void>? _subscription;
   Timer? _healthCheckTimer;
 
   @override
-  void dispose() {
-    _subscription?.cancel();
+  Future<void> dispose() async {
+    await _subscription?.cancel();
     _healthCheckTimer?.cancel();
     // Close connections, clean up resources
   }
