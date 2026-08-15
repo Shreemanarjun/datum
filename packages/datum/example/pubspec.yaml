@@ -53,11 +53,36 @@ dev_dependencies:
   auto_route_generator: ^10.2.5
   build_runner: ^2.7.1
   custom_lint: ^0.7.6
+  # End-to-end integration tests (integration_test/) against a local sync
+  # server, exercising both SQLite and Hive local adapters.
+  datum_hive:
+    path: ../../datum_hive
+  datum_sqlite:
+    path: ../../datum_sqlite
+  datum_test:
+    path: ../../datum_test
   flutter_lints: ^6.0.0
   hive_ce_test: ^2.0.0
+  integration_test:
+    sdk: flutter
   mocktail: ^1.0.4
   riverpod_lint: ^2.6.5
   slang_build_runner: ^4.9.0
+  sqlite3: ^2.4.0
+  # Bundles the SQLite native library into the iOS/Android test app.
+  sqlite3_flutter_libs: ^0.5.24
+
+dependency_overrides:
+  # The ecosystem packages declare hosted `datum`; the example always builds
+  # against the local sources.
+  datum:
+    path: ../
+  datum_generator:
+    path: ../../datum_generator
+  # datum_test's `package:test` and flutter_test pin different test_api /
+  # matcher patch versions — same override family datum_hive uses.
+  test_api: ^0.7.7
+  matcher: ^0.12.16
   spot: ^0.16.0
   very_good_analysis: ^10.0.0
 

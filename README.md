@@ -2,24 +2,32 @@
   <img src="https://zmozkivkhopoeutpnnum.supabase.co/storage/v1/object/public/images/datum_banner.svg" alt="Datum Banner">
 </p>
 
-
-
 # Datum Ecosystem
 
-This is a monorepo for the Datum ecosystem, a collection of packages for building offline-first data synchronization for Dart and Flutter applications.
+Monorepo for the Datum ecosystem — offline-first data synchronization for
+Dart and Flutter. **Your backend, your database, one type-safe sync engine.**
+
+**[📚 Documentation → datum.shreeman.dev](https://datum.shreeman.dev/)**
 
 ## Packages
 
-This monorepo contains the following packages:
+| Package | Description |
+|---|---|
+| [`datum`](./packages/datum) | The sync engine: offline-first CRUD, conflict resolution, CRDTs, schema migrations, incremental sync ([pub.dev](https://pub.dev/packages/datum)) |
+| [`datum_sqlite`](./packages/datum_sqlite) | SQLite local adapter — real tables, SQL query pushdown, transactional DDL migrations |
+| [`datum_hive`](./packages/datum_hive) | Hive CE local adapter for Flutter |
+| [`datum_test`](./packages/datum_test) | Adapter/sync-stack conformance kit, local sync server, chaos & convergence fuzzing |
+| [`datum_generator`](./packages/datum_generator) | Code generation for entity boilerplate |
+| [`datum_docs`](./packages/datum_docs) | The documentation website (Jaspr) — every snippet is compile-verified |
 
-*   **`datum`**: The core framework for offline-first data synchronization. See the [datum/README.md](./packages/datum/README.md) for more information.
-*   **`datum_docs`**: The documentation website for the Datum ecosystem.
-*   **`datum_isolate`**: A package for managing isolates in Datum.
+## Getting started
 
-## Getting Started
-
-To get started with the Datum ecosystem, please see the documentation for the individual packages.
+Start with the [`datum` README](./packages/datum/README.md) or the
+[Quick Start guide](https://datum.shreeman.dev/getting_started/quick_start).
+A full example app — including an on-simulator integration + benchmark
+suite — lives in [`packages/datum/example`](./packages/datum/example).
 
 ## Contributing
 
-Please see the [CONTRIBUTING.md](./packages/datum/CONTRIBUTING.md) for information on how to contribute to the Datum ecosystem.
+Please see [CONTRIBUTING.md](./packages/datum/CONTRIBUTING.md) for how to
+contribute to the Datum ecosystem.

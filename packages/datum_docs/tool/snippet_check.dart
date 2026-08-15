@@ -22,7 +22,10 @@ import 'dart:io';
 const _genDirPath = 'tool/.snippets_gen';
 
 /// Imports the scratch context can actually resolve.
-const _resolvablePrefixes = ['dart:', 'package:datum/', 'package:datum_sqlite/', 'package:datum_test/'];
+const _resolvablePrefixes = ['dart:', 'package:datum/', 'package:datum_sqlite/', 'package:datum_test/', 'package:sqlite3/'];
+
+/// Markdown outside content/ whose snippets are verified too.
+const _extraPages = ['../datum/README.md'];
 
 /// Well-known bindings injected into usage snippets (see snippet_scaffold.dart).
 const _bindings = <String, String>{
@@ -163,7 +166,9 @@ Future<int> runCheck({bool verbose = true}) async {
   if (genDir.existsSync()) genDir.deleteSync(recursive: true);
   genDir.createSync(recursive: true);
 
-  final pages = Directory('content').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.md')).toList()..sort((a, b) => a.path.compareTo(b.path));
+  final pages = Directory('content').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.md')).toList()
+    ..addAll(_extraPages.map(File.new).where((f) => f.existsSync()))
+    ..sort((a, b) => a.path.compareTo(b.path));
 
   var totalVerified = 0;
   final allSkipped = <String>[];
