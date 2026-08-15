@@ -156,6 +156,122 @@ final adapter = SqliteLocalAdapter<Task>(
 print(adapter.table);
 ```
 
+## Type-safe relations
+
+`DatumRelationSpec` extends the same declare-once idea to relations: the
+name, both entity types, and the foreign key **as a field spec** are bound
+together, so `withRelated`, access, lazy fetching, and cascade behavior are
+all checked at compile time — across every adapter, since relations resolve
+at the manager layer:
+
+```dart continue
+class Blog extends RelationalDatumEntity with MemoizedRelations {
+  Blog({required this.id, required this.userId, required this.title});
+
+  @override
+  final String id;
+  @override
+  final String userId;
+  final String title;
+  @override
+  DateTime get createdAt => DateTime.utc(2026);
+  @override
+  DateTime get modifiedAt => DateTime.utc(2026);
+  @override
+  int get version => 1;
+  @override
+  bool get isDeleted => false;
+
+  static final postsRel = DatumRelationSpec<Blog, Post>.hasMany(
+    'posts',
+    foreignKey: Post.blogIdField,
+    cascadeDelete: CascadeDeleteBehavior.cascade,
+  );
+
+  @override
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) =>
+      {'id': id, 'userId': userId, 'title': title};
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) => toDatumMap();
+  @override
+  Blog copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) =>
+      Blog(id: id, userId: userId, title: title);
+  @override
+  Map<String, Relation> buildRelations() => datumRelationsFor(this, [postsRel]);
+}
+
+class Post extends RelationalDatumEntity with MemoizedRelations {
+  Post({required this.id, required this.userId, required this.blogId});
+
+  @override
+  final String id;
+  @override
+  final String userId;
+  final String blogId;
+  @override
+  DateTime get createdAt => DateTime.utc(2026);
+  @override
+  DateTime get modifiedAt => DateTime.utc(2026);
+  @override
+  int get version => 1;
+  @override
+  bool get isDeleted => false;
+
+  static final blogIdField = DatumFieldSpec<Post, String>('blogId', getter: (p) => p.blogId);
+  static final blogRel = DatumRelationSpec<Post, Blog>.belongsTo('blog', foreignKey: blogIdField);
+
+  @override
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) =>
+      {'id': id, 'userId': userId, 'blogId': blogId};
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) => toDatumMap();
+  @override
+  Post copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) =>
+      Post(id: id, userId: userId, blogId: blogId);
+  @override
+  Map<String, Relation> buildRelations() => datumRelationsFor(this, [blogRel]);
+}
+
+Future<void> typedRelationUsage(DatumManager<Blog> blogs) async {
+  // Typed names for eager loading; access bound to name AND type:
+  final blog = (await blogs.read('b1', userId: 'u1', withRelated: [Blog.postsRel].names))!;
+  final posts = Blog.postsRel.listOf(blog) ?? const [];
+
+  // Or fetch lazily — resolved through Datum.manager<Post>() on any adapter:
+  final lazyPosts = await Blog.postsRel.fetchListFor(blog);
+  print('${posts.length} ${lazyPosts.length}');
+}
+```
+
+Many-to-many joins through a **registered pivot entity**, with both pivot
+keys spelled as the pivot's own field specs:
+
+```dart no-verify
+static final tagsRel = DatumRelationSpec.manyToMany<Ticket, Tag, TicketTag>(
+  'tags',
+  pivotSelfKey: TicketTag.ticketIdField,
+  pivotOtherKey: TicketTag.tagIdField,
+);
+
+// Eager: withRelated: [Ticket.tagsRel].names — or lazy, both directions:
+final tags = await Ticket.tagsRel.fetchListFor(ticket);
+final tickets = await Tag.ticketsRel.fetchListFor(tag);
+```
+
+Give the pivot its own `hasMany` with `cascadeDelete` so link rows die with
+their owner while the shared far side survives. All four
+`CascadeDeleteBehavior`s work through specs: `cascade` walks the subtree
+transitively (with a per-type breakdown in `result.deletedEntities`),
+`none` leaves the branch orphaned, `restrict` makes `cascadeDelete` return
+`success: false` with the blockers listed in `result.restrictedRelations`,
+and `setNull` detaches children by nulling their foreign key — declare that
+field nullable in the entity. One caveat: `fetch()` caches
+per entity **instance** — after local mutations, re-read the entity (or
+query the pivot) rather than re-fetching on a stale instance. The complete
+multi-adapter example (three-level chain + many-to-many, verified on
+InMemory/SQLite/Hive) lives in
+[`example/integration_test/datum_relations_typed_test.dart`](https://github.com/shreemanarjun/datum/blob/main/packages/datum/example/integration_test/datum_relations_typed_test.dart).
+
 ## 4. Auto-migration
 
 Hand the schema to the config and let `initialize()` reconcile the store:

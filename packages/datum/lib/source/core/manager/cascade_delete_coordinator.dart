@@ -81,6 +81,12 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
     String userId,
     CascadeAnalyticsBuilder analyticsBuilder,
   ) async {
+    // The relationship cache cannot observe writes made through *other*
+    // managers (its keys don't reference child ids), so a plan must start
+    // from a fresh view. Entries added below still dedupe lookups within
+    // this single plan build.
+    cacheCoordinator.relationshipQueryCache.clear();
+
     final restrictedRelations = <String, List<DatumEntityInterface>>{};
     final deleteOrder = <CascadeDeleteStep>[];
     final visitedEntities = <String>{};
@@ -284,9 +290,20 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
     // First, handle setNull operations for BelongsTo relationships
     await executeSetNullOperations(plan.mainEntity, userId, source, forceRemoteSync, errors);
 
-    // Execute deletes in the planned order
+    // Execute the plan in order: setNull steps patch the foreign key,
+    // delete steps remove the row (same semantics as the progress variant).
     for (final step in plan.steps) {
       try {
+        if (step.type == CascadeStepType.update && step.updateData != null) {
+          await step.manager.localAdapter.patch(
+            id: step.entity.id,
+            delta: step.updateData!,
+            userId: userId,
+          );
+          step.manager.invalidateMetadataHash(userId);
+          continue;
+        }
+
         final success = await step.manager.performDeleteWithoutEvents(
           id: step.entity.id,
           userId: userId,

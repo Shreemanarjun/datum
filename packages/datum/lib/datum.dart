@@ -33,6 +33,7 @@ export 'source/core/migration/auto/schema_diff.dart';
 export 'source/core/migration/auto/schema_introspector.dart';
 export 'source/core/schema/datum_field_codec.dart';
 export 'source/core/schema/datum_field_spec.dart';
+export 'source/core/schema/datum_relation_spec.dart';
 export 'source/core/schema/datum_schema.dart';
 export 'source/core/schema/datum_schema_reader.dart';
 export 'source/core/migration/migration.dart';

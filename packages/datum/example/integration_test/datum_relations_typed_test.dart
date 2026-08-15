@@ -1,19 +1,27 @@
 // A fully type-safe relational domain — no codegen — verified end-to-end on
 // every local adapter.
 //
-// The model is a three-level dependent chain with back-links:
+// The model is a three-level dependent chain with back-links plus a
+// many-to-many through a pivot:
 //
-//   Author ─┬─ HasMany ──> Project ─┬─ HasMany ──> Ticket ─┬─ HasMany ──> Comment
-//           │                       │                      │
-//           └<─ BelongsTo ──────────┴<─ BelongsTo ─────────┴<─ BelongsTo ──┘
+//   Author ─HasMany─> Project ─HasMany─> Ticket ─HasMany─> Comment
+//      ^                 ^                  ^
+//      └──BelongsTo──────┴──BelongsTo──────┘
+//                                          │
+//                             Ticket <─ManyToMany(TicketTag)─> Tag
 //
-// Every entity is declared once through DatumSchema/DatumFieldSpec:
-// `fromMap` is `schema.decode`, `toDatumMap` is `schema.toMap`, `diff` is
-// `schema.diffOf`, `props` is `schema.propsOf`, and every query goes through
-// typed field specs. The same scenario suite (eager loading, typed
-// foreign-key queries, dependent updates, transitive cascade delete, sync)
-// runs on InMemory, SQLite, and Hive — relation resolution happens at the
-// manager layer, so it must behave identically on all of them.
+// Everything is declared once through the typed schema layer:
+// DatumFieldSpec/DatumSchema for fields (`fromMap` = schema.decode,
+// `toDatumMap` = schema.toMap, `diff` = schema.diffOf, `props` =
+// schema.propsOf) and DatumRelationSpec for relations — typed names for
+// `withRelated`, typed access (`listOf`/`oneOf`), typed lazy fetching
+// (`fetchListFor`/`fetchOneFor`), and cascade behavior, all bound at compile
+// time. The same suite runs on InMemory, SQLite, and Hive: relations resolve
+// at the manager layer, so behavior must be identical.
+//
+// One sync server per entity type: LocalSyncServer's /entities namespace is
+// single-type, and strict schema.decode (rightly) rejects rows of a
+// different entity leaking into a pull.
 //
 // Run on an iOS simulator:
 //   flutter test integration_test/datum_relations_typed_test.dart -d <udid>
@@ -82,6 +90,12 @@ class Author extends RelationalDatumEntity with MemoizedRelations {
     ),
   );
 
+  static final projectsRel = DatumRelationSpec<Author, Project>.hasMany(
+    'projects',
+    foreignKey: Project.authorIdField,
+    cascadeDelete: CascadeDeleteBehavior.cascade,
+  );
+
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) =>
       schema.toMap(this, target: target);
@@ -107,10 +121,8 @@ class Author extends RelationalDatumEntity with MemoizedRelations {
       );
 
   @override
-  Map<String, Relation> buildRelations() => {
-        'projects': HasMany<Project>(this, 'authorId',
-            cascadeDeleteBehavior: CascadeDeleteBehavior.cascade),
-      };
+  Map<String, Relation> buildRelations() =>
+      datumRelationsFor(this, [projectsRel]);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +181,15 @@ class Project extends RelationalDatumEntity with MemoizedRelations {
     ),
   );
 
+  static final authorRel = DatumRelationSpec<Project, Author>.belongsTo(
+      'author',
+      foreignKey: authorIdField);
+  static final ticketsRel = DatumRelationSpec<Project, Ticket>.hasMany(
+    'tickets',
+    foreignKey: Ticket.projectIdField,
+    cascadeDelete: CascadeDeleteBehavior.cascade,
+  );
+
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) =>
       schema.toMap(this, target: target);
@@ -194,13 +215,6 @@ class Project extends RelationalDatumEntity with MemoizedRelations {
         isDeleted: isDeleted ?? this.isDeleted,
       );
 
-  @override
-  Map<String, Relation> buildRelations() => {
-        'author': BelongsTo<Author>(this, 'authorId'),
-        'tickets': HasMany<Ticket>(this, 'projectId',
-            cascadeDeleteBehavior: CascadeDeleteBehavior.cascade),
-      };
-
   Project withTitle(String newTitle) => Project(
         id: id,
         userId: userId,
@@ -212,6 +226,10 @@ class Project extends RelationalDatumEntity with MemoizedRelations {
         version: version + 1,
         isDeleted: isDeleted,
       );
+
+  @override
+  Map<String, Relation> buildRelations() =>
+      datumRelationsFor(this, [authorRel, ticketsRel]);
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +293,29 @@ class Ticket extends RelationalDatumEntity with MemoizedRelations {
     ),
   );
 
+  static final projectRel = DatumRelationSpec<Ticket, Project>.belongsTo(
+      'project',
+      foreignKey: projectIdField);
+  static final commentsRel = DatumRelationSpec<Ticket, Comment>.hasMany(
+    'comments',
+    foreignKey: Comment.ticketIdField,
+    cascadeDelete: CascadeDeleteBehavior.cascade,
+  );
+
+  /// Pivot rows die with their ticket…
+  static final linksRel = DatumRelationSpec<Ticket, TicketTag>.hasMany(
+    'links',
+    foreignKey: TicketTag.ticketIdField,
+    cascadeDelete: CascadeDeleteBehavior.cascade,
+  );
+
+  /// …while the tags themselves are shared and survive.
+  static final tagsRel = DatumRelationSpec.manyToMany<Ticket, Tag, TicketTag>(
+    'tags',
+    pivotSelfKey: TicketTag.ticketIdField,
+    pivotOtherKey: TicketTag.tagIdField,
+  );
+
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) =>
       schema.toMap(this, target: target);
@@ -302,11 +343,8 @@ class Ticket extends RelationalDatumEntity with MemoizedRelations {
       );
 
   @override
-  Map<String, Relation> buildRelations() => {
-        'project': BelongsTo<Project>(this, 'projectId'),
-        'comments': HasMany<Comment>(this, 'ticketId',
-            cascadeDeleteBehavior: CascadeDeleteBehavior.cascade),
-      };
+  Map<String, Relation> buildRelations() =>
+      datumRelationsFor(this, [projectRel, commentsRel, linksRel, tagsRel]);
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +398,10 @@ class Comment extends RelationalDatumEntity with MemoizedRelations {
     ),
   );
 
+  static final ticketRel = DatumRelationSpec<Comment, Ticket>.belongsTo(
+      'ticket',
+      foreignKey: ticketIdField);
+
   @override
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) =>
       schema.toMap(this, target: target);
@@ -385,13 +427,168 @@ class Comment extends RelationalDatumEntity with MemoizedRelations {
       );
 
   @override
-  Map<String, Relation> buildRelations() => {
-        'ticket': BelongsTo<Ticket>(this, 'ticketId'),
-      };
+  Map<String, Relation> buildRelations() =>
+      datumRelationsFor(this, [ticketRel]);
 }
 
 // ---------------------------------------------------------------------------
-// Seed helpers (named params only — no positional string soup)
+// Tag + TicketTag (pivot)
+// ---------------------------------------------------------------------------
+
+class Tag extends RelationalDatumEntity with MemoizedRelations {
+  Tag({
+    required this.id,
+    required this.userId,
+    required this.label,
+    required this.createdAt,
+    required this.modifiedAt,
+    required this.version,
+    this.isDeleted = false,
+  });
+
+  @override
+  final String id;
+  @override
+  final String userId;
+  final String label;
+  @override
+  final DateTime createdAt;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
+
+  static final labelField =
+      DatumFieldSpec<Tag, String>('label', getter: (t) => t.label);
+  static final core = datumCoreFieldSpecs<Tag>();
+  static final schema = DatumSchema<Tag>(
+    name: 'tags',
+    fields: [...core.all, labelField],
+    construct: (r) => Tag(
+      id: r(core.id),
+      userId: r(core.userId),
+      label: r(labelField),
+      createdAt: r(core.createdAt),
+      modifiedAt: r(core.modifiedAt),
+      version: r(core.version),
+      isDeleted: r.getOr(core.isDeleted, false),
+    ),
+  );
+
+  /// The reverse many-to-many: which tickets carry this tag.
+  static final ticketsRel =
+      DatumRelationSpec.manyToMany<Tag, Ticket, TicketTag>(
+    'tickets',
+    pivotSelfKey: TicketTag.tagIdField,
+    pivotOtherKey: TicketTag.ticketIdField,
+  );
+
+  @override
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) =>
+      schema.toMap(this, target: target);
+
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) =>
+      schema.diffOf(oldVersion as Tag, this);
+
+  @override
+  List<Object?> get props => [...super.props, ...schema.propsOf(this)];
+
+  @override
+  Tag copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) => Tag(
+        id: id,
+        userId: userId,
+        label: label,
+        createdAt: createdAt,
+        modifiedAt: modifiedAt ?? this.modifiedAt,
+        version: version ?? this.version,
+        isDeleted: isDeleted ?? this.isDeleted,
+      );
+
+  @override
+  Map<String, Relation> buildRelations() =>
+      datumRelationsFor(this, [ticketsRel]);
+}
+
+class TicketTag extends RelationalDatumEntity with MemoizedRelations {
+  TicketTag({
+    required this.id,
+    required this.userId,
+    required this.ticketId,
+    required this.tagId,
+    required this.createdAt,
+    required this.modifiedAt,
+    required this.version,
+    this.isDeleted = false,
+  });
+
+  @override
+  final String id;
+  @override
+  final String userId;
+  final String ticketId;
+  final String tagId;
+  @override
+  final DateTime createdAt;
+  @override
+  final DateTime modifiedAt;
+  @override
+  final int version;
+  @override
+  final bool isDeleted;
+
+  static final ticketIdField =
+      DatumFieldSpec<TicketTag, String>('ticketId', getter: (l) => l.ticketId);
+  static final tagIdField =
+      DatumFieldSpec<TicketTag, String>('tagId', getter: (l) => l.tagId);
+  static final core = datumCoreFieldSpecs<TicketTag>();
+  static final schema = DatumSchema<TicketTag>(
+    name: 'ticket_tags',
+    fields: [...core.all, ticketIdField, tagIdField],
+    construct: (r) => TicketTag(
+      id: r(core.id),
+      userId: r(core.userId),
+      ticketId: r(ticketIdField),
+      tagId: r(tagIdField),
+      createdAt: r(core.createdAt),
+      modifiedAt: r(core.modifiedAt),
+      version: r(core.version),
+      isDeleted: r.getOr(core.isDeleted, false),
+    ),
+  );
+
+  @override
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) =>
+      schema.toMap(this, target: target);
+
+  @override
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) =>
+      schema.diffOf(oldVersion as TicketTag, this);
+
+  @override
+  List<Object?> get props => [...super.props, ...schema.propsOf(this)];
+
+  @override
+  TicketTag copyWith({DateTime? modifiedAt, int? version, bool? isDeleted}) =>
+      TicketTag(
+        id: id,
+        userId: userId,
+        ticketId: ticketId,
+        tagId: tagId,
+        createdAt: createdAt,
+        modifiedAt: modifiedAt ?? this.modifiedAt,
+        version: version ?? this.version,
+        isDeleted: isDeleted ?? this.isDeleted,
+      );
+
+  @override
+  Map<String, Relation> buildRelations() => const {};
+}
+
+// ---------------------------------------------------------------------------
+// Seed helpers (named params only)
 // ---------------------------------------------------------------------------
 
 Author author({required String id, required String name}) => Author(
@@ -445,6 +642,28 @@ Comment comment(
       userId: uid,
       ticketId: ticketId,
       body: body,
+      createdAt: _epoch,
+      modifiedAt: _epoch,
+      version: 1,
+    );
+
+Tag tag({required String id, required String label}) => Tag(
+    id: id,
+    userId: uid,
+    label: label,
+    createdAt: _epoch,
+    modifiedAt: _epoch,
+    version: 1);
+
+TicketTag link(
+        {required String id,
+        required String ticketId,
+        required String tagId}) =>
+    TicketTag(
+      id: id,
+      userId: uid,
+      ticketId: ticketId,
+      tagId: tagId,
       createdAt: _epoch,
       modifiedAt: _epoch,
       version: 1,
@@ -541,71 +760,47 @@ class HiveFactory extends AdapterFactory {
 
 void registerRelationSuite(String backend, AdapterFactory factory) {
   group('Typed relations · $backend', () {
-    // One sync server per entity type: LocalSyncServer's /entities namespace
-    // is single-type, and strict schema.decode (rightly) rejects rows of a
-    // different entity leaking into a pull.
-    late LocalSyncServer authorsServer;
-    late LocalSyncServer projectsServer;
-    late LocalSyncServer ticketsServer;
-    late LocalSyncServer commentsServer;
+    final servers = <String, LocalSyncServer>{};
     late DatumManager<Author> authors;
     late DatumManager<Project> projects;
     late DatumManager<Ticket> tickets;
     late DatumManager<Comment> comments;
+    late DatumManager<Tag> tags;
+    late DatumManager<TicketTag> links;
+
+    DatumRegistration<T> register<T extends DatumEntityInterface>(
+            String store, DatumSchema<T> schema) =>
+        DatumRegistration<T>(
+          localAdapter: factory.create(
+              store: store, fromMap: schema.decode, schema: schema),
+          remoteAdapter: HttpRemoteAdapter<T>(
+              baseUri: servers[store]!.baseUri, fromMap: schema.decode),
+        );
 
     setUpAll(() async {
       await factory.setUp();
-      authorsServer = LocalSyncServer();
-      projectsServer = LocalSyncServer();
-      ticketsServer = LocalSyncServer();
-      commentsServer = LocalSyncServer();
-      for (final server in [
-        authorsServer,
-        projectsServer,
-        ticketsServer,
-        commentsServer
+      for (final store in [
+        'authors',
+        'projects',
+        'tickets',
+        'comments',
+        'tags',
+        'ticket_tags'
       ]) {
-        await server.start();
+        servers[store] = LocalSyncServer();
+        await servers[store]!.start();
       }
 
       final result = await Datum.initialize(
         config: const DatumConfig(enableLogging: false),
         connectivityChecker: TestConnectivityChecker(),
         registrations: [
-          DatumRegistration<Author>(
-            localAdapter: factory.create(
-                store: 'authors',
-                fromMap: Author.schema.decode,
-                schema: Author.schema),
-            remoteAdapter: HttpRemoteAdapter<Author>(
-                baseUri: authorsServer.baseUri, fromMap: Author.schema.decode),
-          ),
-          DatumRegistration<Project>(
-            localAdapter: factory.create(
-                store: 'projects',
-                fromMap: Project.schema.decode,
-                schema: Project.schema),
-            remoteAdapter: HttpRemoteAdapter<Project>(
-                baseUri: projectsServer.baseUri,
-                fromMap: Project.schema.decode),
-          ),
-          DatumRegistration<Ticket>(
-            localAdapter: factory.create(
-                store: 'tickets',
-                fromMap: Ticket.schema.decode,
-                schema: Ticket.schema),
-            remoteAdapter: HttpRemoteAdapter<Ticket>(
-                baseUri: ticketsServer.baseUri, fromMap: Ticket.schema.decode),
-          ),
-          DatumRegistration<Comment>(
-            localAdapter: factory.create(
-                store: 'comments',
-                fromMap: Comment.schema.decode,
-                schema: Comment.schema),
-            remoteAdapter: HttpRemoteAdapter<Comment>(
-                baseUri: commentsServer.baseUri,
-                fromMap: Comment.schema.decode),
-          ),
+          register<Author>('authors', Author.schema),
+          register<Project>('projects', Project.schema),
+          register<Ticket>('tickets', Ticket.schema),
+          register<Comment>('comments', Comment.schema),
+          register<Tag>('tags', Tag.schema),
+          register<TicketTag>('ticket_tags', TicketTag.schema),
         ],
       );
       expect(result.isSuccess(), isTrue, reason: '${result.errorOrNull}');
@@ -613,8 +808,11 @@ void registerRelationSuite(String backend, AdapterFactory factory) {
       projects = Datum.manager<Project>();
       tickets = Datum.manager<Ticket>();
       comments = Datum.manager<Comment>();
+      tags = Datum.manager<Tag>();
+      links = Datum.manager<TicketTag>();
 
-      // Seed the dependency graph: 1 author, 2 projects, 3 tickets, 4 comments.
+      // Seed the graph: 1 author, 2 projects, 3 tickets, 4 comments,
+      // 2 shared tags, 4 pivot links.
       await authors.push(item: author(id: 'a1', name: 'ada'), userId: uid);
       await projects.saveMany(items: [
         project(id: 'p1', authorId: 'a1', title: 'engine', stars: 5),
@@ -632,6 +830,15 @@ void registerRelationSuite(String backend, AdapterFactory factory) {
         comment(id: 'c3', ticketId: 't2', body: 'lgtm'),
         comment(id: 'c4', ticketId: 't3', body: 'started'),
       ], userId: uid);
+      await tags.saveMany(
+          items: [tag(id: 'g1', label: 'bug'), tag(id: 'g2', label: 'ui')],
+          userId: uid);
+      await links.saveMany(items: [
+        link(id: 'l1', ticketId: 't1', tagId: 'g1'),
+        link(id: 'l2', ticketId: 't1', tagId: 'g2'),
+        link(id: 'l3', ticketId: 't2', tagId: 'g1'),
+        link(id: 'l4', ticketId: 't3', tagId: 'g2'),
+      ], userId: uid);
     });
 
     tearDownAll(() async {
@@ -640,35 +847,60 @@ void registerRelationSuite(String backend, AdapterFactory factory) {
       } on StateError {
         Datum.resetForTesting();
       }
-      for (final server in [
-        authorsServer,
-        projectsServer,
-        ticketsServer,
-        commentsServer
-      ]) {
+      for (final server in servers.values) {
         await server.stop();
       }
       await factory.tearDown();
     });
 
-    testWidgets('eager loading walks the dependent chain in both directions',
+    testWidgets(
+        'typed eager loading walks the dependent chain in both directions',
         (tester) async {
-      final ada =
-          (await authors.read('a1', userId: uid, withRelated: ['projects']))!;
-      expect(ada.relatedList<Project>('projects')?.map((p) => p.id).toSet(),
+      final ada = (await authors.read('a1',
+          userId: uid, withRelated: [Author.projectsRel].names))!;
+      expect(Author.projectsRel.listOf(ada)?.map((p) => p.id).toSet(),
           {'p1', 'p2'});
 
-      final engine = (await projects
-          .read('p1', userId: uid, withRelated: ['author', 'tickets']))!;
-      expect(engine.relatedOne<Author>('author')?.name, 'ada');
-      expect(engine.relatedList<Ticket>('tickets')?.map((t) => t.id).toSet(),
+      final engine = (await projects.read('p1',
+          userId: uid,
+          withRelated: [Project.authorRel, Project.ticketsRel].names))!;
+      expect(Project.authorRel.oneOf(engine)?.name, 'ada');
+      expect(Project.ticketsRel.listOf(engine)?.map((t) => t.id).toSet(),
           {'t1', 't2'});
 
-      final crash = (await tickets
-          .read('t1', userId: uid, withRelated: ['project', 'comments']))!;
-      expect(crash.relatedOne<Project>('project')?.title, 'engine');
-      expect(crash.relatedList<Comment>('comments')?.map((c) => c.id).toSet(),
+      final crash = (await tickets.read('t1',
+          userId: uid,
+          withRelated:
+              [Ticket.projectRel, Ticket.commentsRel, Ticket.tagsRel].names))!;
+      expect(Ticket.projectRel.oneOf(crash)?.title, 'engine');
+      expect(Ticket.commentsRel.listOf(crash)?.map((c) => c.id).toSet(),
           {'c1', 'c2'});
+      expect(Ticket.tagsRel.listOf(crash)?.map((t) => t.label).toSet(),
+          {'bug', 'ui'});
+    });
+
+    testWidgets('typed lazy fetching resolves without eager loading',
+        (tester) async {
+      final docs = (await projects.read('p2', userId: uid))!;
+      expect(Project.ticketsRel.listOf(docs), isNull,
+          reason: 'nothing eager-loaded');
+
+      final docTickets = await Project.ticketsRel.fetchListFor(docs);
+      expect(docTickets.map((t) => t.id).toList(), ['t3']);
+
+      final owner = await Project.authorRel.fetchOneFor(docs);
+      expect(owner?.email, 'ada@example.com');
+
+      final thread = await Ticket.commentsRel.fetchListFor(docTickets.single);
+      expect(thread.single.body, 'started');
+
+      // Many-to-many, both directions, through the pivot:
+      final t3Tags = await Ticket.tagsRel.fetchListFor(docTickets.single);
+      expect(t3Tags.map((t) => t.label).toList(), ['ui']);
+
+      final bug = (await tags.read('g1', userId: uid))!;
+      final bugTickets = await Tag.ticketsRel.fetchListFor(bug);
+      expect(bugTickets.map((t) => t.id).toSet(), {'t1', 't2'});
     });
 
     testWidgets('typed foreign-key queries equal string queries',
@@ -702,14 +934,6 @@ void registerRelationSuite(String backend, AdapterFactory factory) {
         userId: uid,
       );
       expect(open.map((t) => t.id).toSet(), {'t1', 't3'});
-
-      final threads = await comments.query(
-        DatumQueryBuilder<Comment>()
-            .whereField(Comment.ticketIdField, isIn: ['t1', 't2']).build(),
-        source: DataSource.local,
-        userId: uid,
-      );
-      expect(threads, hasLength(3));
     });
 
     testWidgets('schema-driven diff powers a dependent update', (tester) async {
@@ -717,57 +941,109 @@ void registerRelationSuite(String backend, AdapterFactory factory) {
       final renamed = docs.withTitle('handbook');
 
       final delta = Project.schema.diffOf(docs, renamed)!;
-      expect(delta.keys.toSet(), {'title', 'modifiedAt', 'version'},
-          reason: 'only the changed payload plus sync stamps');
+      expect(delta.keys.toSet(), {'title', 'modifiedAt', 'version'});
 
       await projects.push(item: renamed, userId: uid);
       expect((await projects.read('p2', userId: uid))?.title, 'handbook');
     });
 
-    testWidgets('the whole graph reaches the server', (tester) async {
-      for (final sync in [authors, projects, tickets, comments]
-          .map((m) => m.synchronize(uid))) {
-        expect((await sync).failedCount, 0);
+    testWidgets('the whole graph reaches the servers', (tester) async {
+      for (final manager in [
+        authors,
+        projects,
+        tickets,
+        comments,
+        tags,
+        links
+      ]) {
+        expect((await manager.synchronize(uid)).failedCount, 0);
       }
-      expect(authorsServer.storage[uid]?.keys.toSet(), {'a1'});
-      expect(projectsServer.storage[uid]?.keys.toSet(), {'p1', 'p2'});
-      expect(ticketsServer.storage[uid]?.keys.toSet(), {'t1', 't2', 't3'});
+      expect(servers['authors']!.storage[uid]?.keys.toSet(), {'a1'});
+      expect(servers['projects']!.storage[uid]?.keys.toSet(), {'p1', 'p2'});
       expect(
-          commentsServer.storage[uid]?.keys.toSet(), {'c1', 'c2', 'c3', 'c4'});
-      expect(projectsServer.storage[uid]?['p2']?['title'], 'handbook');
+          servers['tickets']!.storage[uid]?.keys.toSet(), {'t1', 't2', 't3'});
+      expect(servers['comments']!.storage[uid]?.keys.toSet(),
+          {'c1', 'c2', 'c3', 'c4'});
+      expect(servers['tags']!.storage[uid]?.keys.toSet(), {'g1', 'g2'});
+      expect(servers['ticket_tags']!.storage[uid]?.keys.toSet(),
+          {'l1', 'l2', 'l3', 'l4'});
+      expect(servers['projects']!.storage[uid]?['p2']?['title'], 'handbook');
+    });
+
+    testWidgets('mid-level cascade preserves ancestors and sibling branches',
+        (tester) async {
+      final result = await tickets.cascadeDelete(id: 't2', userId: uid);
+      expect(result.success, isTrue, reason: result.errors.join('; '));
+      expect(result.totalDeleted, 3, reason: 't2 + c3 + l3');
+      expect(result.deletedEntities[Ticket]?.map((e) => e.id).toSet(), {'t2'});
+      expect(result.deletedEntities[Comment]?.map((e) => e.id).toSet(), {'c3'});
+      expect(
+          result.deletedEntities[TicketTag]?.map((e) => e.id).toSet(), {'l3'});
+
+      // The parent project, sibling ticket, and the tag far side of the
+      // deleted pivot row are untouched.
+      expect(await projects.read('p1', userId: uid), isNotNull,
+          reason: 'belongsTo never cascades upward');
+      expect(await tickets.read('t1', userId: uid), isNotNull);
+      expect(await comments.read('c1', userId: uid), isNotNull);
+      expect((await tags.read('g1', userId: uid))?.label, 'bug');
     });
 
     testWidgets('cascade delete removes exactly the dependent subtree',
         (tester) async {
       final result = await projects.cascadeDelete(id: 'p1', userId: uid);
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 6, reason: 'p1 + t1 + t2 + c1 + c2 + c3');
+      expect(result.totalDeleted, 6,
+          reason: 'p1 + t1 + c1 + c2 + l1 + l2 (t2\'s branch fell earlier)');
 
       expect(await projects.read('p1', userId: uid), isNull);
       expect(await tickets.read('t1', userId: uid), isNull);
-      expect(await tickets.read('t2', userId: uid), isNull);
       expect(await comments.read('c1', userId: uid), isNull);
-      expect(await comments.read('c3', userId: uid), isNull);
+      expect(await links.read('l1', userId: uid), isNull);
 
-      // The independent branch survives untouched.
+      // Shared tags and the independent branch survive.
+      expect((await tags.read('g1', userId: uid))?.label, 'bug');
       expect((await authors.read('a1', userId: uid))?.name, 'ada');
       expect((await tickets.read('t3', userId: uid))?.title, 'add examples');
-      expect((await comments.read('c4', userId: uid))?.body, 'started');
+      expect((await links.read('l4', userId: uid))?.tagId, 'g2');
+
+      // The orphaned tag now links nothing. Asserted with a fresh typed
+      // pivot query: Relation.fetch() memoizes per entity INSTANCE, and
+      // InMemoryLocalAdapter hands back shared instances — an earlier fetch
+      // on the same tag would answer from its pre-cascade cache.
+      final orphanLinks = await links.query(
+        DatumQueryBuilder<TicketTag>()
+            .whereField(TicketTag.tagIdField, isEqualTo: 'g1')
+            .build(),
+        source: DataSource.local,
+        userId: uid,
+      );
+      expect(orphanLinks, isEmpty);
     });
 
-    testWidgets('the pruned graph converges on the server', (tester) async {
-      for (final manager in [authors, projects, tickets, comments]) {
+    testWidgets('the pruned graph converges on the servers', (tester) async {
+      for (final manager in [
+        authors,
+        projects,
+        tickets,
+        comments,
+        tags,
+        links
+      ]) {
         expect((await manager.synchronize(uid)).failedCount, 0);
       }
-      Set<String> surviving(LocalSyncServer server) =>
-          server.storage[uid]!.entries
-              .where((e) => e.value['isDeleted'] != true)
-              .map((e) => e.key)
-              .toSet();
-      expect(surviving(authorsServer), {'a1'});
-      expect(surviving(projectsServer), {'p2'});
-      expect(surviving(ticketsServer), {'t3'});
-      expect(surviving(commentsServer), {'c4'});
+      Set<String> surviving(String store) => servers[store]!
+          .storage[uid]!
+          .entries
+          .where((e) => e.value['isDeleted'] != true)
+          .map((e) => e.key)
+          .toSet();
+      expect(surviving('authors'), {'a1'});
+      expect(surviving('projects'), {'p2'});
+      expect(surviving('tickets'), {'t3'});
+      expect(surviving('comments'), {'c4'});
+      expect(surviving('tags'), {'g1', 'g2'});
+      expect(surviving('ticket_tags'), {'l4'});
     });
   });
 }

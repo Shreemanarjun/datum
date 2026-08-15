@@ -40,6 +40,15 @@ All changes below are additive and backward compatible unless noted.
   string path. The auto-migration stamp includes the drop policy, so
   enabling `autoMigrateDropColumns` later re-runs the pass instead of
   being silently ignored.
+- **Typed relations**: `DatumRelationSpec<E, R>` declares `belongsTo` /
+  `hasOne` / `hasMany` / `manyToMany` (via a registered pivot entity, both
+  pivot keys as its field specs) with the relation name, both entity types,
+  the foreign key (as a `DatumFieldSpec`), and cascade behavior bound at
+  compile time. `buildRelations()` becomes `datumRelationsFor(this, [specs])`;
+  eager loading uses `withRelated: [spec].names`; typed access via
+  `spec.listOf`/`spec.oneOf`; typed lazy fetching via `spec.fetchListFor`/
+  `spec.fetchOneFor` — resolved through the registered managers, identical
+  on every adapter.
 - **New capability mixins**: `SchemaFingerprintCapable` and
   `SqlSchemaCapable` (additive; existing adapters unaffected). New
   `AutoMigrationExecutor`, `diffSchema`, `SchemaRenameOperation`, and
@@ -121,6 +130,19 @@ All changes below are additive and backward compatible unless noted.
 
 ## 🐛 Bug fixes (sync-engine hardening)
 
+- **cascade delete honors `setNull` on the plain path**: `cascadeDelete()`
+  hard-deleted `HasMany`/`HasOne` children marked
+  `CascadeDeleteBehavior.setNull` instead of patching their foreign key to
+  null — only the fluent `deleteCascade(...).execute()` path handled the
+  update steps. Both paths now detach identically, and detached rows are
+  no longer counted in `deletedEntities`.
+- **cascade plans no longer read stale relationship caches**: the
+  relationship-query cache can't observe writes made through *other*
+  managers (its keys don't reference child ids), so a `restrict` blocker
+  that was deleted through its own manager still blocked the retry, and
+  cascades could plan against rows that no longer existed. Every
+  `buildCascadeDeletePlan` now starts from a fresh view; the cache still
+  dedupes lookups within a single plan build.
 - **conflict detection**: equal-version concurrent edits are now detected.
   Two devices that each bumped the same ancestor (v1 → v2) produce identical
   version numbers with divergent content — the most common concurrency

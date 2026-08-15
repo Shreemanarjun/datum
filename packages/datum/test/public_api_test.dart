@@ -51,6 +51,7 @@ const _expectedExports = <String>{
   'source/core/migration/sql_schema_migration.dart',
   'source/core/schema/datum_field_codec.dart',
   'source/core/schema/datum_field_spec.dart',
+  'source/core/schema/datum_relation_spec.dart',
   'source/core/schema/datum_schema.dart',
   'source/core/schema/datum_schema_reader.dart',
   'source/core/models/cold_start_strategy.dart',
