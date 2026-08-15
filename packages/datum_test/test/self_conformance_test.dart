@@ -20,6 +20,17 @@ void main() {
     preservesUnknownColumns: false,
   );
 
+  runWatchConformanceTests(
+    name: 'InMemoryLocalAdapter',
+    create: () async {
+      final adapter = InMemoryLocalAdapter<ConformanceEntity>(
+        fromMap: ConformanceEntity.fromMap,
+      );
+      await adapter.initialize();
+      return adapter;
+    },
+  );
+
   group('HttpRemoteAdapter over LocalSyncServer', () {
     late LocalSyncServer server;
 

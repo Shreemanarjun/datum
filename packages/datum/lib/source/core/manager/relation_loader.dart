@@ -47,6 +47,11 @@ class RelationLoader<T extends DatumEntityInterface> {
     }
     registerRelationSchema(entities.first);
 
+    // A read without an explicit userId still concerns the parents' OWN data:
+    // fall back to their userId so stitching never attaches other users' rows
+    // whose foreign keys happen to collide.
+    userId ??= entities.first.userId;
+
     // Support nested relations via dot notation, e.g. 'posts.comments'. Group
     // paths by their top-level segment so each relation is fetched once, then
     // recurse into the remaining sub-paths on the fetched related entities (#22).

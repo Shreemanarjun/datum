@@ -27,8 +27,9 @@ class PNCounter extends Equatable implements CRDT<int> {
         _n = n ?? const {};
 
   factory PNCounter.fromMap(Map<String, dynamic> map) {
-    final pMap = (map['p'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v as int)) ?? {};
-    final nMap = (map['n'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v as int)) ?? {};
+    // Lenient numeric decode: JSON backends may deliver ints as doubles.
+    final pMap = (map['p'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, (v as num).toInt())) ?? {};
+    final nMap = (map['n'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, (v as num).toInt())) ?? {};
     return PNCounter(p: pMap, n: nMap);
   }
 
@@ -94,6 +95,18 @@ class ORSet<T> extends Equatable implements CRDT<Set<T>> {
         _removeSet = removeSet ?? const {};
 
   factory ORSet.fromMap(Map<String, dynamic> map, T Function(dynamic) decoder) {
+    // Format 2 stores entries as {'e': encodedElement, 't': [tags]} so the
+    // element round-trips through [decoder] faithfully. The legacy format
+    // stringified elements into JSON map KEYS — `toString()` has no inverse,
+    // so any non-String element type either crashed the decoder or collided
+    // distinct elements into one key (merging their tag sets).
+    if (map['format'] == 2) {
+      Map<T, Set<String>> parse(String key) => {
+            for (final raw in (map[key] as List? ?? const [])) decoder((raw as Map)['e']): ((raw['t'] as List?) ?? const []).cast<String>().toSet(),
+          };
+      return ORSet(addSet: parse('add'), removeSet: parse('remove'));
+    }
+
     final addMap = <T, Set<String>>{};
     (map['add'] as Map<String, dynamic>?)?.forEach((k, v) {
       addMap[decoder(k)] = (v as List).cast<String>().toSet();
@@ -107,11 +120,20 @@ class ORSet<T> extends Equatable implements CRDT<Set<T>> {
     return ORSet(addSet: addMap, removeSet: removeMap);
   }
 
+  /// Serializes in the format-2 entry shape. [encoder] converts an element
+  /// to a JSON-encodable value; by default the element itself is stored
+  /// (correct for JSON primitives — matching what [fromMap]'s decoder
+  /// expects back).
   @override
-  Map<String, dynamic> toMap() {
+  Map<String, dynamic> toMap({Object? Function(T element)? encoder}) {
+    Object? encode(T element) => encoder != null ? encoder(element) : element;
+    List<Map<String, dynamic>> entries(Map<T, Set<String>> source) => [
+          for (final MapEntry(:key, :value) in source.entries) {'e': encode(key), 't': value.toList()},
+        ];
     return {
-      'add': _addSet.map((k, v) => MapEntry(k.toString(), v.toList())),
-      'remove': _removeSet.map((k, v) => MapEntry(k.toString(), v.toList())),
+      'format': 2,
+      'add': entries(_addSet),
+      'remove': entries(_removeSet),
     };
   }
 
@@ -237,8 +259,13 @@ class RgaList<T> extends Equatable implements CRDT<List<T>> {
 
   const RgaList._(this.replicaId, this._nodes, this._counter);
 
-  /// Deserializes a sequence. Pass your own [replicaId] when loading state
-  /// created on another device so new local edits carry this device's identity.
+  /// Deserializes a sequence.
+  ///
+  /// **Always pass this device's own [replicaId] when the instance will be
+  /// edited.** Without it the list deserializes with an empty (or, for
+  /// legacy payloads, the creator's) identity — two devices editing copies
+  /// of the same document then mint COLLIDING node ids, and one device's
+  /// concurrent edits are deterministically discarded on merge.
   factory RgaList.fromMap(
     Map<String, dynamic> map,
     T Function(dynamic raw) decoder, {
@@ -297,15 +324,18 @@ class RgaList<T> extends Equatable implements CRDT<List<T>> {
   /// chain of only the visible elements — **element ids are preserved**, so
   /// cursor anchors ([elementIdAt]/[indexOfId]) stay valid, order is exactly
   /// the current visible order, and the Lamport counter continues from where
-  /// it was (new local inserts cannot collide).
+  /// it was (new local inserts cannot collide). The rewrite is a pure
+  /// function of the synced state, so replicas compacting the same state
+  /// produce identical results.
   ///
   /// ⚠️ **Coordination contract**: compact only at a synchronization barrier
   /// (all replicas have merged this state — e.g. when persisting a checkpoint
   /// or when a single writer holds the document). Merging a compacted list
   /// with a *stale* replica that never observed a deletion resurrects that
-  /// element, because the tombstone that recorded the deletion is gone. Two
-  /// replicas that compact the same synced state remain fully convergent
-  /// with each other.
+  /// element (its tombstone is gone), and elements whose anchors were
+  /// rewritten reconcile through [merge]'s deterministic same-id resolution —
+  /// convergent on every replica, but the visible order around the stale
+  /// edits may shift once.
   RgaList<T> compacted() {
     final nodes = <String, RgaNode<T>>{};
     String? origin;
@@ -383,6 +413,16 @@ class RgaList<T> extends Equatable implements CRDT<List<T>> {
       final existing = nodes[node.id];
       if (existing == null) {
         nodes[node.id] = node;
+      } else if (existing.value != node.value || existing.origin != node.origin) {
+        // Same id, different content: two replicas generated colliding ids —
+        // the deserialization trap of editing a document loaded WITHOUT
+        // passing this device's own replicaId to fromMap. One edit is
+        // already lost; pick the winner DETERMINISTICALLY so every replica
+        // at least converges to the same state instead of diverging forever
+        // (keeping "ours" made each side keep a different node).
+        final keepExisting = _collisionRank(existing).compareTo(_collisionRank(node)) >= 0;
+        final winner = keepExisting ? existing : node;
+        nodes[node.id] = (existing.deleted || node.deleted) && !winner.deleted ? winner.tombstone() : winner;
       } else if (node.deleted && !existing.deleted) {
         nodes[node.id] = existing.tombstone(); // deletion wins (monotonic)
       }
@@ -391,21 +431,41 @@ class RgaList<T> extends Equatable implements CRDT<List<T>> {
     return RgaList._(replicaId, nodes, counter);
   }
 
+  /// Total order over colliding same-id nodes, identical on every replica.
+  static String _collisionRank(RgaNode node) => '${node.origin ?? ''} ${node.value}';
+
   @override
-  Map<String, dynamic> toMap() => {
-        'replicaId': replicaId,
-        'counter': _counter,
-        'nodes': [
-          for (final n in _nodes.values)
-            {
-              'r': n.replicaId,
-              'c': n.counter,
-              'o': n.origin,
-              'v': n.value,
-              'd': n.deleted,
-            },
-        ],
-      };
+  Map<String, dynamic> toMap() {
+    // Canonical node order (counter, then replicaId): two CONVERGED replicas
+    // must serialize byte-identically. Iterating map-insertion order made
+    // each replica serialize its own nodes first, so order-sensitive deep
+    // equality in conflict detection re-flagged converged documents as
+    // conflicting on every sync cycle, ping-ponging resolution pushes.
+    final ordered = _nodes.values.toList()
+      ..sort((a, b) {
+        final byCounter = a.counter.compareTo(b.counter);
+        if (byCounter != 0) return byCounter;
+        return a.replicaId.compareTo(b.replicaId);
+      });
+    // `replicaId` is deliberately NOT serialized: it is per-DEVICE identity,
+    // not document state. Serializing it (the old format) made converged
+    // replicas serialize differently AND handed deserializing devices the
+    // CREATOR's identity as a default — two devices then minted colliding
+    // node ids and silently destroyed each other's concurrent edits.
+    return {
+      'counter': _counter,
+      'nodes': [
+        for (final n in ordered)
+          {
+            'r': n.replicaId,
+            'c': n.counter,
+            'o': n.origin,
+            'v': n.value,
+            'd': n.deleted,
+          },
+      ],
+    };
+  }
 
   /// Convergent total order: iterative DFS over the origin tree, visiting
   /// siblings newest-first (counter desc, then replicaId desc). Pure function

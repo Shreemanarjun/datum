@@ -361,13 +361,16 @@ void main() {
       final sub = adapter.watchAll(userId: 'u1')!.listen(emissions.add);
       addTearDown(sub.cancel);
 
+      // An initial snapshot precedes write-triggered emissions, so assert
+      // on content rather than exact event counts.
       await adapter.create(_task('t1'));
-      await _waitUntil(() => emissions.length == 1);
-      expect(emissions.single.map((t) => t.id), ['t1']);
+      await _waitUntil(() => emissions.isNotEmpty && emissions.last.isNotEmpty);
+      expect(emissions.last.map((t) => t.id), ['t1']);
 
       // A write for another user still triggers an emission, filtered to u1.
+      final seen = emissions.length;
       await adapter.create(_task('t2', user: 'u2'));
-      await _waitUntil(() => emissions.length == 2);
+      await _waitUntil(() => emissions.length > seen);
       expect(emissions.last.map((t) => t.id), ['t1']);
     });
 
@@ -377,12 +380,14 @@ void main() {
       final sub = adapter.watchQuery(query, userId: 'u1')!.listen(emissions.add);
       addTearDown(sub.cancel);
 
+      // Initial snapshot + one emission per write; assert on content since
+      // exact counts depend on snapshot timing.
       await adapter.create(_task('low', priority: 1));
-      await _waitUntil(() => emissions.length == 1);
-      expect(emissions.single, isEmpty);
+      await _waitUntil(() => emissions.isNotEmpty);
+      expect(emissions.last, isEmpty, reason: 'low priority is filtered out');
 
       await adapter.create(_task('high', priority: 9));
-      await _waitUntil(() => emissions.length == 2);
+      await _waitUntil(() => emissions.isNotEmpty && emissions.last.isNotEmpty);
       expect(emissions.last.map((t) => t.id), ['high']);
     });
   });

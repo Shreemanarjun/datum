@@ -194,6 +194,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         logger.warn(
           'Sync for user $userId was cancelled mid-process due to manager disposal.',
         );
+        _discardStagedPullState(userId);
         return (
           DatumSyncResult<T>.cancelled(userId, statusSubject.value.syncedCount),
           generatedEvents,
@@ -203,6 +204,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         logger.warn(
           'Sync for user $userId was interrupted (status: ${statusSubject.value.status.name}); reporting a cancelled result.',
         );
+        _discardStagedPullState(userId);
         final pendingAfterInterrupt = await queueManager.getPending(userId);
         return (
           DatumSyncResult<T>(
@@ -262,6 +264,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       return (result, generatedEvents);
     } catch (e, stack) {
       logger.error('Synchronization failed for user $userId: $e', stack);
+      _discardStagedPullState(userId);
 
       // If the eventController is closed, it means the manager has been disposed
       // during the sync. In this case, we should re-throw the original error
@@ -306,12 +309,19 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     }
   }
 
+  /// Entities whose op failed retryably THIS cycle. Later queued ops for the
+  /// same entity must wait for the retry instead of overtaking it — otherwise
+  /// the failed older op replays AFTER them next cycle, regressing the remote
+  /// (lost updates) or resurrecting deleted entities.
+  final Set<String> _blockedEntityIds = {};
+
   Future<int> _pushChanges(
     String userId,
     List<DatumSyncEvent<T>> generatedEvents,
   ) async {
     int cumulativeBytesPushed = 0;
     int bytesPushed = 0;
+    _blockedEntityIds.clear();
     final operationsToProcess = await queueManager.getPending(userId);
     if (operationsToProcess.isEmpty) {
       logger.info('No pending changes to push for user $userId.');
@@ -366,6 +376,16 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   }) async {
     if (operation is DatumSyncBatchOperation<T>) {
       return await _processBatchOperation(operation, generatedEvents: generatedEvents);
+    }
+
+    if (_blockedEntityIds.contains(operation.entityId)) {
+      // An earlier op for this entity failed retryably this cycle. Leave
+      // this one queued so replay order stays intact next cycle.
+      logger.warn(
+        'Operation ${operation.id} for entity ${operation.entityId} deferred: '
+        'an earlier operation for the same entity is awaiting retry.',
+      );
+      return 0;
     }
 
     _notifyPreOperationObservers(operation);
@@ -465,6 +485,8 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
           retryCount: operation.retryCount + 1,
         );
         await queueManager.update(updatedOp);
+        // Later ops for this entity must not overtake the failed one.
+        _blockedEntityIds.add(operation.entityId);
         logger.warn(
           'Operation ${operation.id} failed. Will retry on next sync.',
         );
@@ -659,6 +681,21 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   /// per user until [_updateMetadata] persists them.
   final Map<String, String> _pendingCursors = {};
 
+  /// The newest remote `modifiedAt` observed during this cycle's pull, staged
+  /// per user. Persisted as [DatumSyncMetadata.serverTimestamp] so the delta
+  /// watermark derives from the DATA (writer clocks), not this device's wall
+  /// clock stamped at end-of-cycle — local clock skew or a long push phase
+  /// otherwise silently skips rows forever.
+  final Map<String, DateTime> _pendingServerWatermarks = {};
+
+  /// Drops pull state staged by an aborted cycle. A cursor or watermark whose
+  /// items were never fully applied locally must not be persisted by a later
+  /// cycle — the rows behind it would never be fetched again.
+  void _discardStagedPullState(String userId) {
+    _pendingCursors.remove(userId);
+    _pendingServerWatermarks.remove(userId);
+  }
+
   // Stream remote items instead of loading all at once
   Stream<T> _streamRemoteItems(String userId, DatumSyncScope? scope, {bool allowDelta = false}) async* {
     final List<T> allItems;
@@ -694,6 +731,16 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       }
     } else {
       allItems = await remoteAdapter.readAll(userId: userId, scope: scope);
+    }
+
+    // Stage the newest remote modifiedAt seen this cycle as the next delta
+    // watermark (max across multiple pulls in one cycle).
+    if (allItems.isNotEmpty) {
+      final maxModified = allItems.map((e) => e.modifiedAt).reduce((a, b) => a.isAfter(b) ? a : b);
+      final staged = _pendingServerWatermarks[userId];
+      if (staged == null || maxModified.isAfter(staged)) {
+        _pendingServerWatermarks[userId] = maxModified;
+      }
     }
 
     for (var i = 0; i < allItems.length; i += config.remoteStreamBatchSize) {
@@ -1047,8 +1094,14 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // cursor is per-DEVICE progress: it lives in the LOCAL metadata only
       // and is stripped from the remote beacon — if another device ever
       // adopted a foreign cursor it would silently skip changes it has
-      // never seen.
-      final stagedCursor = _pendingCursors.remove(userId);
+      // never seen. Only a PULL cycle may pop it: a push-only cycle
+      // persisting a cursor staged by an earlier aborted pull would skip
+      // every row behind it forever.
+      final stagedCursor = pulledRemote ? _pendingCursors.remove(userId) : null;
+      final stagedWatermark = pulledRemote ? _pendingServerWatermarks.remove(userId) : null;
+      final existingServerTimestamp = existingMetadata?.serverTimestamp;
+      // Monotonic: overlap re-deliveries can carry older stamps.
+      final serverTimestamp = stagedWatermark == null ? existingServerTimestamp : (existingServerTimestamp == null || stagedWatermark.isAfter(existingServerTimestamp) ? stagedWatermark : existingServerTimestamp);
       final localCustomMetadata = stagedCursor == null ? existingMetadata?.customMetadata : {...?existingMetadata?.customMetadata, syncCursorKey: stagedCursor};
       final strippedCustomMetadata = localCustomMetadata == null ? null : ({...localCustomMetadata}..remove(syncCursorKey));
       final remoteCustomMetadata = (strippedCustomMetadata?.isEmpty ?? true) ? null : strippedCustomMetadata;
@@ -1084,7 +1137,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         customMetadata: localCustomMetadata,
         syncStatus: SyncStatus.synced,
         syncVersion: existingMetadata?.syncVersion ?? 1,
-        serverTimestamp: existingMetadata?.serverTimestamp,
+        serverTimestamp: serverTimestamp,
         conflictCount: existingMetadata?.conflictCount ?? 0,
         errorMessage: existingMetadata?.errorMessage,
         retryCount: existingMetadata?.retryCount ?? 0,
@@ -1279,42 +1332,33 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       }
       return batch.sizeInBytes;
     } on Object catch (e, stackTrace) {
-      logger.error('Batch operation ${batch.id} failed: $e', stackTrace);
+      logger.error(
+        'Batch operation ${batch.id} failed: $e — falling back to per-operation processing.',
+        stackTrace,
+      );
 
-      // Mirror the single-operation retry semantics: a retryable failure must
-      // re-queue the operations with an incremented retryCount, not silently
-      // discard them. Previously every batch failure — including transient
-      // network errors — dequeued ALL operations permanently, so a single
-      // offline blip during a batched push lost the entire batch.
-      final canRetry = e is DatumException && await config.errorRecoveryStrategy.shouldRetry(e);
-      var requeued = 0;
-      var failed = 0;
-
+      // A batch call is all-or-nothing from the adapter's perspective, but
+      // its operations are NOT: one already-deleted id (EntityNotFound) or
+      // one rejected entity must not discard siblings that were never
+      // individually attempted. Re-run each operation through the single-op
+      // path, which has the full semantics: EntityNotFound tolerance for
+      // deletes, update→create conversion, per-op retry accounting, and the
+      // per-entity ordering barrier. A permanently failed op is dequeued and
+      // counted (failedOperations) inside that path; the CYCLE still
+      // completes so its result carries failedCount > 0 — the contract the
+      // metrics layer builds on.
+      var bytes = 0;
       for (final op in batch.operations) {
-        if (canRetry && op.retryCount < config.errorRecoveryStrategy.maxRetries) {
-          await queueManager.update(op.copyWith(retryCount: op.retryCount + 1));
-          requeued++;
-        } else {
-          await queueManager.dequeue(op.id);
-          _notifyPostOperationObservers(op, success: false);
-          failed++;
+        try {
+          bytes += await _processPendingOperation(op, generatedEvents: generatedEvents);
+        } on SyncExceptionWithEvents<T> catch (permanent) {
+          logger.warn(
+            'Operation ${op.id} in batch ${batch.id} failed permanently '
+            '(${permanent.originalError}); continuing with remaining siblings.',
+          );
         }
       }
-
-      if (failed > 0 && !statusSubject.isClosed) {
-        statusSubject.add(
-          statusSubject.value.copyWith(
-            failedOperations: statusSubject.value.failedOperations + failed,
-            errors: [...statusSubject.value.errors, e],
-          ),
-        );
-      }
-
-      if (requeued > 0) {
-        logger.warn('Batch ${batch.id}: $requeued operation(s) re-queued for retry, $failed failed permanently.');
-        return 0; // retryable — same non-throwing contract as the single-op path
-      }
-      throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
+      return bytes;
     }
   }
 }

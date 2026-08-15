@@ -1,6 +1,17 @@
 ## 0.1.0
 
 - Initial release.
+- **Fix — rows are keyed by `(id, userId)`**: the table used
+  `id TEXT PRIMARY KEY`, so one user's `INSERT OR REPLACE` silently
+  overwrote another user's row with the same entity id, and `delete`
+  removed every user's row after verifying only one. Fresh tables get a
+  composite `PRIMARY KEY (id, userId)`; legacy tables are rebuilt in a
+  transaction on `initialize()` preserving every row and column (including
+  columns added by manual migrations), and `delete` scopes by owner.
+- **Fix — per-listener watch streams**: `watchAll`/`watchById`/`watchQuery`
+  now deliver a current snapshot to every listener (a second concurrent
+  listener previously stayed silent until the next write) and honor
+  `includeInitialData: false`. Certified by `runWatchConformanceTests`.
 - **Fix — user scoping under OR queries**: the `userId` scope filter was
   appended flat to the query's filter list, so with `LogicalOperator.or`
   it became just another OR alternative — returning OTHER USERS' rows

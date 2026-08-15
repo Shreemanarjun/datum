@@ -414,7 +414,13 @@ void main() {
         // Assert
         expect(results, hasLength(2));
         expect(results.map((e) => e.name), containsAll(['Apple', 'Avocado']));
-        verify(() => localAdapter.query(query, userId: 'user1')).called(1);
+        // The manager rewrites the query (tombstone exclusion), so capture
+        // the actual argument and check the caller's filter survived.
+        final sent = verify(() => localAdapter.query(captureAny(), userId: 'user1')).captured.single as DatumQuery;
+        expect(
+          sent.filters.whereType<Filter>().any((f) => f.field == 'name' && f.operator == FilterOperator.startsWith),
+          isTrue,
+        );
       });
 
       test('can query remote adapter with sorting and limit', () async {

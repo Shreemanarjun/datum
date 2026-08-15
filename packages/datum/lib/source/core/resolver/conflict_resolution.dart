@@ -57,8 +57,9 @@ class DatumConflictResolution<T extends DatumEntityInterface> extends Equatable 
           resolvedData: remoteData,
         );
 
-  /// Creates a resolution with merged data.
-  const DatumConflictResolution.merge(T mergedData) : this._(strategy: DatumResolutionStrategy.merge, resolvedData: mergedData);
+  /// Creates a resolution with merged data. [message] can carry a warning
+  /// about how the merge was produced (e.g. a degraded default merge).
+  const DatumConflictResolution.merge(T mergedData, {String? message}) : this._(strategy: DatumResolutionStrategy.merge, resolvedData: mergedData, message: message);
 
   /// Creates a resolution requiring user input.
   const DatumConflictResolution.requireUserInput(String message)

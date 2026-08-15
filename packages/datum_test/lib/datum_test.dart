@@ -38,3 +38,4 @@ export 'src/performance_report.dart';
 export 'src/remote_adapter_conformance.dart';
 export 'src/sync_stack_conformance.dart';
 export 'src/typed_query_conformance.dart';
+export 'src/watch_conformance.dart';

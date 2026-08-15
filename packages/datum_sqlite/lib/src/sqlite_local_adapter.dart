@@ -75,8 +75,11 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   /// column throws instead of silently dropping it.
   final bool strictColumns;
 
+  // Rows are keyed by (id, userId): different users may own the same entity
+  // id, matching the LocalAdapter contract. A single-column id PK let one
+  // user's INSERT OR REPLACE silently overwrite another user's row.
   static const Map<String, String> _coreColumns = {
-    'id': 'TEXT PRIMARY KEY',
+    'id': 'TEXT NOT NULL',
     'userId': 'TEXT NOT NULL',
     'modifiedAt': 'TEXT',
     'createdAt': 'TEXT',
@@ -122,6 +125,7 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
         '${_q(key)} $value',
       for (final MapEntry(:key, :value) in _payloadColumns.entries)
         '${_q(key)} $value',
+      'PRIMARY KEY (${_q('id')}, ${_q('userId')})',
     ].join(', ');
     database
       ..execute('CREATE TABLE IF NOT EXISTS ${_q(table)} ($defs)')
@@ -136,6 +140,47 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
       ..execute(
         'CREATE TABLE IF NOT EXISTS ${_q(_metaTable)} (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
       );
+    _migrateLegacyPrimaryKey();
+  }
+
+  /// Tables created before composite keying carry `id TEXT PRIMARY KEY`,
+  /// which lets one user's `INSERT OR REPLACE` overwrite another user's row.
+  /// SQLite cannot alter a primary key in place, so rebuild the table with
+  /// `PRIMARY KEY (id, userId)`, preserving every existing column (including
+  /// ones added by manual migrations that this adapter doesn't declare).
+  void _migrateLegacyPrimaryKey() {
+    final info = database.select('PRAGMA table_info(${_q(table)})');
+    if (info.isEmpty) return;
+    final composite = info.any(
+      (row) => row['name'] == 'userId' && (row['pk'] as int) > 0,
+    );
+    if (composite) return;
+
+    final names = [for (final row in info) row['name'] as String];
+    final defs = [
+      for (final row in info)
+        '${_q(row['name'] as String)} ${row['type']}'
+            '${(row['notnull'] as int) == 1 ? ' NOT NULL' : ''}'
+            '${row['dflt_value'] != null ? ' DEFAULT ${row['dflt_value']}' : ''}',
+      'PRIMARY KEY (${_q('id')}, ${_q('userId')})',
+    ].join(', ');
+    final columnList = names.map(_q).join(', ');
+    final rebuilt = '${table}__pk_rebuild';
+
+    database.execute('BEGIN IMMEDIATE');
+    try {
+      database
+        ..execute('CREATE TABLE ${_q(rebuilt)} ($defs)')
+        ..execute(
+          'INSERT INTO ${_q(rebuilt)} ($columnList) SELECT $columnList FROM ${_q(table)}',
+        )
+        ..execute('DROP TABLE ${_q(table)}')
+        ..execute('ALTER TABLE ${_q(rebuilt)} RENAME TO ${_q(table)}')
+        ..execute('COMMIT');
+    } catch (_) {
+      database.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
   // --- Row codecs ----------------------------------------------------------
@@ -348,7 +393,16 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   Future<bool> delete(String id, {String? userId}) async {
     final existing = await read(id, userId: userId);
     if (existing == null) return false;
-    database.execute('DELETE FROM ${_q(table)} WHERE ${_q('id')} = ?', [id]);
+    // Scope the DELETE like the read above — rows are keyed by (id, userId),
+    // so an unscoped delete-by-id would take other users' rows with it.
+    if (userId != null) {
+      database.execute(
+        'DELETE FROM ${_q(table)} WHERE ${_q('id')} = ? AND ${_q('userId')} = ?',
+        [id, userId],
+      );
+    } else {
+      database.execute('DELETE FROM ${_q(table)} WHERE ${_q('id')} = ?', [id]);
+    }
     _notify(id, existing.userId, DatumOperationType.delete, existing);
     return true;
   }
@@ -566,32 +620,42 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   @override
   Stream<DatumChangeDetail<T>>? changeStream() => _changeController.stream;
 
-  Stream<S> _watch<S>(Future<S> Function() read, {String? userId}) {
-    final controller = StreamController<S>.broadcast();
-    StreamSubscription<DatumChangeDetail<T>>? sub;
-    controller.onListen = () {
+  Stream<S> _watch<S>(
+    Future<S> Function() read, {
+    String? userId,
+    bool includeInitialData = true,
+  }) {
+    // Stream.multi runs this setup per LISTENER: each gets its own change
+    // subscription and initial snapshot (a broadcast controller's onListen
+    // fires only for the first listener, starving later concurrent ones).
+    return Stream<S>.multi((controller) {
       // Subscribe to changes BEFORE the async initial read so no write in
       // that window is missed; every emission re-reads current state.
-      sub = _changeController.stream
+      final sub = _changeController.stream
           .where(
             (e) => userId == null || e.userId == userId || e.entityId == '*',
           )
           .listen((_) async {
             if (!controller.isClosed) controller.add(await read());
           });
-      unawaited(
-        read().then((initial) {
-          if (!controller.isClosed) controller.add(initial);
-        }),
-      );
-    };
-    controller.onCancel = () => sub?.cancel();
-    return controller.stream;
+      if (includeInitialData) {
+        unawaited(
+          read().then((initial) {
+            if (!controller.isClosed) controller.add(initial);
+          }),
+        );
+      }
+      controller.onCancel = sub.cancel;
+    });
   }
 
   @override
   Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) =>
-      _watch(() => readAll(userId: userId), userId: userId);
+      _watch(
+        () => readAll(userId: userId),
+        userId: userId,
+        includeInitialData: includeInitialData,
+      );
 
   @override
   Stream<T?>? watchById(String id, {String? userId}) =>

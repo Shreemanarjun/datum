@@ -1,5 +1,18 @@
 ## 0.1.0
 
+- **Fix — rows are keyed by `(userId, id)`**: the box was keyed by entity
+  id alone, so one user's create/update silently overwrote another user's
+  same-id row, and `delete`/`patch` ignored the owner entirely — cross-user
+  data destruction. Rows now use composite, escape-safe box keys; legacy
+  boxes are re-keyed automatically on `initialize()` with every row
+  preserved. Applies to both `HiveLocalAdapter` and
+  `IsolatedHiveLocalAdapter`.
+- **Fix — watch streams emit initial snapshots**: `watchAll` emitted
+  NOTHING until the next box event, so screens watching an
+  already-populated box rendered empty forever. Every listener now gets a
+  current snapshot (suppressed with `includeInitialData: false`), a second
+  concurrent listener works, and `watchById` is implemented. Certified by
+  `runWatchConformanceTests`.
 - **Auto-migration support**: both adapters mix in `SchemaFingerprintCapable`, persisting the declaration fingerprint in the metadata box (`__datum_schema_fingerprint__`) so `DatumConfig.autoMigrate` reconciliation is run-once across launches.
 - `query()` now actually honors `DatumQuery` (filters, sorting, pagination) via `DatumQueryMatcher` instead of returning all entities.
 - Implemented `readAllPaginated()` for paginated local reads.

@@ -461,9 +461,13 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     // 1. Clean up the cache to remove old entries.
     _cleanupChangeCache();
 
-    // 2. Filter out changes that have been recently processed.
+    // 2. Filter out changes that have been recently processed or that are
+    // the adapter's echo of a write THIS manager just performed. The key is
+    // a content fingerprint (id + version + modifiedAt), never the bare
+    // entity id — keying by id alone silently dropped legitimate remote
+    // updates arriving within the cache window of an unrelated local write.
     final newChanges = changes.whereNot((c) {
-      final isRecent = _recentChangeCache.containsKey(c.entityId);
+      final isRecent = _recentChangeCache.containsKey(_changeFingerprint(c.entityId, c.data));
       if (isRecent) {
         _logger.debug(
           'Ignoring duplicate external change for entity ${c.entityId}',
@@ -483,7 +487,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     // 3. Process all new changes.
     for (final change in newChanges) {
       // Add to cache *before* processing to handle race conditions.
-      _recentChangeCache[change.entityId] = DateTime.now();
+      _recentChangeCache[_changeFingerprint(change.entityId, change.data)] = DateTime.now();
 
       try {
         if (change.type == DatumOperationType.delete) {
@@ -548,9 +552,22 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
           stack,
         );
         // Remove from cache on failure so it can be retried if the event arrives again.
-        _recentChangeCache.remove(change.entityId);
+        _recentChangeCache.remove(_changeFingerprint(change.entityId, change.data));
       }
     }
+  }
+
+  /// Content fingerprint identifying one exact state of an entity —
+  /// the dedupe key for external changes and for recognizing the adapter's
+  /// echo of this manager's own writes (see [_recordLocalEcho]).
+  String _changeFingerprint(String entityId, T? data) => data == null ? '$entityId:deleted' : '$entityId:${data.version}:${data.modifiedAt.toIso8601String()}';
+
+  /// Records the fingerprint of a write this manager just performed, so the
+  /// local adapter's change-stream echo of it is dropped instead of being
+  /// re-pushed (which re-ran pre-save middleware — double-encrypting with
+  /// non-idempotent transforms — and enqueued duplicate sync operations).
+  void _recordLocalEcho(String entityId, T? data) {
+    _recentChangeCache[_changeFingerprint(entityId, data)] = DateTime.now();
   }
 
   void _processSyncEvents(List<DatumSyncEvent<T>> events) {
@@ -656,6 +673,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     }));
 
     await localAdapter.create(transformed);
+    _recordLocalEcho(transformed.id, transformed);
     _metadataHashCache.invalidate(transformed.userId);
 
     if (source == DataSource.local || forceRemoteSync) {
@@ -706,7 +724,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       weakObserver.target?.onUpdateStart(transformed);
     }
 
-    await localAdapter.patch(id: transformed.id, delta: delta, userId: userId);
+    final patched = await localAdapter.patch(id: transformed.id, delta: delta, userId: userId);
+    _recordLocalEcho(transformed.id, patched);
+    _recordLocalEcho(transformed.id, transformed);
     _metadataHashCache.invalidate(userId);
 
     if (source == DataSource.local || forceRemoteSync) {
@@ -803,8 +823,12 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// Reads a single entity by its ID from the primary local adapter.
   /// Reads a single entity by its ID from the primary local adapter.
   ///
+  /// Soft-delete tombstones (`isDeleted: true`) are treated as absent unless
+  /// [includeDeleted] is true — a deleted entity should be gone from the
+  /// app's perspective while the tombstone still syncs underneath.
+  ///
   /// The [withRelated] parameter allows eager loading of related entities.
-  Future<T?> read(String id, {String? userId, List<String> withRelated = const []}) async {
+  Future<T?> read(String id, {String? userId, List<String> withRelated = const [], bool includeDeleted = false}) async {
     _ensureInitialized();
 
     // Create cache key for entity existence
@@ -812,7 +836,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
     // The existence cache holds only positive entries (see below), and a
     // positive hit still requires the fetch — so no read shortcut exists here.
-    final entity = await localAdapter.read(id, userId: userId);
+    var entity = await localAdapter.read(id, userId: userId);
+    if (!includeDeleted && (entity?.isDeleted ?? false)) entity = null;
 
     // Only cache POSITIVE existence. Caching a negative (absent) result caused
     // stale reads in offline-first/realtime scenarios: once an entity was cached
@@ -834,12 +859,16 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   }
 
   /// Reads all entities from the primary local adapter.
-  /// Reads all entities from the primary local adapter.
+  ///
+  /// Soft-delete tombstones are excluded unless [includeDeleted] is true.
   ///
   /// The [withRelated] parameter allows eager loading of related entities.
-  Future<List<T>> readAll({String? userId, List<String> withRelated = const []}) async {
+  Future<List<T>> readAll({String? userId, List<String> withRelated = const [], bool includeDeleted = false}) async {
     _ensureInitialized();
-    final entities = await localAdapter.readAll(userId: userId);
+    var entities = await localAdapter.readAll(userId: userId);
+    if (!includeDeleted) {
+      entities = entities.where((e) => !e.isDeleted).toList();
+    }
 
     if (withRelated.isNotEmpty && entities.isNotEmpty) {
       await _fetchAndStitchRelations(entities, withRelated, DataSource.local, userId);
@@ -892,7 +921,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// immediately emit the current list of all items. Defaults to `true`.
   /// If `false`, the stream will only emit when a change occurs.
   /// Returns null if the adapter does not support reactive queries.
-  Stream<List<T>> watchAll({String? userId, bool includeInitialData = true, List<String> withRelated = const []}) {
+  Stream<List<T>> watchAll({String? userId, bool includeInitialData = true, List<String> withRelated = const [], bool includeDeleted = false}) {
     _ensureInitialized();
     final adapterStream = localAdapter.watchAll(userId: userId, includeInitialData: includeInitialData);
     if (adapterStream == null) {
@@ -900,7 +929,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       return Stream<List<T>>.empty();
     }
 
-    return adapterStream.asyncMap((list) async {
+    return adapterStream.asyncMap((emitted) async {
+      final list = includeDeleted ? emitted : emitted.where((e) => !e.isDeleted).toList();
       try {
         // Eagerly load requested relations on every emission (reactive #UX).
         if (withRelated.isNotEmpty && list.isNotEmpty) {
@@ -931,13 +961,16 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   }
 
   /// Watches a single entity by its ID, emitting the item on change or null if deleted.
+  /// A soft-delete tombstone emits null like a hard delete would, unless
+  /// [includeDeleted] is true.
   /// Returns null if the adapter does not support reactive queries.
-  Stream<T?> watchById(String id, String? userId) {
+  Stream<T?> watchById(String id, String? userId, {bool includeDeleted = false}) {
     _ensureInitialized();
     final adapterStream = localAdapter.watchById(id, userId: userId);
     if (adapterStream == null) return Stream<T?>.empty();
 
-    return adapterStream.asyncMap((item) async {
+    return adapterStream.asyncMap((emitted) async {
+      final item = !includeDeleted && (emitted?.isDeleted ?? false) ? null : emitted;
       if (item == null) {
         return null;
       }
@@ -965,8 +998,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
   /// Watches a subset of items matching a query.
   /// Emits an empty stream if the adapter does not support reactive queries.
-  Stream<List<T>> watchQuery(DatumQuery query, {String? userId, List<String> withRelated = const []}) {
+  Stream<List<T>> watchQuery(DatumQuery query, {String? userId, List<String> withRelated = const [], bool includeDeleted = false}) {
     _ensureInitialized();
+    if (!includeDeleted) query = _excludeTombstones(query);
     final adapterStream = localAdapter.watchQuery(query, userId: userId);
     if (adapterStream == null) return Stream<List<T>>.empty();
 
@@ -1005,12 +1039,58 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// This provides a powerful way to fetch filtered and sorted data directly
   /// from either the local or remote adapter without relying on reactive streams.
   /// [source] defaults to [DataSource.local] (the common offline-first case).
+  /// Whether any filter (nested composites included) references `isDeleted` —
+  /// such a query states explicit intent about tombstones and is not rewritten.
+  static bool _mentionsIsDeleted(List<FilterCondition> filters) => filters.any(
+        (condition) => switch (condition) {
+          Filter() => condition.field == 'isDeleted',
+          CompositeFilter() => _mentionsIsDeleted(condition.conditions),
+          _ => false,
+        },
+      );
+
+  /// ANDs a tombstone-exclusion clause onto [query] (soft-deleted rows are
+  /// invisible to the app by default). Legacy rows with a NULL `isDeleted`
+  /// column count as live.
+  DatumQuery _excludeTombstones(DatumQuery query) {
+    if (_mentionsIsDeleted(query.filters)) return query;
+    const liveRows = CompositeFilter(
+      [
+        Filter('isDeleted', FilterOperator.equals, false),
+        Filter('isDeleted', FilterOperator.isNull, null),
+      ],
+      LogicalOperator.or,
+    );
+    // AND queries take the clause flat; OR queries need their own filters
+    // wrapped so the exclusion still ANDs with them.
+    final needsWrap = query.logicalOperator == LogicalOperator.or && query.filters.isNotEmpty;
+    return DatumQuery(
+      filters: [
+        if (needsWrap) CompositeFilter(query.filters, query.logicalOperator) else ...query.filters,
+        liveRows,
+      ],
+      sorting: query.sorting,
+      limit: query.limit,
+      offset: query.offset,
+      logicalOperator: LogicalOperator.and,
+      withRelated: query.withRelated,
+    );
+  }
+
   Future<List<T>> query(
     DatumQuery query, {
     DataSource source = DataSource.local,
     String? userId,
+    bool includeDeleted = false,
   }) async {
     _ensureInitialized();
+
+    // Tombstones are filtered via query pushdown so limit/offset count only
+    // live rows. Remote queries are passed through untouched — translation
+    // capabilities vary by remote adapter.
+    if (!includeDeleted && source == DataSource.local) {
+      query = _excludeTombstones(query);
+    }
 
     // Create a cache key for this query
     final cacheKey = _cacheCoordinator.createQueryCacheKey(query, source, userId);
@@ -1212,12 +1292,18 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     final effectiveBehavior = behavior ?? config.deleteBehavior;
     T entityForEvent = existing;
     if (effectiveBehavior == DeleteBehavior.softDelete) {
-      // Soft delete: mark the entity as deleted
+      // Soft delete: mark the entity as deleted. The tombstone bumps the
+      // version like any other write so version-based conflict detection
+      // sees it as newer than the live row it replaces.
       final delta = <String, dynamic>{
         'isDeleted': true,
         'modifiedAt': DateTime.now().toIso8601String(),
+        'version': existing.version + 1,
       };
-      if (deviceId != null) {
+      // Only carry the clock when the entity actually serializes one —
+      // adding it unconditionally wrote a phantom column (which throws on
+      // strict fixed-schema adapters).
+      if (deviceId != null && existing.toDatumMap().containsKey('vectorClock')) {
         final currentClock = existing.vectorClock ?? const VectorClock();
         delta['vectorClock'] = currentClock.increment(deviceId!).toMap();
       }
@@ -1227,9 +1313,12 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         delta: delta,
         userId: userId,
       );
+      _recordLocalEcho(id, entityForEvent);
     } else {
       // Hard delete: physically remove the entity
       final deleted = await localAdapter.delete(id, userId: userId);
+      _recordLocalEcho(id, null);
+      _recordLocalEcho(id, existing);
       _metadataHashCache.invalidate(userId);
       if (!deleted) {
         _logger.warn('Local adapter failed to delete entity $id');

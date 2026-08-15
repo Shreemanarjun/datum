@@ -1,6 +1,15 @@
 ## 0.1.0
 
 - Initial release.
+- `runWatchConformanceTests` — certifies the reactive watch contract on any
+  local adapter: a current snapshot for EVERY listener (including a second
+  concurrent one), `includeInitialData: false`, re-emission on every write,
+  query-scoped and by-id watching (deletion surfaces as null), and
+  user-scoped emissions.
+- The local-adapter kit now certifies **cross-user id independence**: two
+  users owning the same entity id must not clobber each other through
+  create/update/patch/delete (the InMemory/Hive/SQLite adapters previously
+  disagreed on this contract).
 - `runTypedQueryConformanceTests` — certifies typed queries (`DatumFieldSpec` through `DatumQueryBuilder`) as a supported default on any local adapter: for the full operator matrix (comparisons, membership, between, string operators, null checks, composites, ordering, pagination) the typed path, the string path, and a reference evaluation must return identical results.
 - `runAutoMigrationConformanceTests` — certifies the `DatumSchema` auto-migration contract against any local adapter: legacy-store reconciliation (rename-with-hint keeps values, adds backfill defaults), kept-vs-dropped undeclared columns, and fingerprint run-once across a simulated relaunch.
 - `runSyncStackConformanceTests` — the full engine behavior matrix (push/pull round-trips, two-device convergence, offline queue replay, LWW conflict resolution with winner push-back, soft-delete propagation, stale-write protection, user isolation, no-op cycles, batch pushes, metadata beacons, incremental pulls) over ANY local/remote adapter pair: passing it certifies the pair as a compatible sync stack.

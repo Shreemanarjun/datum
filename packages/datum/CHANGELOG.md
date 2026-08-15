@@ -130,6 +130,59 @@ All changes below are additive and backward compatible unless noted.
 
 ## 🐛 Bug fixes (sync-engine hardening)
 
+- **soft delete is real now**: tombstones (`isDeleted: true`) are invisible
+  to every default read path — `read`/`readAll`/`query`/`watchAll`/
+  `watchQuery`/`watchById` (which emits null) — while the row survives
+  underneath for sync; `includeDeleted: true` opts back in, and a query
+  explicitly filtering on `isDeleted` is never rewritten. Tombstone
+  exclusion is query PUSHDOWN, so `limit`/`offset` count live rows only.
+  The tombstone delta also bumps `version` (conflict detection must see
+  the delete as newer) and only carries `vectorClock` for entities that
+  serialize one (a phantom clock column threw under `strictColumns`).
+- **delta-sync watermark derives from the data, not the clock**: the pull
+  phase stages the newest remote `modifiedAt` it saw and persists it as
+  `serverTimestamp` (previously never populated — the effective watermark
+  was this device's wall clock stamped at END of cycle, so clock skew or a
+  long push phase silently and permanently skipped rows).
+- **per-entity push ordering barrier**: a retryably-failed operation now
+  blocks later queued operations for the same entity within the cycle —
+  previously newer ops overtook the failed one and its replay next cycle
+  regressed the remote (lost updates) or resurrected deleted entities.
+- **batch push failures fall back to per-operation processing**: one
+  already-deleted id (`EntityNotFound`) or one rejected entity no longer
+  discards sibling operations that were never individually attempted.
+- **staged pull state can't outlive an aborted cycle**: an incremental-pull
+  cursor (and watermark) staged by a pull that failed or was interrupted is
+  discarded, and a push-only cycle never persists staged pull state — the
+  rows behind a stale cursor would never have been fetched again.
+- **change-echo dedupe keys on content, not entity id**: the manager now
+  fingerprints its own writes (id + version + modifiedAt) so the adapter's
+  echo is dropped (no re-run of pre-save middleware — non-idempotent
+  transforms double-encrypted — and no duplicate queue ops), while a
+  genuine external change arriving within the cache window is applied
+  instead of being discarded as a "duplicate".
+- **CRDT convergence hardening**: `RgaList.merge` resolves same-id node
+  collisions deterministically (compaction against a stale replica, or two
+  devices editing a document deserialized without their own `replicaId`,
+  previously diverged PERMANENTLY); `toMap` serializes nodes in canonical
+  order and no longer smuggles the creator's `replicaId` (converged
+  replicas now serialize byte-identically, ending conflict-detection
+  ping-pong); `ORSet` gains a faithful format-2 wire encoding (the legacy
+  format stringified elements into JSON keys — non-String types crashed or
+  collided; legacy payloads still decode); `PNCounter.fromMap` tolerates
+  doubles; `CRDTResolver` resolves deletion conflicts content-preservingly
+  instead of aborting forever, and flags a degraded default merge
+  (`=> other`) in the resolution message.
+- **relation stitching integrity**: `InMemoryLocalAdapter` returns fresh
+  instances per read, so `withRelated` stitching can no longer write
+  relation state into the stored copy (stale memoized `fetch()` lists);
+  `RelationLoader` falls back to the parent entity's userId when the caller
+  passed none, so stitching never attaches other users' rows.
+- **per-listener watch semantics**: `watchAll`/`watchQuery`/`watchById` on
+  the in-memory adapter (and SQLite/Hive — see their changelogs) deliver a
+  current snapshot to EVERY listener, honor `includeInitialData: false`,
+  and no longer starve a second concurrent listener; certified by the new
+  `runWatchConformanceTests` kit in `datum_test`.
 - **cascade planning is user-scoped**: relation traversal queried across
   ALL users, so another user's rows sharing foreign-key values could
   restrict-block a delete of data they don't own, and entered plans whose

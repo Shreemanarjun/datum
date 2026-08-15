@@ -424,11 +424,15 @@ void main() {
         when(() => localAdapter.getPendingOperations(userId)).thenAnswer((_) async => operations);
         when(() => remoteAdapter.createAll(any())).thenThrow(const NetworkException(message: 'Batch failed'));
 
-        // Act & Assert
-        await expectLater(
-          manager.synchronize(userId),
-          throwsA(isA<NetworkException>()),
-        );
+        // Act: the batch call fails, but the engine falls back to processing
+        // each operation individually — none of the five siblings may be
+        // discarded because of a batch-level rejection.
+        final result = await manager.synchronize(userId);
+
+        // Assert
+        expect(result.syncedCount, 5);
+        expect(result.failedCount, 0);
+        verify(() => remoteAdapter.create(any())).called(5);
       });
 
       test('continues with next batch if one batch fails with failFast=false', () async {
@@ -472,14 +476,17 @@ void main() {
           }
         });
 
-        // Act & Assert
-        await expectLater(
-          manager.synchronize(userId),
-          throwsA(isA<Exception>()),
-        );
+        // Act: the failing middle batch falls back to per-operation creates,
+        // so every entity still reaches the remote.
+        final result = await manager.synchronize(userId);
 
-        // Should have attempted all 3 batches despite middle failure
+        // Assert
+        expect(result.syncedCount, 6);
+        expect(result.failedCount, 0);
+        // All 3 batches attempted despite the middle failure...
         verify(() => remoteAdapter.createAll(any())).called(3);
+        // ...and the failed batch's two operations were retried individually.
+        verify(() => remoteAdapter.create(any())).called(2);
       });
     });
 

@@ -60,18 +60,27 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
 
   // --- Reads ---------------------------------------------------------------
 
+  /// Reads hand out FRESH instances (a serialize/deserialize round-trip), so
+  /// callers can never mutate the stored copy through shared state — eager
+  /// relation stitching writes `relations` state into the returned entity,
+  /// and memoized relation caches must not outlive a single read.
+  T _fresh(T entity) => fromMap(entity.toDatumMap(target: MapTarget.local));
+
   @override
   Future<List<T>> readAll({String? userId}) async {
-    if (userId != null) return _storage[userId]?.values.toList() ?? [];
-    return _storage.values.expand((m) => m.values).toList();
+    if (userId != null) return _storage[userId]?.values.map(_fresh).toList() ?? [];
+    return _storage.values.expand((m) => m.values).map(_fresh).toList();
   }
 
   @override
   Future<T?> read(String id, {String? userId}) async {
-    if (userId != null) return _storage[userId]?[id];
+    if (userId != null) {
+      final found = _storage[userId]?[id];
+      return found == null ? null : _fresh(found);
+    }
     for (final byId in _storage.values) {
       final found = byId[id];
-      if (found != null) return found;
+      if (found != null) return _fresh(found);
     }
     return null;
   }
@@ -82,7 +91,7 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
     if (byId == null) return {};
     return {
       for (final id in ids)
-        if (byId.containsKey(id)) id: byId[id]!,
+        if (byId.containsKey(id)) id: _fresh(byId[id]!),
     };
   }
 
@@ -168,27 +177,30 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
 
   // --- Reactive ------------------------------------------------------------
 
-  Stream<S> _watch<S>(Future<S> Function() read, {String? userId}) {
-    final controller = StreamController<S>.broadcast();
-    StreamSubscription<DatumChangeDetail<T>>? sub;
-    controller.onListen = () {
+  Stream<S> _watch<S>(Future<S> Function() read, {String? userId, bool includeInitialData = true}) {
+    // Stream.multi runs this setup for EVERY listener, so each one gets its
+    // own change subscription and its own initial snapshot — a broadcast
+    // controller's onListen only fires for the first listener, leaving later
+    // concurrent listeners silent until the next write.
+    return Stream<S>.multi((controller) {
       // Attach the change subscription SYNCHRONOUSLY before the (async)
       // initial read — a write landing between listen and the first emission
       // must not be missed. Every emission re-reads current state, so an
       // out-of-order initial emission is harmless (at worst a duplicate).
-      sub = _changeController.stream.where((e) => userId == null || e.userId == userId).listen((_) async {
+      final sub = _changeController.stream.where((e) => userId == null || e.userId == userId).listen((_) async {
         if (!controller.isClosed) controller.add(await read());
       });
-      unawaited(read().then((initial) {
-        if (!controller.isClosed) controller.add(initial);
-      }));
-    };
-    controller.onCancel = () => sub?.cancel();
-    return controller.stream;
+      if (includeInitialData) {
+        unawaited(read().then((initial) {
+          if (!controller.isClosed) controller.add(initial);
+        }));
+      }
+      controller.onCancel = sub.cancel;
+    });
   }
 
   @override
-  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) => _watch(() => readAll(userId: userId), userId: userId);
+  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) => _watch(() => readAll(userId: userId), userId: userId, includeInitialData: includeInitialData);
 
   @override
   Stream<T?>? watchById(String id, {String? userId}) => _watch(() => read(id, userId: userId), userId: userId);

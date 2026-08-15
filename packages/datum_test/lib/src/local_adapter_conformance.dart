@@ -165,6 +165,74 @@ void runLocalAdapterConformanceTests({
 
         expect(await adapter.readAll(), isEmpty);
       });
+
+      test('two users own the same entity id independently', () async {
+        // Deterministic per-user ids ('settings', 'profile') are common.
+        // A store keyed by id alone lets one user's write clobber the other's.
+        await adapter.create(
+          make('settings', userId: 'u1', name: 'ones', value: 1),
+        );
+        await adapter.create(
+          make('settings', userId: 'u2', name: 'twos', value: 2),
+        );
+
+        final u1Row = await adapter.read('settings', userId: 'u1');
+        final u2Row = await adapter.read('settings', userId: 'u2');
+        expect(
+          u1Row?.name,
+          'ones',
+          reason: "u2's create must not overwrite u1's row",
+        );
+        expect(u2Row?.name, 'twos');
+      });
+
+      test('update touches only the owner\'s row for a shared id', () async {
+        await adapter.create(make('settings', userId: 'u1', value: 1));
+        await adapter.create(make('settings', userId: 'u2', value: 2));
+
+        await adapter.update(make('settings', userId: 'u2', value: 22));
+
+        expect((await adapter.read('settings', userId: 'u1'))?.value, 1);
+        expect((await adapter.read('settings', userId: 'u2'))?.value, 22);
+      });
+
+      test('patch touches only the owner\'s row for a shared id', () async {
+        await adapter.create(make('settings', userId: 'u1', name: 'mine'));
+        await adapter.create(make('settings', userId: 'u2', name: 'theirs'));
+
+        await adapter.patch(
+          id: 'settings',
+          delta: {'name': 'patched'},
+          userId: 'u2',
+        );
+
+        expect((await adapter.read('settings', userId: 'u1'))?.name, 'mine');
+        expect((await adapter.read('settings', userId: 'u2'))?.name, 'patched');
+      });
+
+      test('delete removes only the owner\'s row for a shared id', () async {
+        await adapter.create(make('settings', userId: 'u1'));
+        await adapter.create(make('settings', userId: 'u2'));
+
+        expect(await adapter.delete('settings', userId: 'u2'), isTrue);
+
+        expect(
+          await adapter.read('settings', userId: 'u1'),
+          isNotNull,
+          reason: "deleting u2's row must not take u1's with it",
+        );
+        expect(await adapter.read('settings', userId: 'u2'), isNull);
+      });
+
+      test(
+        'delete scoped to a non-owner reports false and removes nothing',
+        () async {
+          await adapter.create(make('settings', userId: 'u1'));
+
+          expect(await adapter.delete('settings', userId: 'u2'), isFalse);
+          expect(await adapter.read('settings', userId: 'u1'), isNotNull);
+        },
+      );
     });
 
     group('query', () {

@@ -120,8 +120,11 @@ void main() {
       final deleted = await Datum.manager<TestEntity>().delete(id: entity.id, userId: userId, behavior: DeleteBehavior.softDelete);
       expect(deleted, true);
 
-      // Verify item is marked as deleted locally but still exists
+      // The tombstone is invisible to the app by default...
       localItems = await Datum.manager<TestEntity>().readAll(userId: userId);
+      expect(localItems, isEmpty);
+      // ...but still exists underneath so it can sync.
+      localItems = await Datum.manager<TestEntity>().readAll(userId: userId, includeDeleted: true);
       expect(localItems.length, 1);
       expect(localItems.first.id, 'delete-test-entity');
       expect(localItems.first.isDeleted, true);
@@ -304,17 +307,20 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 100));
 
       // Verify final state: first item should be synced with updates, second item should not exist
+      // Only the live item is visible by default; the tombstone stays hidden.
       final localItems = await Datum.manager<TestEntity>().readAll(userId: userId);
-      expect(localItems.length, 2); // Both items exist locally
+      expect(localItems.length, 1);
 
       // First item should not be deleted (only second was)
       final firstLocalItem = localItems.firstWhere((item) => item.id == 'mixed-test-entity');
       expect(firstLocalItem.name, 'Updated Name');
       expect(firstLocalItem.isDeleted, false);
 
-      // Second item should be marked as deleted locally
-      final secondLocalItem = localItems.firstWhere((item) => item.id == 'mixed-test-entity-2');
-      expect(secondLocalItem.isDeleted, true);
+      // After the remote confirmed the deletion (via its change stream), the
+      // local tombstone is cleaned up too — the entity is gone everywhere.
+      final withTombstones = await Datum.manager<TestEntity>().readAll(userId: userId, includeDeleted: true);
+      expect(withTombstones.length, 1);
+      expect(withTombstones.single.id, 'mixed-test-entity');
 
       // Verify remote state matches the intended operations
       final remoteItems = await remoteAdapter.readAll(userId: userId);

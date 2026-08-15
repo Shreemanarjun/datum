@@ -110,14 +110,15 @@ void main() {
       expect(resolution.message, contains('No entities supplied'));
     });
 
-    test('aborts when only one side is available', () async {
+    test('preserves the surviving side of a deletion conflict', () async {
+      // Aborting here (the old behavior) left the same deletion conflict
+      // re-firing on every sync cycle forever; the CRDT-flavored choice is
+      // that content survives.
       final onlyLocal = await resolver.resolve(local: _entity('e1'), context: _context());
-      expect(onlyLocal.strategy, DatumResolutionStrategy.abort);
-      expect(onlyLocal.message, contains('requires both local and remote'));
+      expect(onlyLocal.strategy, DatumResolutionStrategy.takeLocal);
 
       final onlyRemote = await resolver.resolve(remote: _entity('e1'), context: _context());
-      expect(onlyRemote.strategy, DatumResolutionStrategy.abort);
-      expect(onlyRemote.message, contains('requires both local and remote'));
+      expect(onlyRemote.strategy, DatumResolutionStrategy.takeRemote);
     });
   });
 

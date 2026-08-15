@@ -1,9 +1,12 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:datum/datum.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:meta/meta.dart';
+
+import 'hive_box_keys.dart';
 
 class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> with SchemaFingerprintCapable {
   /// The name of the Hive box where entities of type `T` will be stored.
@@ -36,6 +39,29 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
     entityBox = await Hive.openBox<Map<dynamic, dynamic>>(entityBoxName);
     pendingOpsBox = await Hive.openBox<List<dynamic>>('${entityBoxName}_pending_ops');
     metadataBox = await Hive.openBox<Map<dynamic, dynamic>>('${entityBoxName}_metadata');
+    await _migrateLegacyKeys();
+  }
+
+  /// Rows written before composite keying were keyed by bare entity id, so
+  /// two users could not own the same id (one silently clobbered the other).
+  /// Re-key any such row as `(userId, id)` on open.
+  Future<void> _migrateLegacyKeys() async {
+    final rekeyed = <String, Map<dynamic, dynamic>>{};
+    final staleKeys = <dynamic>[];
+    for (final key in entityBox.keys) {
+      final value = entityBox.get(key);
+      if (value == null) continue;
+      final userId = value['userId'] as String? ?? '';
+      final id = value['id'] as String? ?? key.toString();
+      final expected = hiveBoxKey(userId, id);
+      if (key != expected) {
+        rekeyed[expected] = value;
+        staleKeys.add(key);
+      }
+    }
+    if (rekeyed.isEmpty) return;
+    await entityBox.putAll(rekeyed);
+    await entityBox.deleteAll(staleKeys);
   }
 
   @override
@@ -52,9 +78,12 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
     return entityBox.watch().map((event) {
       final entityMap = event.value;
       final entity = entityMap != null ? fromMap(_normalizeMap(entityMap)) : null;
+      // The composite key carries (userId, id) even for delete events,
+      // where the value is already gone.
+      final decoded = decodeHiveBoxKey(event.key as String);
       return DatumChangeDetail(
-        entityId: event.key as String,
-        userId: entity?.userId ?? '',
+        entityId: decoded?.id ?? event.key as String,
+        userId: entity?.userId ?? decoded?.userId ?? '',
         type: event.deleted ? DatumOperationType.delete : DatumOperationType.update,
         timestamp: DateTime.now(),
         data: entity,
@@ -64,16 +93,18 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
 
   @override
   Future<void> create(T entity) {
-    return entityBox.put(entity.id, entity.toDatumMap(target: MapTarget.local));
+    return entityBox.put(hiveBoxKey(entity.userId, entity.id), entity.toDatumMap(target: MapTarget.local));
   }
 
   @override
   Future<T?> read(String id, {String? userId}) async {
-    final entityMap = entityBox.get(id);
-    if (entityMap == null) return null;
-    final entity = fromMap(_normalizeMap(entityMap));
-    if (userId == null || entity.userId == userId) {
-      return entity;
+    if (userId != null) {
+      final entityMap = entityBox.get(hiveBoxKey(userId, id));
+      return entityMap == null ? null : fromMap(_normalizeMap(entityMap));
+    }
+    // Unscoped read: any user's row with this entity id.
+    for (final map in entityBox.values) {
+      if (map['id'] == id) return fromMap(_normalizeMap(map));
     }
     return null;
   }
@@ -98,12 +129,12 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
 
   @override
   Future<void> update(T entity) {
-    return entityBox.put(entity.id, entity.toDatumMap(target: MapTarget.local));
+    return entityBox.put(hiveBoxKey(entity.userId, entity.id), entity.toDatumMap(target: MapTarget.local));
   }
 
   @override
   Future<T> patch({required String id, required Map<String, dynamic> delta, String? userId}) async {
-    final existing = entityBox.get(id);
+    final existing = userId != null ? entityBox.get(hiveBoxKey(userId, id)) : (await read(id))?.toDatumMap(target: MapTarget.local);
     if (existing == null) {
       throw EntityNotFoundException(message: 'Entity with id $id not found for patch.');
     }
@@ -115,11 +146,20 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
 
   @override
   Future<bool> delete(String id, {String? userId}) async {
-    if (entityBox.containsKey(id)) {
-      await entityBox.delete(id);
+    if (userId != null) {
+      final key = hiveBoxKey(userId, id);
+      if (!entityBox.containsKey(key)) return false;
+      await entityBox.delete(key);
       return true;
     }
-    return false;
+    // Unscoped delete: remove the id for every user that owns it.
+    final keys = [
+      for (final key in entityBox.keys)
+        if (entityBox.get(key)?['id'] == id) key,
+    ];
+    if (keys.isEmpty) return false;
+    await entityBox.deleteAll(keys);
+    return true;
   }
 
   @override
@@ -205,7 +245,8 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
     final newEntities = <String, Map<dynamic, dynamic>>{};
     for (final rawItem in data) {
       final id = rawItem['id'] as String? ?? fromMap(rawItem).id;
-      newEntities[id] = Map<String, dynamic>.from(rawItem);
+      final owner = rawItem['userId'] as String? ?? fromMap(rawItem).userId;
+      newEntities[hiveBoxKey(owner, id)] = Map<String, dynamic>.from(rawItem);
     }
     await entityBox.putAll(newEntities);
   }
@@ -349,24 +390,40 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
 
   @override
   Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) {
-    final Stream<BoxEvent> eventMaps = entityBox.watch();
-
-    return eventMaps.asyncExpand(
-      (event) async* {
-        // 1. Await the values from the box. Use a local variable for clarity.
-        final allValues = entityBox.values;
-
-        // 2. Filter the maps. The '?? []' handles the case where 'values' is null.
-        final filteredMaps = (allValues).where(
-          (map) => userId == null || map['userId'] == userId,
+    // Stream.multi: every listener gets its own box subscription AND its own
+    // initial snapshot. The previous implementation emitted nothing until
+    // the next box event, so screens watching an already-populated box
+    // rendered empty forever.
+    return Stream<List<T>>.multi((controller) {
+      final sub = entityBox.watch().listen((_) async {
+        if (!controller.isClosed) controller.add(await readAll(userId: userId));
+      });
+      if (includeInitialData) {
+        unawaited(
+          readAll(userId: userId).then((initial) {
+            if (!controller.isClosed) controller.add(initial);
+          }),
         );
+      }
+      controller.onCancel = sub.cancel;
+    });
+  }
 
-        // 3. Transform the filtered maps into your entity objects.
-        final entities = filteredMaps.map((map) => fromMap(_normalizeMap(map))).toList();
-
-        // 4. Yield the complete list as a single event on the stream.
-        yield entities;
-      },
-    );
+  @override
+  Stream<T?>? watchById(String id, {String? userId}) {
+    return Stream<T?>.multi((controller) {
+      final sub = entityBox.watch().listen((event) async {
+        final decoded = decodeHiveBoxKey(event.key as String);
+        final changedId = decoded?.id ?? event.key as String;
+        if (changedId != id) return;
+        if (!controller.isClosed) controller.add(await read(id, userId: userId));
+      });
+      unawaited(
+        read(id, userId: userId).then((initial) {
+          if (!controller.isClosed) controller.add(initial);
+        }),
+      );
+      controller.onCancel = sub.cancel;
+    });
   }
 }

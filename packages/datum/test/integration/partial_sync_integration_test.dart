@@ -272,23 +272,21 @@ void main() {
 
 /// Helper function to simulate query filtering on mock data
 List<TestEntity> _filterEntities(List<TestEntity> entities, DatumQuery query) {
-  return entities.where((entity) {
-    bool matches = query.logicalOperator == LogicalOperator.and;
-
-    for (final filterCondition in query.filters) {
-      if (filterCondition is Filter) {
-        final fieldValue = _getFieldValue(entity, filterCondition.field);
-        final matchesFilter = _matchesFilter(fieldValue, filterCondition);
-
-        if (query.logicalOperator == LogicalOperator.and) {
-          matches = matches && matchesFilter;
-        } else {
-          matches = matches || matchesFilter;
-        }
-      }
+  bool matchesCondition(TestEntity entity, FilterCondition condition) {
+    if (condition is Filter) {
+      return _matchesFilter(_getFieldValue(entity, condition.field), condition);
     }
+    if (condition is CompositeFilter) {
+      // The manager wraps queries in composites (e.g. tombstone exclusion),
+      // so the fake must recurse like a real adapter's matcher.
+      return condition.operator == LogicalOperator.and ? condition.conditions.every((c) => matchesCondition(entity, c)) : condition.conditions.any((c) => matchesCondition(entity, c));
+    }
+    return false;
+  }
 
-    return matches;
+  return entities.where((entity) {
+    if (query.filters.isEmpty) return true;
+    return query.logicalOperator == LogicalOperator.and ? query.filters.every((c) => matchesCondition(entity, c)) : query.filters.any((c) => matchesCondition(entity, c));
   }).toList();
 }
 
@@ -311,6 +309,8 @@ dynamic _getFieldValue(TestEntity entity, String field) {
       return entity.modifiedAt;
     case 'version':
       return entity.version;
+    case 'isDeleted':
+      return entity.isDeleted;
     default:
       return null;
   }
@@ -333,6 +333,10 @@ bool _matchesFilter(dynamic value, Filter filter) {
       return value is num && filter.value is num && value <= filter.value;
     case FilterOperator.contains:
       return value is String && filter.value is String && value.toLowerCase().contains(filter.value.toLowerCase());
+    case FilterOperator.isNull:
+      return value == null;
+    case FilterOperator.isNotNull:
+      return value != null;
     default:
       return false;
   }

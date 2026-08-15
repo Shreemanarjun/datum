@@ -95,9 +95,10 @@ void main() {
 
       await Datum.manager<TestEntity>().delete(id: existingEntity2.id, userId: userId, behavior: DeleteBehavior.softDelete);
 
-      // Verify local state after offline operations
+      // Verify local state after offline operations: the tombstone is hidden
+      // from default reads but retained underneath for sync.
       final localItemsAfterOps = await Datum.manager<TestEntity>().readAll(userId: userId);
-      expect(localItemsAfterOps.length, 3); // 2 existing + 1 new, but one marked as deleted
+      expect(localItemsAfterOps.length, 2); // 1 updated existing + 1 new
 
       // Check the new item exists
       final newItem = localItemsAfterOps.firstWhere((item) => item.id == 'new-offline');
@@ -107,8 +108,10 @@ void main() {
       final updatedItem = localItemsAfterOps.firstWhere((item) => item.id == 'existing-1');
       expect(updatedItem.name, 'Updated Offline');
 
-      // Check the deleted item is marked as deleted
-      final deletedItem = localItemsAfterOps.firstWhere((item) => item.id == 'existing-2');
+      // Check the deleted item is marked as deleted (visible only on request)
+      final withTombstones = await Datum.manager<TestEntity>().readAll(userId: userId, includeDeleted: true);
+      expect(withTombstones.length, 3);
+      final deletedItem = withTombstones.firstWhere((item) => item.id == 'existing-2');
       expect(deletedItem.isDeleted, true);
 
       // Verify operations are queued for sync
