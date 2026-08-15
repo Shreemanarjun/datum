@@ -81,13 +81,30 @@ abstract final class DatumQueryMatcher {
       if (valB == null) {
         return sort.nullSortOrder == NullSortOrder.first ? 1 : -1;
       }
-      if (valA is Comparable && valB is Comparable) {
-        final c = valA.compareTo(valB);
+      final compA = _asComparable(valA);
+      final compB = _asComparable(valB);
+      if (compA != null && compB != null) {
+        final c = compA.compareTo(compB);
         if (c != 0) return sort.descending ? -c : c;
       }
     }
     return 0;
   }
+}
+
+/// Booleans don't implement [Comparable] in Dart, but SQL stores them as
+/// 0/1 and sorts/compares them — normalize so both paths agree.
+Comparable? _asComparable(dynamic value) => switch (value) {
+      bool b => b ? 1 : 0,
+      Comparable c => c,
+      _ => null,
+    };
+
+bool _ordering(dynamic value, dynamic bound, bool Function(int) test) {
+  final a = _asComparable(value);
+  final b = _asComparable(bound);
+  if (a == null || b == null) return false;
+  return test(a.compareTo(b));
 }
 
 bool _matches(Map<String, dynamic> json, FilterCondition condition) {
@@ -103,13 +120,13 @@ bool _matches(Map<String, dynamic> json, FilterCondition condition) {
       case FilterOperator.notEquals:
         return value != condition.value;
       case FilterOperator.greaterThan:
-        return value is Comparable && value.compareTo(condition.value) > 0;
+        return _ordering(value, condition.value, (c) => c > 0);
       case FilterOperator.greaterThanOrEqual:
-        return value is Comparable && value.compareTo(condition.value) >= 0;
+        return _ordering(value, condition.value, (c) => c >= 0);
       case FilterOperator.lessThan:
-        return value is Comparable && value.compareTo(condition.value) < 0;
+        return _ordering(value, condition.value, (c) => c < 0);
       case FilterOperator.lessThanOrEqual:
-        return value is Comparable && value.compareTo(condition.value) <= 0;
+        return _ordering(value, condition.value, (c) => c <= 0);
       case FilterOperator.contains:
         return value is String && value.contains(condition.value as String);
       case FilterOperator.isIn:

@@ -601,6 +601,37 @@ void main() {
     expect(await libraries.read('L1', userId: 'u1'), isNotNull);
   });
 
+  test('CascadeOptions.timeout aborts the plan before deleting', () async {
+    // A negative timeout is deterministically exceeded on the first check
+    // (elapsed time is never negative), unlike Duration.zero which races
+    // microsecond clock resolution.
+    final result = await libraries.executeCascadeDeleteWithOptions(
+      'L1',
+      'u1',
+      const CascadeOptions(timeout: Duration(microseconds: -1)),
+    );
+
+    expect(result, isA<CascadeFailure<Library>>());
+    expect((result as CascadeFailure<Library>).errors, contains('Operation timed out'));
+    expect(await libraries.read('L1', userId: 'u1'), isNotNull, reason: 'timed out before the first step ran');
+    expect(await shelves.read('s1', userId: 'u1'), isNotNull);
+  });
+
+  test('cross-user rows sharing foreign-key values never pollute the plan', () async {
+    // u2's rows carry foreign-key VALUES that collide with u1's ids but
+    // have ids u1 does not own — they must be invisible to u1's plan.
+    await shelves.push(item: Shelf(id: 's9', libraryId: 'L1', userId: 'u2'), userId: 'u2');
+    await gems.push(item: Gem(id: 'gm9', libraryId: 'L1', userId: 'u2'), userId: 'u2');
+
+    final result = await libraries.cascadeDelete(id: 'L1', userId: 'u1');
+    expect(result.success, isTrue, reason: "u2's gem must not restrict u1: ${result.errors.join('; ')}");
+    expect(result.restrictedRelations, isEmpty);
+    expect(result.totalDeleted, 9);
+
+    expect(await shelves.read('s9', userId: 'u2'), isNotNull);
+    expect(await gems.read('gm9', userId: 'u2'), isNotNull);
+  });
+
   test('cascade only touches the requesting user\'s rows', () async {
     await libraries.push(item: Library(id: 'L1', userId: 'u2'), userId: 'u2');
     await shelves.push(item: Shelf(id: 's1', libraryId: 'L1', userId: 'u2'), userId: 'u2');

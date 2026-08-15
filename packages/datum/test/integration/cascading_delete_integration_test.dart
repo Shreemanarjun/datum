@@ -1264,21 +1264,23 @@ void main() {
       // Assert: Operation was successful
       expect(result.success, isTrue);
       expect(result.errors, isEmpty);
-      expect(result.totalDeleted, 6); // User + Profile + 2 Posts + 2 Comments
+      expect(result.totalDeleted, 4); // User + Profile + 2 Posts
 
-      // Verify all entities were deleted
+      // Verify all owned entities were deleted. The comments belong to
+      // 'other-user', so they are deliberately outside the cascade caller's
+      // user scope and survive the delete.
       expect(await userManager.read(testUser.id), isNull);
       expect(await profileManager.read(testProfile.id), isNull);
       expect(await postManager.read(testPost1.id), isNull);
       expect(await postManager.read(testPost2.id), isNull);
-      expect(await commentManager.read(testComment1.id), isNull);
-      expect(await commentManager.read(testComment2.id), isNull);
+      expect(await commentManager.read(testComment1.id), isNotNull);
+      expect(await commentManager.read(testComment2.id), isNotNull);
 
       // Check deleted entities map
       expect(result.deletedEntities[User], hasLength(1));
       expect(result.deletedEntities[Profile], hasLength(1));
       expect(result.deletedEntities[Post], hasLength(2));
-      expect(result.deletedEntities[Comment], hasLength(2));
+      expect(result.deletedEntities[Comment], isNull);
     });
 
     test('cascadeDelete fails when restrict relationship has related entities', () async {
@@ -1378,9 +1380,12 @@ void main() {
       // Act: Cascade delete from the top (user)
       final result = await userManager.cascadeDelete(id: testUser.id, userId: testUser.id);
 
-      // Assert: All entities deleted successfully (proper ordering handled internally)
+      // Assert: Owned entities deleted successfully (proper ordering handled
+      // internally). testComment1 belongs to 'other-user', so it is
+      // deliberately outside the cascade caller's user scope and survives.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 3); // User + Post + Comment
+      expect(result.totalDeleted, 2); // User + Post
+      expect(await commentManager.read(testComment1.id), isNotNull);
     });
 
     test('cascadeDelete includes sync operations for all deleted entities', () async {
@@ -1425,12 +1430,16 @@ void main() {
       // Act: Cascade delete from the top
       final result = await userManager.cascadeDelete(id: testUser.id, userId: testUser.id);
 
-      // Assert: All entities in the chain are deleted
+      // Assert: The user-owned chain is deleted. Both comments belong to
+      // 'other-user', so they are deliberately outside the cascade caller's
+      // user scope and survive.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 4); // User + Post + 2 Comments
+      expect(result.totalDeleted, 2); // User + Post
       expect(result.deletedEntities[User], hasLength(1));
       expect(result.deletedEntities[Post], hasLength(1));
-      expect(result.deletedEntities[Comment], hasLength(2));
+      expect(result.deletedEntities[Comment], isNull);
+      expect(await commentManager.read(testComment1.id), isNotNull);
+      expect(await commentManager.read(replyComment.id), isNotNull);
     });
 
     test('cascadeDelete respects mixed cascade behaviors in complex relationships', () async {
@@ -1543,12 +1552,14 @@ void main() {
       // Act: Cascade delete
       final result = await userManager.cascadeDelete(id: testUser.id, userId: testUser.id);
 
-      // Assert: Handles large datasets correctly
+      // Assert: Handles large datasets correctly. The comments belong to
+      // 'other-user', so they are deliberately outside the cascade caller's
+      // user scope and survive.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 1 + 10 + 50); // User + 10 Posts + 50 Comments
+      expect(result.totalDeleted, 1 + 10); // User + 10 Posts
       expect(result.deletedEntities[User], hasLength(1));
       expect(result.deletedEntities[Post], hasLength(10));
-      expect(result.deletedEntities[Comment], hasLength(50));
+      expect(result.deletedEntities[Comment], isNull);
     });
 
     test('cascadeDelete preserves isolation between different user data', () async {
@@ -1602,12 +1613,15 @@ void main() {
       // Act: Cascade delete
       final result = await userManager.cascadeDelete(id: testUser.id, userId: testUser.id);
 
-      // Assert: Each entity is deleted exactly once
+      // Assert: Each owned entity is deleted exactly once. testComment1
+      // belongs to 'other-user', so it is deliberately outside the cascade
+      // caller's user scope and survives.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 3); // User + Post + Comment
+      expect(result.totalDeleted, 2); // User + Post
       expect(result.deletedEntities[User], hasLength(1));
       expect(result.deletedEntities[Post], hasLength(1));
-      expect(result.deletedEntities[Comment], hasLength(1));
+      expect(result.deletedEntities[Comment], isNull);
+      expect(await commentManager.read(testComment1.id), isNotNull);
     });
 
     test('cascadeDelete handles linear dependency chains (A -> B -> C -> D)', () async {
@@ -1972,7 +1986,7 @@ void main() {
       // Create threaded comments (comment replying to another comment)
       final parentComment = Comment(
         id: 'parent-comment',
-        userId: 'other-user', // Use different user to avoid restrict relationship
+        userId: 'other-user', // Cross-user: avoids the restrict relation, but is also outside cascade scope
         postId: 'post-1',
         content: 'Parent comment',
         modifiedAt: DateTime(2023),
@@ -1981,7 +1995,7 @@ void main() {
 
       final childComment = Comment(
         id: 'child-comment',
-        userId: 'other-user', // Use different user to avoid restrict relationship
+        userId: 'other-user', // Cross-user: avoids the restrict relation, but is also outside cascade scope
         postId: 'post-1',
         content: 'Reply to parent',
         modifiedAt: DateTime(2023),
@@ -1994,20 +2008,22 @@ void main() {
       // Act: Delete user (should cascade through all relationships)
       final result = await userManager.cascadeDelete(id: testUser.id, userId: testUser.id);
 
-      // Assert: All entities in the network are deleted
+      // Assert: All user-owned entities in the network are deleted. The
+      // comments belong to 'other-user', so they are deliberately outside
+      // the cascade caller's user scope and survive.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 5); // User + Profile + Post + 2 Comments
+      expect(result.totalDeleted, 3); // User + Profile + Post
       expect(result.deletedEntities[User], hasLength(1));
       expect(result.deletedEntities[Profile], hasLength(1));
       expect(result.deletedEntities[Post], hasLength(1));
-      expect(result.deletedEntities[Comment], hasLength(2));
+      expect(result.deletedEntities[Comment], isNull);
 
-      // Verify all are deleted
+      // Verify all owned entities are deleted
       expect(await userManager.read(testUser.id), isNull);
       expect(await profileManager.read(testProfile.id), isNull);
       expect(await postManager.read(testPost1.id), isNull);
-      expect(await commentManager.read('parent-comment'), isNull);
-      expect(await commentManager.read('child-comment'), isNull);
+      expect(await commentManager.read('parent-comment'), isNotNull);
+      expect(await commentManager.read('child-comment'), isNotNull);
     });
 
     test('cascadeDelete handles restrict relationships in complex dependency chains', () async {
@@ -2134,7 +2150,7 @@ void main() {
 
       final comment1 = Comment(
         id: 'blog-comment-1',
-        userId: 'other-user',
+        userId: testUser.id,
         postId: 'blog-post-1',
         content: 'Great blog post!',
         modifiedAt: DateTime(2023),
@@ -2143,7 +2159,7 @@ void main() {
 
       final comment2 = Comment(
         id: 'blog-comment-2',
-        userId: 'other-user',
+        userId: testUser.id,
         postId: 'blog-post-1',
         content: 'I learned something new',
         modifiedAt: DateTime(2023),
@@ -2274,7 +2290,7 @@ void main() {
       // Create nested comments (comment on post, reply to comment)
       final comment1 = Comment(
         id: 'comment-1',
-        userId: 'other-user',
+        userId: testUser.id,
         postId: 'complex-blog-post',
         content: 'First comment',
         modifiedAt: DateTime(2023),
@@ -2283,7 +2299,7 @@ void main() {
 
       final comment2 = Comment(
         id: 'comment-2',
-        userId: 'other-user',
+        userId: testUser.id,
         postId: 'complex-blog-post',
         content: 'Reply to first comment',
         modifiedAt: DateTime(2023),
@@ -2407,16 +2423,18 @@ void main() {
       // Act: Use dry-run mode
       final result = await userManager.deleteCascade(testUser.id).forUser(testUser.id).dryRun().execute();
 
-      // Assert: Preview shows what would be deleted
+      // Assert: Preview shows what would be deleted. testComment1 belongs to
+      // 'other-user', so it is deliberately outside the cascade caller's
+      // user scope and is not part of the preview.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 4); // User + Profile + Post + Comment
+      expect(result.totalDeleted, 3); // User + Profile + Post
 
       // Cast to CascadeSuccess to access deletedEntities
       final successResult = result as CascadeSuccess<User>;
       expect(successResult.deletedEntities[User], hasLength(1));
       expect(successResult.deletedEntities[Profile], hasLength(1));
       expect(successResult.deletedEntities[Post], hasLength(1));
-      expect(successResult.deletedEntities[Comment], hasLength(1));
+      expect(successResult.deletedEntities[Comment], isNull);
 
       // Verify entities still exist (dry-run didn't delete them)
       expect(await userManager.read(testUser.id), isNotNull);
@@ -2457,19 +2475,21 @@ void main() {
       // Act: Cascade delete (this will use batch queries internally)
       final result = await userManager.cascadeDelete(id: testUser.id, userId: testUser.id);
 
-      // Assert: All entities deleted efficiently
+      // Assert: All owned entities deleted efficiently. The comments belong
+      // to 'other-user', so they are deliberately outside the cascade
+      // caller's user scope and survive.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 1 + 5 + 15); // User + 5 Posts + 15 Comments
+      expect(result.totalDeleted, 1 + 5); // User + 5 Posts
       expect(result.deletedEntities[User], hasLength(1));
       expect(result.deletedEntities[Post], hasLength(5));
-      expect(result.deletedEntities[Comment], hasLength(15));
+      expect(result.deletedEntities[Comment], isNull);
 
-      // Verify all are deleted
+      // Verify owned entities are deleted and cross-user comments remain
       expect(await userManager.read(testUser.id), isNull);
       for (int i = 0; i < 5; i++) {
         expect(await postManager.read('batch-post-$i'), isNull);
         for (int j = 0; j < 3; j++) {
-          expect(await commentManager.read('batch-comment-$i-$j'), isNull);
+          expect(await commentManager.read('batch-comment-$i-$j'), isNotNull);
         }
       }
     });
@@ -2540,8 +2560,10 @@ void main() {
       expect(progressUpdates, isNotEmpty);
       expect(progressUpdates.last.completed, equals(progressUpdates.last.total));
 
-      // Verify final progress shows all entities
-      expect(progressUpdates.last.total, equals(1 + 1 + 3 + 3)); // User + Profile + 3 Posts + 3 Comments
+      // Verify final progress shows all owned entities. The comments belong
+      // to 'other-user', so they are deliberately outside the cascade
+      // caller's user scope and are not part of the plan.
+      expect(progressUpdates.last.total, equals(1 + 1 + 3)); // User + Profile + 3 Posts
     });
 
     test('cancellation token allows cancelling cascade operations', () async {
@@ -2793,15 +2815,17 @@ void main() {
       // Act: Dry-run on complex relationship chain
       final result = await userManager.deleteCascade(testUser.id).forUser(testUser.id).dryRun().execute();
 
-      // Assert: Shows all entities that would be deleted
+      // Assert: Shows all owned entities that would be deleted. The comments
+      // belong to 'other-user', so they are deliberately outside the cascade
+      // caller's user scope and are not part of the preview.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 5); // User + Profile + Post + 2 Comments
+      expect(result.totalDeleted, 3); // User + Profile + Post
 
       final successResult = result as CascadeSuccess<User>;
       expect(successResult.deletedEntities[User], hasLength(1));
       expect(successResult.deletedEntities[Profile], hasLength(1));
       expect(successResult.deletedEntities[Post], hasLength(1));
-      expect(successResult.deletedEntities[Comment], hasLength(2));
+      expect(successResult.deletedEntities[Comment], isNull);
 
       // Verify entities still exist
       expect(await userManager.read(testUser.id), isNotNull);
@@ -2957,14 +2981,16 @@ void main() {
       // Act: Dry-run on large dataset
       final result = await userManager.deleteCascade(testUser.id).forUser(testUser.id).dryRun().execute();
 
-      // Assert: Accurate count of all entities
+      // Assert: Accurate count of all owned entities. The comments belong to
+      // 'other-user', so they are deliberately outside the cascade caller's
+      // user scope and are not counted.
       expect(result.success, isTrue);
-      expect(result.totalDeleted, 1 + postCount + (postCount * commentsPerPost)); // User + Posts + Comments
+      expect(result.totalDeleted, 1 + postCount); // User + Posts
 
       final successResult = result as CascadeSuccess<User>;
       expect(successResult.deletedEntities[User], hasLength(1));
       expect(successResult.deletedEntities[Post], hasLength(postCount));
-      expect(successResult.deletedEntities[Comment], hasLength(postCount * commentsPerPost));
+      expect(successResult.deletedEntities[Comment], isNull);
 
       // Verify entities still exist
       expect(await userManager.read(testUser.id), isNotNull);

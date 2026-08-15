@@ -252,20 +252,29 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   Future<List<T>> query(DatumQuery query, {String? userId}) async {
     // Push the query down to SQLite. User scoping joins the query's own
     // filters so LIMIT/OFFSET apply AFTER scoping, as callers expect.
+    // The caller's filters are wrapped in a composite so the userId scope
+    // ALWAYS ANDs with them — appending it flat would make it just another
+    // alternative under LogicalOperator.or, leaking other users' rows.
     final scoped = userId == null
         ? query
         : DatumQuery(
             filters: [
-              ...query.filters,
+              if (query.filters.isNotEmpty)
+                CompositeFilter(query.filters, query.logicalOperator),
               Filter('userId', FilterOperator.equals, userId),
             ],
             sorting: query.sorting,
             limit: query.limit,
             offset: query.offset,
-            logicalOperator: query.logicalOperator,
+            logicalOperator: LogicalOperator.and,
           );
     final (:sql, :params) = scoped.toSql(table);
-    return database.select(sql, params).map(_entityFromRow).toList();
+    // Filter values arrive as Dart objects (DateTime, bool) that sqlite3's
+    // binder rejects or misreads — encode them like the write path does.
+    return database
+        .select(sql, params.map(_encode).toList())
+        .map(_entityFromRow)
+        .toList();
   }
 
   // --- Writes --------------------------------------------------------------

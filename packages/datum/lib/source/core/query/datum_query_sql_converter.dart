@@ -31,6 +31,11 @@ typedef DatumCustomSqlBuilder = String? Function(
 /// It receives the 1-based index of the placeholder.
 typedef DatumPlaceholderBuilder = String Function(int index);
 
+/// LIKE patterns treat `%`/`_` as wildcards; user values are literals.
+const _likeEscapeClause = r" ESCAPE '\'";
+
+String _escapeLike(String value) => value.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
+
 /// An extension on [DatumQuery] to provide SQL conversion capabilities.
 extension DatumQuerySqlConverter on DatumQuery {
   /// Converts this [DatumQuery] into a parameterized SQL query string.
@@ -107,17 +112,25 @@ extension DatumQuerySqlConverter on DatumQuery {
 
         var value = condition.value;
         var fieldExpression = field;
+        var escapeClause = '';
 
-        // Handle LIKE/ILIKE operators and value wrapping
+        // Handle LIKE/ILIKE operators and value wrapping. The user's value
+        // is a LITERAL (the in-memory matcher uses String.contains), so its
+        // `%`/`_` must not act as wildcards — escape them and declare the
+        // escape character.
         switch (condition.operator) {
           case FilterOperator.contains:
-            value = '%$value%';
+            value = '%${_escapeLike('$value')}%';
+            escapeClause = _likeEscapeClause;
           case FilterOperator.startsWith:
-            value = '$value%';
+            value = '${_escapeLike('$value')}%';
+            escapeClause = _likeEscapeClause;
           case FilterOperator.endsWith:
-            value = '%$value';
+            value = '%${_escapeLike('$value')}';
+            escapeClause = _likeEscapeClause;
           case FilterOperator.containsIgnoreCase:
-            value = '%$value%';
+            value = '%${_escapeLike('$value')}%';
+            escapeClause = _likeEscapeClause;
             if (dialect == SqlDialect.sqlite) {
               // SQLite uses LIKE with LOWER() for case-insensitivity
               fieldExpression = 'LOWER($field)';
@@ -128,10 +141,15 @@ extension DatumQuerySqlConverter on DatumQuery {
         }
 
         params.add(value);
-        return '$fieldExpression $operator ${getPlaceholder()}';
+        return '$fieldExpression $operator ${getPlaceholder()}$escapeClause';
       }
 
       if (condition is CompositeFilter) {
+        if (condition.conditions.isEmpty) {
+          // `()` is a SQL syntax error. Mirror the matcher's vacuous
+          // semantics: an empty AND is true, an empty OR is false.
+          return condition.operator == LogicalOperator.and ? '1=1' : '0=1';
+        }
         final clauses = condition.conditions.map(processCondition).join(' ${condition.operator.name.toUpperCase()} ');
         return '($clauses)';
       }
@@ -151,7 +169,9 @@ extension DatumQuerySqlConverter on DatumQuery {
           }).join(', ')}'
         : '';
 
-    final limitSql = limit != null ? 'LIMIT ${limit!}' : '';
+    // SQLite (and MySQL) reject OFFSET without LIMIT; -1 means unlimited.
+    final effectiveLimit = limit ?? (offset != null && dialect != SqlDialect.postgresql ? -1 : null);
+    final limitSql = effectiveLimit != null ? 'LIMIT $effectiveLimit' : '';
     final offsetSql = offset != null ? 'OFFSET ${offset!}' : '';
 
     final sql = [

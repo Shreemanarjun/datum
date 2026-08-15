@@ -1028,24 +1028,27 @@ void main() {
       // Act: Cascade delete the user
       final result = await userManager.cascadeDelete(id: testUser.id, userId: testUser.id);
 
-      // Assert: Operation was successful
+      // Assert: Operation was successful. The comments belong to
+      // 'other-user', so user-scoped cascade planning leaves them alone.
       expect(result.success, isTrue);
       expect(result.errors, isEmpty);
-      expect(result.totalDeleted, 6); // User + Profile + 2 Posts + 2 Comments
+      expect(result.totalDeleted, 4); // User + Profile + 2 Posts
 
-      // Verify all entities were deleted
+      // Verify the user's own entities were deleted
       expect(await userManager.read(testUser.id), isNull);
       expect(await profileManager.read(testProfile.id), isNull);
       expect(await postManager.read(testPost1.id), isNull);
       expect(await postManager.read(testPost2.id), isNull);
-      expect(await commentManager.read(testComment1.id), isNull);
-      expect(await commentManager.read(testComment2.id), isNull);
+
+      // Cross-user rows survive the cascade.
+      expect(await commentManager.read(testComment1.id), isNotNull);
+      expect(await commentManager.read(testComment2.id), isNotNull);
 
       // Check deleted entities map
       expect(result.deletedEntities[UserMixin], hasLength(1));
       expect(result.deletedEntities[ProfileMixin], hasLength(1));
       expect(result.deletedEntities[PostMixin], hasLength(2));
-      expect(result.deletedEntities[CommentMixin], hasLength(2));
+      expect(result.deletedEntities[CommentMixin], isNull);
     });
 
     test('cascadeDelete fails when restrict relationship has related entities with mixins', () async {
@@ -1173,9 +1176,11 @@ void main() {
         createdAt: DateTime(2023),
       );
 
+      // Owned by the same user so the user-scoped cascade can reach them
+      // (BlogPostMixin has no restrict relation on comments).
       final comment1 = CommentMixin(
         id: 'blog-comment-1',
-        userId: 'other-user',
+        userId: testUser.id,
         postId: 'blog-post-1',
         content: 'Great blog post!',
         modifiedAt: DateTime(2023),
@@ -1184,7 +1189,7 @@ void main() {
 
       final comment2 = CommentMixin(
         id: 'blog-comment-2',
-        userId: 'other-user',
+        userId: testUser.id,
         postId: 'blog-post-1',
         content: 'I learned something new',
         modifiedAt: DateTime(2023),

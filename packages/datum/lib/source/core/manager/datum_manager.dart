@@ -603,8 +603,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
     var transformed = await _applyPreSaveTransforms(item);
 
-    // Automatically increment vector clock if deviceId is available
-    if (deviceId != null) {
+    // Automatically increment vector clock if deviceId is available — but
+    // only for locally-originated writes. A remote-sourced save is another
+    // device's edit being applied here; claiming a local causal step for it
+    // makes every subsequent legitimate remote update look concurrent.
+    if (deviceId != null && source == DataSource.local) {
       transformed = transformed.incrementClock(deviceId!) as T;
     }
     final existing = await localAdapter.read(item.id, userId: userId);

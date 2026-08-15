@@ -62,7 +62,7 @@ void main() {
 
       expect(
         result.sql,
-        'SELECT * FROM "$tableName" WHERE "name" LIKE \$1 AND "value" <= \$2',
+        'SELECT * FROM "$tableName" WHERE "name" LIKE \$1 ESCAPE \'\\\' AND "value" <= \$2',
       );
       expect(result.params, ['%test%', 100]);
     });
@@ -123,7 +123,7 @@ void main() {
 
       expect(
         result.sql,
-        'SELECT * FROM "$tableName" WHERE "name" LIKE ? AND "path" LIKE ?',
+        'SELECT * FROM "$tableName" WHERE "name" LIKE ? ESCAPE \'\\\' AND "path" LIKE ? ESCAPE \'\\\'',
       );
       expect(result.params, ['prefix%', '%.txt']);
     });
@@ -147,13 +147,13 @@ void main() {
       final sqliteResult = query.toSql(tableName);
       expect(
         sqliteResult.sql,
-        'SELECT * FROM "$tableName" WHERE LOWER("name") LIKE ?',
+        'SELECT * FROM "$tableName" WHERE LOWER("name") LIKE ? ESCAPE \'\\\'',
       );
       expect(sqliteResult.params, ['%case%']);
 
       // PostgreSQL
       final pgResult = query.toSql(tableName, dialect: SqlDialect.postgresql);
-      expect(pgResult.sql, 'SELECT * FROM "$tableName" WHERE "name" ILIKE \$1');
+      expect(pgResult.sql, 'SELECT * FROM "$tableName" WHERE "name" ILIKE \$1 ESCAPE \'\\\'');
       expect(pgResult.params, ['%Case%']);
     });
 

@@ -130,6 +130,33 @@ All changes below are additive and backward compatible unless noted.
 
 ## 🐛 Bug fixes (sync-engine hardening)
 
+- **cascade planning is user-scoped**: relation traversal queried across
+  ALL users, so another user's rows sharing foreign-key values could
+  restrict-block a delete of data they don't own, and entered plans whose
+  execution (correctly user-scoped) then failed spuriously. All four
+  relation branches now scope by the requesting user.
+- **`CascadeOptions.timeout` actually fires**: the elapsed-time check
+  compared a start time captured the same instant inside the loop
+  (always ≈ 0), so the timeout could never trigger.
+- **in-memory matcher handles `bool` like SQL (0/1)**: Dart's `bool` isn't
+  `Comparable`, so sorting by a bool field silently no-oped and ordering
+  filters (`isGreaterThan` etc.) excluded every row — while SQLite sorted
+  and compared 0/1. Matcher and SQL paths now agree.
+- **SQL converter correctness**: LIKE values are escaped (`%`/`_` in a
+  `contains:` value matched as wildcards instead of literals, with an
+  `ESCAPE` clause now declared), `OFFSET` without `LIMIT` no longer emits
+  invalid SQLite syntax (`LIMIT -1` is added), and an empty
+  `CompositeFilter` renders `1=1`/`0=1` instead of the syntax error `()`.
+- **query cache keys are collision-free**: the key ignored the query's
+  `logicalOperator`, the CONTENTS of nested `CompositeFilter`s, and
+  `nullSortOrder` — with `enableQueryCache: true`, an OR query could be
+  served the cached results of the AND query over the same filters.
+- **vector clocks only advance for local edits**: `push()` incremented
+  this device's clock component even for `DataSource.remote` saves (the
+  realtime change-stream path), so merely observing another device's edit
+  claimed a causal step and made every later legitimate remote update look
+  concurrent — spurious conflicts, and lost updates under local-leaning
+  resolvers.
 - **cascade delete honors `setNull` on the plain path**: `cascadeDelete()`
   hard-deleted `HasMany`/`HasOne` children marked
   `CascadeDeleteBehavior.setNull` instead of patching their foreign key to

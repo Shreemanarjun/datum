@@ -51,20 +51,29 @@ class ManagerCacheCoordinator<T extends DatumEntityInterface> {
   }
 
   /// Creates a cache key for a query.
+  ///
+  /// Every part of the query that affects results must reach the key —
+  /// two queries that differ only in logical operator, nested composite
+  /// contents, or null sort order must never collide.
   String createQueryCacheKey(DatumQuery query, DataSource source, String? userId) {
     final buffer = StringBuffer();
     buffer.write('${T.toString()}:${source.name}');
     if (userId != null) buffer.write(':$userId');
+    buffer.write(':op=${query.logicalOperator.name}');
+
+    String condition(FilterCondition filter) => switch (filter) {
+          Filter() => '${filter.field}${filter.operator}${filter.value}',
+          CompositeFilter() => 'composite:${filter.operator.name}(${filter.conditions.map(condition).join(';')})',
+          _ => filter.toString(),
+        };
 
     // Include filters in cache key (order matters for consistency)
     if (query.filters.isNotEmpty) {
       buffer.write(':filters=');
       for (final filter in query.filters) {
-        if (filter is Filter) {
-          buffer.write('${filter.field}${filter.operator}${filter.value};');
-        } else if (filter is CompositeFilter) {
-          buffer.write('composite${filter.operator}${filter.conditions.length};');
-        }
+        buffer
+          ..write(condition(filter))
+          ..write(';');
       }
     }
 
@@ -72,7 +81,7 @@ class ManagerCacheCoordinator<T extends DatumEntityInterface> {
     if (query.sorting.isNotEmpty) {
       buffer.write(':sort=');
       for (final sort in query.sorting) {
-        buffer.write('${sort.field}${sort.descending ? 'desc' : 'asc'};');
+        buffer.write('${sort.field}${sort.descending ? 'desc' : 'asc'}${sort.nullSortOrder.name};');
       }
     }
 

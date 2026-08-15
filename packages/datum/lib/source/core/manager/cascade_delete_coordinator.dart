@@ -233,7 +233,11 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
         results = await relation.getRelatedManager().query(
               DatumQuery(filters: [Filter(foreignKey, FilterOperator.equals, localKeyValue)]),
               source: DataSource.local,
-              // For cascade delete, don't filter by userId to find all related entities
+              // Scope to the requesting user: another user's rows can share
+              // foreign-key VALUES (their own graph reuses the same ids), and
+              // the executor deletes with this userId anyway — unscoped
+              // planning produced spurious failures and cross-user restricts.
+              userId: userId,
             );
       case ManyToMany():
         final thisLocalKeyValue = parent.toDatumMap()[relation.thisLocalKey];
@@ -246,7 +250,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
         final pivotEntities = await pivotManager.query(
           DatumQuery(filters: [Filter(relation.thisForeignKey, FilterOperator.equals, thisLocalKeyValue)]),
           source: DataSource.local,
-          // For cascade delete, don't filter by userId to find all related entities
+          userId: userId,
         );
 
         // Extract the foreign keys of the related entities from the pivot entities
@@ -261,14 +265,14 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
         results = await relatedManager.query(
           DatumQuery(filters: [Filter('id', FilterOperator.isIn, otherForeignKeys)]),
           source: DataSource.local,
-          // For cascade delete, don't filter by userId to find all related entities
+          userId: userId,
         );
       case BelongsTo():
         final foreignKeyValue = parent.toDatumMap()[relation.foreignKey];
         if (foreignKeyValue == null) return [];
 
         final manager = relation.getRelatedManager();
-        final entity = await manager.read(foreignKeyValue); // Don't filter by userId for cascade delete
+        final entity = await manager.read(foreignKeyValue, userId: userId);
         results = entity != null ? [entity] : [];
     }
 
@@ -342,6 +346,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
     final deletedEntities = <Type, List<DatumEntityInterface>>{};
     final errors = <String>[];
     var completed = 0;
+    final startTime = DateTime.now();
 
     // Execute deletes in the planned order
     for (final step in plan.steps) {
@@ -353,8 +358,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
       }
 
       // Check for timeout
-      final startTime = DateTime.now();
-      if (startTime.difference(DateTime.now()) > options.timeout) {
+      if (DateTime.now().difference(startTime) > options.timeout) {
         analyticsBuilder.recordError();
         errors.add('Operation timed out');
         break;
