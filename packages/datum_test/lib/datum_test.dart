@@ -25,6 +25,7 @@
 /// support.
 library;
 
+export 'src/auto_migration_conformance.dart';
 export 'src/chaos_profiles.dart';
 export 'src/conformance_entity.dart';
 export 'src/convergence_fuzz.dart';

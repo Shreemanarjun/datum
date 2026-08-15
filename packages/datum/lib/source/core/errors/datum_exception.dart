@@ -294,6 +294,39 @@ class MigrationException extends DatumException {
   List<Object?> get props => [...super.props, e, stackTrace];
 }
 
+// Exception thrown when a typed schema read fails (wrong type / missing key).
+class SchemaReadException extends DatumException {
+  final String? entity;
+  final String fieldName;
+  final Type expectedType;
+  final Object? actualValue;
+  final Object? cause;
+
+  SchemaReadException({
+    this.entity,
+    required this.fieldName,
+    required this.expectedType,
+    this.actualValue,
+    this.cause,
+  }) : super(
+          code: DatumExceptionCode.schemaMismatch,
+          message: 'Failed to read field "$fieldName"'
+              '${entity != null ? ' of $entity' : ''}: expected $expectedType, '
+              'got ${actualValue == null ? 'null' : '${actualValue.runtimeType} ($actualValue)'}'
+              '${cause != null ? ' — $cause' : ''}',
+          details: {
+            'field': fieldName,
+            'expectedType': expectedType.toString(),
+            if (entity != null) 'entity': entity,
+            if (actualValue != null) 'actualValue': actualValue.toString(),
+            if (cause != null) 'cause': cause.toString(),
+          },
+        );
+
+  @override
+  List<Object?> get props => [...super.props, entity, fieldName, expectedType, actualValue];
+}
+
 // Exception thrown when user switch failed
 class UserSwitchException extends DatumException {
   final String? oldUserId;

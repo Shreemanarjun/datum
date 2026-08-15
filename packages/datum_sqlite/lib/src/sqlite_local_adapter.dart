@@ -41,12 +41,16 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
         TransactionalAdapter,
         PaginatedAdapter,
         WatchableAdapter,
-        RawQueryCapable {
+        RawQueryCapable,
+        SqlSchemaCapable,
+        SchemaFingerprintCapable {
   SqliteLocalAdapter({
     required this.database,
     required this.table,
     required this.fromMap,
     this.columns = const {},
+    this.schema,
+    this.strictColumns = false,
   });
 
   /// The open SQLite database. The adapter does not own it exclusively;
@@ -59,8 +63,17 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   /// Deserializes a row map into an entity.
   final T Function(Map<String, dynamic> map) fromMap;
 
-  /// Payload columns: `toDatumMap` key → SQLite column type.
+  /// Payload columns: `toDatumMap` key → SQLite column type. When empty and
+  /// [schema] is given, the payload columns are derived from it instead.
   final Map<String, String> columns;
+
+  /// The declared runtime schema; derives the payload columns when [columns]
+  /// is empty, and backs `DatumConfig.autoMigrate` reconciliation.
+  final DatumSchema<T>? schema;
+
+  /// When true, writing or patching a payload key that is not a declared
+  /// column throws instead of silently dropping it.
+  final bool strictColumns;
 
   static const Map<String, String> _coreColumns = {
     'id': 'TEXT PRIMARY KEY',
@@ -77,15 +90,28 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   String get _syncStateTable => '${table}__sync_state';
   String get _metaTable => '${table}__meta';
 
+  @override
+  String get sqlTable => table;
+
   String _q(String ident) => '"${ident.replaceAll('"', '""')}"';
 
+  /// The effective payload columns: explicit [columns] win, else derived
+  /// from [schema] (minus the core sync columns it also declares).
+  late final Map<String, String> _payloadColumns = columns.isNotEmpty
+      ? columns
+      : ({...?schema?.sqlColumns()}
+          ..removeWhere((key, _) => _coreColumns.containsKey(key)));
+
   /// Every column of the entity table, in declaration order.
-  late final List<String> _allColumns = [..._coreColumns.keys, ...columns.keys];
+  late final List<String> _allColumns = [
+    ..._coreColumns.keys,
+    ..._payloadColumns.keys,
+  ];
 
   /// Columns decoded back to `bool` (declared BOOLEAN, or the core flag).
   late final Set<String> _boolColumns = {
     'isDeleted',
-    for (final MapEntry(:key, :value) in columns.entries)
+    for (final MapEntry(:key, :value) in _payloadColumns.entries)
       if (value.toUpperCase().contains('BOOL')) key,
   };
 
@@ -94,7 +120,8 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
     final defs = [
       for (final MapEntry(:key, :value) in _coreColumns.entries)
         '${_q(key)} $value',
-      for (final MapEntry(:key, :value) in columns.entries) '${_q(key)} $value',
+      for (final MapEntry(:key, :value) in _payloadColumns.entries)
+        '${_q(key)} $value',
     ].join(', ');
     database
       ..execute('CREATE TABLE IF NOT EXISTS ${_q(table)} ($defs)')
@@ -243,8 +270,21 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
 
   // --- Writes --------------------------------------------------------------
 
+  /// Throws when [strictColumns] is on and [keys] contains undeclared ones.
+  void _checkDeclared(Iterable<String> keys) {
+    if (!strictColumns) return;
+    final unknown = keys.where((k) => !_allColumns.contains(k)).toList();
+    if (unknown.isNotEmpty) {
+      throw ArgumentError(
+        'Undeclared column(s) for "$table": ${unknown.join(', ')}. '
+        'Declare them in columns:/schema:, or disable strictColumns.',
+      );
+    }
+  }
+
   /// Upserts a row from its map form, covering the table's known columns.
   void _insertRow(Map<String, dynamic> map) {
+    _checkDeclared(map.keys);
     final cols = _allColumns.where(map.containsKey).toList();
     final placeholders = List.filled(cols.length, '?').join(', ');
     database.execute(
@@ -272,6 +312,7 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
     required Map<String, dynamic> delta,
     String? userId,
   }) async {
+    _checkDeclared(delta.keys);
     final cols = delta.keys.where(_allColumns.contains).toList();
     if (cols.isNotEmpty) {
       final assignments = cols.map((c) => '${_q(c)} = ?').join(', ');
@@ -430,6 +471,22 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
     database.execute(
       "INSERT OR REPLACE INTO ${_q(_metaTable)} (key, value) VALUES ('schema_version', ?)",
       ['$version'],
+    );
+  }
+
+  @override
+  Future<String?> getStoredSchemaFingerprint() async {
+    final rows = database.select(
+      "SELECT value FROM ${_q(_metaTable)} WHERE key = 'schema_fingerprint'",
+    );
+    return rows.isEmpty ? null : rows.first['value'] as String;
+  }
+
+  @override
+  Future<void> setStoredSchemaFingerprint(String fingerprint) async {
+    database.execute(
+      "INSERT OR REPLACE INTO ${_q(_metaTable)} (key, value) VALUES ('schema_fingerprint', ?)",
+      [fingerprint],
     );
   }
 

@@ -16,6 +16,7 @@ library;
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_sync_scope.dart';
 import 'package:datum/source/core/query/datum_raw_query.dart';
+import 'package:datum/source/core/query/datum_query_sql_converter.dart';
 
 /// The adapter implements real ACID-style [transaction] semantics (atomic
 /// commit/rollback), not just a pass-through.
@@ -108,4 +109,31 @@ mixin CursorSyncCapable<T extends DatumEntityInterface> {
   /// and the cursor for the next call, honoring [userId] and [scope] the
   /// same way `readAll` does.
   Future<CursorPage<T>> readChanges(String? cursor, {String? userId, DatumSyncScope? scope});
+}
+
+/// The local adapter persists an opaque **schema fingerprint** — the
+/// auto-migration fast path.
+///
+/// When `DatumConfig.autoMigrate` is on, the engine stamps
+/// `DatumSchema.fingerprint` after a successful reconciliation and skips
+/// introspection entirely on later launches while the stored value matches.
+/// Adapters without this capability still work: the auto pass simply
+/// re-introspects on every `initialize()` (correct, just slower).
+mixin SchemaFingerprintCapable {
+  /// The last stamped fingerprint, or null when never stamped.
+  Future<String?> getStoredSchemaFingerprint();
+
+  /// Stamps [fingerprint] as the reconciled declaration.
+  Future<void> setStoredSchemaFingerprint(String fingerprint);
+}
+
+/// A SQL-backed local adapter that exposes its table and dialect, letting
+/// the engine run schema DDL against it (the auto-migration SQL path)
+/// without knowing adapter internals. Pair with [RawQueryCapable].
+mixin SqlSchemaCapable {
+  /// The table entities live in.
+  String get sqlTable;
+
+  /// The SQL dialect DDL should be generated for.
+  SqlDialect get sqlDialect => SqlDialect.sqlite;
 }

@@ -48,8 +48,10 @@ class BenchItem extends DatumEntity {
         title: map['title'] as String? ?? '',
         priority: (map['priority'] as num?)?.toInt() ?? 0,
         done: map['done'] as bool? ?? false,
-        createdAt: DateTime.tryParse(map['createdAt'] as String? ?? '') ?? DateTime(2000),
-        modifiedAt: DateTime.tryParse(map['modifiedAt'] as String? ?? '') ?? DateTime(2000),
+        createdAt: DateTime.tryParse(map['createdAt'] as String? ?? '') ??
+            DateTime(2000),
+        modifiedAt: DateTime.tryParse(map['modifiedAt'] as String? ?? '') ??
+            DateTime(2000),
         version: (map['version'] as num?)?.toInt() ?? 1,
         isDeleted: map['isDeleted'] as bool? ?? false,
       );
@@ -96,7 +98,13 @@ class BenchItem extends DatumEntity {
     return delta;
   }
 
-  BenchItem copyWith({String? title, int? priority, bool? done, bool? isDeleted, DateTime? modifiedAt, int? version}) =>
+  BenchItem copyWith(
+          {String? title,
+          int? priority,
+          bool? done,
+          bool? isDeleted,
+          DateTime? modifiedAt,
+          int? version}) =>
       BenchItem(
         id: id,
         userId: userId,
@@ -113,7 +121,8 @@ class BenchItem extends DatumEntity {
   List<Object?> get props => [...super.props, title, priority, done];
 }
 
-BenchItem make(String id, {String userId = 'u1', String title = 'item', int priority = 0}) {
+BenchItem make(String id,
+    {String userId = 'u1', String title = 'item', int priority = 0}) {
   final now = DateTime.now();
   return BenchItem(
     id: id,
@@ -127,18 +136,84 @@ BenchItem make(String id, {String userId = 'u1', String title = 'item', int prio
 }
 
 // ---------------------------------------------------------------------------
+// Typed runtime schema for BenchItem (the no-codegen type-safety layer)
+// ---------------------------------------------------------------------------
+
+abstract final class BenchFields {
+  static final title = DatumFieldSpec<BenchItem, String>('title',
+      getter: (e) => e.title, defaultValue: '');
+  static final priority = DatumFieldSpec<BenchItem, int>('priority',
+      getter: (e) => e.priority, defaultValue: 0);
+  static final done = DatumFieldSpec<BenchItem, bool>('done',
+      getter: (e) => e.done, defaultValue: false);
+}
+
+final benchCore = datumCoreFieldSpecs<BenchItem>();
+
+/// One declaration powering typed queries, decode-as-fromMap, derived SQLite
+/// columns, and auto-migration in the groups below.
+final benchSchema = DatumSchema<BenchItem>(
+  name: 'bench_items',
+  fields: [
+    ...benchCore.all,
+    BenchFields.title,
+    BenchFields.priority,
+    BenchFields.done
+  ],
+  construct: (r) => BenchItem(
+    id: r(benchCore.id),
+    userId: r(benchCore.userId),
+    title: r(BenchFields.title),
+    priority: r.getOr(BenchFields.priority, 0),
+    done: r.getOr(BenchFields.done, false),
+    createdAt: r(benchCore.createdAt),
+    modifiedAt: r(benchCore.modifiedAt),
+    version: r(benchCore.version),
+    isDeleted: r.getOr(benchCore.isDeleted, false),
+  ),
+);
+
+/// The upgrade target for the auto-migration groups: `name` → `title` via a
+/// rename hint, plus new `priority`/`done` columns with defaults.
+DatumSchema<BenchItem> legacyUpgradeSchema(String name) =>
+    DatumSchema<BenchItem>(
+      name: name,
+      fields: [
+        ...benchCore.all,
+        DatumFieldSpec<BenchItem, String>('title',
+            renamedFrom: 'name', defaultValue: ''),
+        BenchFields.priority,
+        BenchFields.done,
+      ],
+    );
+
+Map<String, dynamic> legacyRow(String id, {String name = 'legacy'}) => {
+      'id': id,
+      'userId': 'u1',
+      'name': name,
+      'legacy': 1,
+      'createdAt': '2026-01-01T00:00:00.000Z',
+      'modifiedAt': '2026-01-01T00:00:00.000Z',
+      'version': 1,
+      'isDeleted': false,
+    };
+
+// ---------------------------------------------------------------------------
 // Benchmark collector
 // ---------------------------------------------------------------------------
 
 class Bench {
-  final entries = <({String section, String label, Duration elapsed, int ops})>[];
+  final entries =
+      <({String section, String label, Duration elapsed, int ops})>[];
   String section = '';
 
-  Future<R> run<R>(String label, Future<R> Function() body, {int ops = 1}) async {
+  Future<R> run<R>(String label, Future<R> Function() body,
+      {int ops = 1}) async {
     final sw = Stopwatch()..start();
     final result = await body();
     sw.stop();
-    entries.add((section: section, label: label, elapsed: sw.elapsed, ops: ops));
+    entries
+        .add((section: section, label: label, elapsed: sw.elapsed, ops: ops));
     return result;
   }
 
@@ -153,21 +228,27 @@ class Bench {
 
   void printReport() {
     String pad(String s, int w) => s.length >= w ? s : s + ' ' * (w - s.length);
-    String lpad(String s, int w) => s.length >= w ? s : ' ' * (w - s.length) + s;
+    String lpad(String s, int w) =>
+        s.length >= w ? s : ' ' * (w - s.length) + s;
     final buffer = StringBuffer()
       ..writeln('')
-      ..writeln('══ Datum E2E benchmarks ══════════════════════════════════════════════════')
+      ..writeln(
+          '══ Datum E2E benchmarks ══════════════════════════════════════════════════')
       ..writeln('${pad('section', 9)} ${pad('phase', 38)} ${lpad('ops', 5)} '
           '${lpad('total ms', 9)} ${lpad('µs/op', 9)} ${lpad('ops/s', 9)}');
     for (final e in entries) {
       final microsPerOp = e.elapsed.inMicroseconds / e.ops;
-      final opsPerSec = e.elapsed.inMicroseconds == 0 ? 0 : e.ops * 1e6 / e.elapsed.inMicroseconds;
-      buffer.writeln('${pad(e.section, 9)} ${pad(e.label, 38)} ${lpad('${e.ops}', 5)} '
+      final opsPerSec = e.elapsed.inMicroseconds == 0
+          ? 0
+          : e.ops * 1e6 / e.elapsed.inMicroseconds;
+      buffer.writeln(
+          '${pad(e.section, 9)} ${pad(e.label, 38)} ${lpad('${e.ops}', 5)} '
           '${lpad((e.elapsed.inMicroseconds / 1000).toStringAsFixed(1), 9)} '
           '${lpad(microsPerOp.toStringAsFixed(1), 9)} '
           '${lpad(opsPerSec.toStringAsFixed(0), 9)}');
     }
-    buffer.writeln('══════════════════════════════════════════════════════════════════════════');
+    buffer.writeln(
+        '══════════════════════════════════════════════════════════════════════════');
     // ignore: avoid_print
     print(buffer);
   }
@@ -191,7 +272,8 @@ class SuiteContext {
 
   /// A second remote adapter acting as "another device / the backend itself".
   Future<HttpRemoteAdapter<BenchItem>> seeder() async {
-    final adapter = HttpRemoteAdapter<BenchItem>(baseUri: server.baseUri, fromMap: BenchItem.fromMap);
+    final adapter = HttpRemoteAdapter<BenchItem>(
+        baseUri: server.baseUri, fromMap: BenchItem.fromMap);
     await adapter.initialize();
     return adapter;
   }
@@ -200,7 +282,8 @@ class SuiteContext {
 void registerBackendSuite({
   required String backend,
   required Bench bench,
-  required Future<LocalAdapter<BenchItem>> Function(SuiteContext ctx) createLocal,
+  required Future<LocalAdapter<BenchItem>> Function(SuiteContext ctx)
+      createLocal,
   required Future<void> Function(SuiteContext ctx) runMigrationPhase,
 }) {
   group('E2E · $backend + local HTTP sync server', () {
@@ -221,7 +304,8 @@ void registerBackendSuite({
           registrations: [
             DatumRegistration<BenchItem>(
               localAdapter: ctx.local,
-              remoteAdapter: HttpRemoteAdapter<BenchItem>(baseUri: ctx.server.baseUri, fromMap: BenchItem.fromMap),
+              remoteAdapter: HttpRemoteAdapter<BenchItem>(
+                  baseUri: ctx.server.baseUri, fromMap: BenchItem.fromMap),
             ),
           ],
         );
@@ -247,8 +331,13 @@ void registerBackendSuite({
     });
 
     testWidgets('local batch write: saveMany × $batchSize', (tester) async {
-      final items = [for (var i = 0; i < batchSize; i++) make('b$i', title: 'batch $i', priority: i % 5)];
-      await bench.run('local write (saveMany)', () => ctx.manager.saveMany(items: items, userId: 'u1'), ops: batchSize);
+      final items = [
+        for (var i = 0; i < batchSize; i++)
+          make('b$i', title: 'batch $i', priority: i % 5)
+      ];
+      await bench.run('local write (saveMany)',
+          () => ctx.manager.saveMany(items: items, userId: 'u1'),
+          ops: batchSize);
       expect(await ctx.manager.count(userId: 'u1'), batchSize);
     });
 
@@ -259,7 +348,9 @@ void registerBackendSuite({
         for (var i = 0; i < iterations; i++) {
           page = await ctx.manager.query(
             const DatumQuery(
-              filters: [Filter('priority', FilterOperator.greaterThanOrEqual, 3)],
+              filters: [
+                Filter('priority', FilterOperator.greaterThanOrEqual, 3)
+              ],
               sorting: [SortDescriptor('priority', descending: true)],
               limit: 20,
             ),
@@ -281,12 +372,14 @@ void registerBackendSuite({
           .firstWhere((all) => all.any((e) => e.id == 'watched'))
           .timeout(const Duration(seconds: 15));
       await bench.run('watch stream latency (1 write)', () async {
-        await ctx.manager.push(item: make('watched', title: 'observe me'), userId: 'u1');
+        await ctx.manager
+            .push(item: make('watched', title: 'observe me'), userId: 'u1');
         await emitted;
       });
     });
 
-    testWidgets('sync push: all pending operations reach the server', (tester) async {
+    testWidgets('sync push: all pending operations reach the server',
+        (tester) async {
       final result = await bench.run(
         'sync push (${batchSize + 1} ops)',
         () => ctx.manager.synchronize('u1'),
@@ -298,14 +391,19 @@ void registerBackendSuite({
 
     testWidgets('incremental second cycle is a near no-op', (tester) async {
       final requestsBefore = ctx.server.requestLog.length;
-      final result = await bench.run('idle sync cycle (nothing changed)', () => ctx.manager.synchronize('u1'));
+      final result = await bench.run('idle sync cycle (nothing changed)',
+          () => ctx.manager.synchronize('u1'));
       expect(result.failedCount, 0);
-      expect(result.syncedCount, 0, reason: 'nothing changed since the previous cycle');
-      expect(ctx.server.requestLog.length - requestsBefore, lessThanOrEqualTo(4),
-          reason: 'an idle cycle should only need a metadata check plus at most a light pull');
+      expect(result.syncedCount, 0,
+          reason: 'nothing changed since the previous cycle');
+      expect(
+          ctx.server.requestLog.length - requestsBefore, lessThanOrEqualTo(4),
+          reason:
+              'an idle cycle should only need a metadata check plus at most a light pull');
     });
 
-    testWidgets('pull: $pullSize remote-born rows land locally', (tester) async {
+    testWidgets('pull: $pullSize remote-born rows land locally',
+        (tester) async {
       final seeder = await ctx.seeder();
       for (var i = 0; i < pullSize; i++) {
         await seeder.create(make('srv$i', title: 'server born $i'));
@@ -313,14 +411,17 @@ void registerBackendSuite({
       // Invalidate the client's cached metadata hash so the pull actually runs
       // (out-of-band server writes don't update the sync metadata on their own).
       ctx.server.pokeMetadata('u1');
-      final result = await bench.run('sync pull ($pullSize remote rows)', () => ctx.manager.synchronize('u1'), ops: pullSize);
+      final result = await bench.run('sync pull ($pullSize remote rows)',
+          () => ctx.manager.synchronize('u1'),
+          ops: pullSize);
       expect(result.failedCount, 0);
       final local = await ctx.local.read('srv0', userId: 'u1');
       expect(local?.title, 'server born 0');
       expect(await ctx.manager.count(userId: 'u1'), batchSize + 1 + pullSize);
     });
 
-    testWidgets('conflict: newer remote edit wins (LWW convergence)', (tester) async {
+    testWidgets('conflict: newer remote edit wins (LWW convergence)',
+        (tester) async {
       final mine = (await ctx.local.read('b0', userId: 'u1'))!;
       final seeder = await ctx.seeder();
       await seeder.update(mine.copyWith(
@@ -329,11 +430,14 @@ void registerBackendSuite({
         modifiedAt: DateTime.now().add(const Duration(seconds: 2)),
       ));
       ctx.server.pokeMetadata('u1');
-      await bench.run('conflict cycle (remote newer)', () => ctx.manager.synchronize('u1'));
-      expect((await ctx.local.read('b0', userId: 'u1'))?.title, 'edited remotely');
+      await bench.run(
+          'conflict cycle (remote newer)', () => ctx.manager.synchronize('u1'));
+      expect(
+          (await ctx.local.read('b0', userId: 'u1'))?.title, 'edited remotely');
     });
 
-    testWidgets('conflict: stale remote does not clobber newer local', (tester) async {
+    testWidgets('conflict: stale remote does not clobber newer local',
+        (tester) async {
       final mine = (await ctx.local.read('b1', userId: 'u1'))!;
       final newerLocal = mine.copyWith(title: 'kept local');
       await ctx.manager.push(item: newerLocal, userId: 'u1');
@@ -346,20 +450,25 @@ void registerBackendSuite({
         modifiedAt: DateTime.now().subtract(const Duration(days: 1)),
       ));
       ctx.server.pokeMetadata('u1');
-      await bench.run('conflict cycle (remote stale)', () => ctx.manager.synchronize('u1'));
+      await bench.run(
+          'conflict cycle (remote stale)', () => ctx.manager.synchronize('u1'));
       expect((await ctx.local.read('b1', userId: 'u1'))?.title, 'kept local');
     });
 
-    testWidgets('offline queue + replay when connectivity returns', (tester) async {
+    testWidgets('offline queue + replay when connectivity returns',
+        (tester) async {
       ctx.connectivity.setOnline(false);
-      await ctx.manager.push(item: make('offline1', title: 'queued while offline'), userId: 'u1');
+      await ctx.manager.push(
+          item: make('offline1', title: 'queued while offline'), userId: 'u1');
       expect(ctx.server.storage['u1']?['offline1'], isNull);
       expect(await ctx.manager.getPendingOperations('u1'), isNotEmpty);
 
       ctx.connectivity.setOnline(true);
-      final result = await bench.run('offline replay (1 queued op)', () => ctx.manager.synchronize('u1'));
+      final result = await bench.run(
+          'offline replay (1 queued op)', () => ctx.manager.synchronize('u1'));
       expect(result.failedCount, 0);
-      expect(ctx.server.storage['u1']?['offline1']?['title'], 'queued while offline');
+      expect(ctx.server.storage['u1']?['offline1']?['title'],
+          'queued while offline');
     });
 
     testWidgets('soft delete propagates to the server', (tester) async {
@@ -371,7 +480,9 @@ void registerBackendSuite({
     });
 
     testWidgets('users are isolated end to end', (tester) async {
-      await ctx.manager.push(item: make('theirs', userId: 'u2', title: 'other user'), userId: 'u2');
+      await ctx.manager.push(
+          item: make('theirs', userId: 'u2', title: 'other user'),
+          userId: 'u2');
       await ctx.manager.synchronize('u2');
       final mine = await ctx.local.readAll(userId: 'u1');
       final theirs = await ctx.local.readAll(userId: 'u2');
@@ -380,7 +491,8 @@ void registerBackendSuite({
       expect(ctx.server.storage['u2']?.keys, ['theirs']);
     });
 
-    testWidgets('schema migration: transform runs on stored rows', (tester) async {
+    testWidgets('schema migration: transform runs on stored rows',
+        (tester) async {
       await runMigrationPhase(ctx);
       final all = await ctx.local.readAll(userId: 'u1');
       expect(all, isNotEmpty);
@@ -445,7 +557,8 @@ List<SchemaMigration> gappedChain() => [
 void registerMigrationSuite({
   required String backend,
   required Bench bench,
-  required Future<LocalAdapter<BenchItem>> Function(String storeName) createAdapter,
+  required Future<LocalAdapter<BenchItem>> Function(String storeName)
+      createAdapter,
   required Future<MigrationResult> Function(
     LocalAdapter<BenchItem> adapter,
     String storeName,
@@ -465,12 +578,15 @@ void registerMigrationSuite({
     Future<LocalAdapter<BenchItem>> seeded(String storeName, int rows) async {
       final adapter = await createAdapter(storeName);
       await adapter.createAll([
-        for (var i = 0; i < rows; i++) make('m$i', title: 'row $i', priority: i % 10),
+        for (var i = 0; i < rows; i++)
+          make('m$i', title: 'row $i', priority: i % 10),
       ]);
       return adapter;
     }
 
-    testWidgets('multi-step chain (add → transform → remove) over $migrationRows rows', (tester) async {
+    testWidgets(
+        'multi-step chain (add → transform → remove) over $migrationRows rows',
+        (tester) async {
       bench.section = backend;
       mainAdapter = await bench.run(
         'adapter createAll ($migrationRows rows)',
@@ -483,7 +599,8 @@ void registerMigrationSuite({
         () => migrate(mainAdapter, 'mig_main', deepChain(), 3),
         ops: migrationRows,
       );
-      expect(result.success, isTrue, reason: 'migration failed: ${result.migrationError}');
+      expect(result.success, isTrue,
+          reason: 'migration failed: ${result.migrationError}');
       expect(await mainAdapter.getStoredSchemaVersion(), 3);
 
       final all = await mainAdapter.readAll(userId: 'u1');
@@ -498,14 +615,18 @@ void registerMigrationSuite({
       final adapter = await seeded('mig_gap', 50);
       final result = await migrate(adapter, 'mig_gap', gappedChain(), 3);
       expect(result.success, isFalse);
-      expect(await adapter.getStoredSchemaVersion(), 0, reason: 'no step may run');
+      expect(await adapter.getStoredSchemaVersion(), 0,
+          reason: 'no step may run');
       final all = await adapter.readAll(userId: 'u1');
-      expect(all.every((e) => e.priority < 10), isTrue, reason: 'data untouched');
+      expect(all.every((e) => e.priority < 10), isTrue,
+          reason: 'data untouched');
     });
 
-    testWidgets('rollback: a failing step restores data and version', (tester) async {
+    testWidgets('rollback: a failing step restores data and version',
+        (tester) async {
       final adapter = await seeded('mig_fail', 50);
-      final result = await migrate(adapter, 'mig_fail', runtimeFailingChain(), 1);
+      final result =
+          await migrate(adapter, 'mig_fail', runtimeFailingChain(), 1);
       expect(result.success, isFalse);
       expect(await adapter.getStoredSchemaVersion(), 0);
       final all = await adapter.readAll(userId: 'u1');
@@ -513,7 +634,8 @@ void registerMigrationSuite({
       expect(all.every((e) => e.priority < 10), isTrue, reason: 'rolled back');
     });
 
-    testWidgets('run-once: re-executing a completed chain is a no-op', (tester) async {
+    testWidgets('run-once: re-executing a completed chain is a no-op',
+        (tester) async {
       final result = await bench.run(
         'migration re-run (already stamped)',
         () => migrate(mainAdapter, 'mig_main', deepChain(), 3),
@@ -544,7 +666,11 @@ void main() {
         database: ctx.database!,
         table: ctx.table,
         fromMap: BenchItem.fromMap,
-        columns: const {'title': 'TEXT', 'priority': 'INTEGER', 'done': 'BOOLEAN'},
+        columns: const {
+          'title': 'TEXT',
+          'priority': 'INTEGER',
+          'done': 'BOOLEAN'
+        },
       );
     },
     runMigrationPhase: (ctx) async {
@@ -556,7 +682,8 @@ void main() {
         dialect: SqlDialect.sqlite,
         logger: DatumLogger(enabled: false),
       ).execute();
-      expect(result.success, isTrue, reason: 'SQL migration failed: ${result.migrationError}');
+      expect(result.success, isTrue,
+          reason: 'SQL migration failed: ${result.migrationError}');
     },
   );
 
@@ -579,7 +706,8 @@ void main() {
         targetVersion: 1,
         logger: DatumLogger(enabled: false),
       ).execute();
-      expect(result.success, isTrue, reason: 'map migration failed: ${result.migrationError}');
+      expect(result.success, isTrue,
+          reason: 'map migration failed: ${result.migrationError}');
     },
   );
 
@@ -599,12 +727,17 @@ void main() {
           database: db!,
           table: storeName,
           fromMap: BenchItem.fromMap,
-          columns: const {'title': 'TEXT', 'priority': 'INTEGER', 'done': 'BOOLEAN'},
+          columns: const {
+            'title': 'TEXT',
+            'priority': 'INTEGER',
+            'done': 'BOOLEAN'
+          },
         );
         await adapter.initialize();
         return adapter;
       },
-      migrate: (adapter, storeName, chain, targetVersion) => SqlMigrationExecutor<BenchItem>(
+      migrate: (adapter, storeName, chain, targetVersion) =>
+          SqlMigrationExecutor<BenchItem>(
         localAdapter: adapter,
         table: storeName,
         migrations: chain,
@@ -643,13 +776,15 @@ void main() {
           Hive.init('${dir!.path}/hive');
         }
         final adapter = HiveLocalAdapter<BenchItem>(
-          entityBoxName: '${storeName}_${DateTime.now().microsecondsSinceEpoch}',
+          entityBoxName:
+              '${storeName}_${DateTime.now().microsecondsSinceEpoch}',
           fromMap: BenchItem.fromMap,
         );
         await adapter.initialize();
         return adapter;
       },
-      migrate: (adapter, storeName, chain, targetVersion) => MigrationExecutor<BenchItem>(
+      migrate: (adapter, storeName, chain, targetVersion) =>
+          MigrationExecutor<BenchItem>(
         localAdapter: adapter,
         migrations: chain,
         targetVersion: targetVersion,
@@ -660,7 +795,8 @@ void main() {
         SchemaMigration(fromVersion: 0, toVersion: 1, operations: [
           ColumnOperation.transform(
             'priority',
-            (value, row) => (value as int) == 5 ? throw StateError('poison row') : value,
+            (value, row) =>
+                (value as int) == 5 ? throw StateError('poison row') : value,
           ),
         ]),
       ],
@@ -670,6 +806,394 @@ void main() {
       },
     );
   }
+
+  // --- Typed schema: queries + codec against a real store on device -------
+  group('Typed schema · queries and decode-as-fromMap (sqlite)', () {
+    late Directory dir;
+    late sql.Database db;
+    late SqliteLocalAdapter<BenchItem> adapter;
+
+    setUpAll(() async {
+      bench.section = 'schema';
+      dir = await Directory.systemTemp.createTemp('datum_schema');
+      db = sql.sqlite3.open('${dir.path}/schema.db');
+      // Columns derived from the schema; fromMap is the schema's decode.
+      adapter = SqliteLocalAdapter<BenchItem>(
+        database: db,
+        table: 'typed_items',
+        fromMap: benchSchema.decode,
+        schema: benchSchema,
+      );
+      await adapter.initialize();
+      await adapter.createAll([
+        for (var i = 0; i < 60; i++)
+          BenchItem(
+            id: 's$i',
+            userId: 'u1',
+            title: 'typed $i',
+            priority: i % 6,
+            done: i.isEven,
+            createdAt: DateTime.now(),
+            modifiedAt: DateTime.now(),
+            version: 1,
+          ),
+      ]);
+    });
+
+    tearDownAll(() async {
+      db.dispose();
+      await dir.delete(recursive: true);
+    });
+
+    testWidgets('schema-derived table round-trips entities through decode',
+        (tester) async {
+      final all = await adapter.readAll(userId: 'u1');
+      expect(all, hasLength(60));
+      final one = await adapter.read('s3', userId: 'u1');
+      expect(one?.title, 'typed 3');
+      expect(one?.priority, 3);
+      expect(one?.done, isFalse);
+    });
+
+    testWidgets('typed whereField queries match the string path (SQL pushdown)',
+        (tester) async {
+      final typed = await bench.run(
+        'typed query (whereField, pushdown)',
+        () => adapter.query(
+          DatumQueryBuilder<BenchItem>()
+              .whereField(BenchFields.priority, isGreaterThanOrEqualTo: 4)
+              .whereField(BenchFields.done, isEqualTo: true)
+              .orderByField(BenchFields.title)
+              .build(),
+          userId: 'u1',
+        ),
+      );
+      final viaStrings = await adapter.query(
+        DatumQueryBuilder<BenchItem>()
+            .where('priority', isGreaterThanOrEqualTo: 4)
+            .where('done', isEqualTo: true)
+            .orderBy('title')
+            .build(),
+        userId: 'u1',
+      );
+      expect(typed, isNotEmpty);
+      expect(typed.map((e) => e.id).toList(),
+          viaStrings.map((e) => e.id).toList());
+      expect(typed.every((e) => e.priority >= 4 && e.done), isTrue);
+    });
+
+    testWidgets('strictColumns turns undeclared payload keys into errors',
+        (tester) async {
+      final strict = SqliteLocalAdapter<BenchItem>(
+        database: db,
+        table: 'strict_items',
+        fromMap: BenchItem.fromMap,
+        columns: const {
+          'title': 'TEXT'
+        }, // priority/done deliberately undeclared
+        strictColumns: true,
+      );
+      await strict.initialize();
+      await expectLater(
+        strict.create(make('x1')),
+        throwsA(isA<ArgumentError>()
+            .having((e) => e.message, 'message', contains('priority'))),
+      );
+    });
+
+    testWidgets('reader failures name the entity, field, and actual value',
+        (tester) async {
+      final broken = benchSchema.toMap(make('bad'))..['priority'] = 'high';
+      expect(
+        () => benchSchema.decode(broken),
+        throwsA(isA<SchemaReadException>()
+            .having((e) => e.entity, 'entity', 'bench_items')
+            .having((e) => e.fieldName, 'fieldName', 'priority')
+            .having((e) => e.message, 'message', contains('String (high)'))),
+      );
+      expect(benchSchema.validate(broken).single.field, 'priority');
+    });
+  });
+
+  // --- Auto-migration: real DDL on a legacy SQLite store -------------------
+  group('Auto-migration · sqlite (real DDL on device)', () {
+    late Directory dir;
+    late String dbPath;
+    sql.Database? db;
+
+    setUpAll(() async {
+      bench.section = 'automig';
+      dir = await Directory.systemTemp.createTemp('datum_automig');
+      dbPath = '${dir.path}/auto.db';
+    });
+
+    tearDownAll(() async {
+      db?.dispose();
+      await dir.delete(recursive: true);
+    });
+
+    testWidgets(
+        'legacy table reconciles: rename + adds + drop, values preserved',
+        (tester) async {
+      db = sql.sqlite3.open(dbPath);
+      const rows = 500;
+      final legacy = SqliteLocalAdapter<BenchItem>(
+        database: db!,
+        table: 'auto_items',
+        fromMap: BenchItem.fromMap,
+        columns: const {'name': 'TEXT', 'legacy': 'INTEGER'},
+      );
+      await legacy.initialize();
+      await legacy.overwriteAllRawData(
+          [for (var i = 0; i < rows; i++) legacyRow('a$i', name: 'legacy $i')]);
+
+      final executor = AutoMigrationExecutor<BenchItem>(
+        localAdapter: legacy,
+        schema: legacyUpgradeSchema('auto_items'),
+        dropRemovedColumns: true,
+        logger: DatumLogger(enabled: false),
+      );
+      final outcome = await bench.run(
+          'auto-migrate legacy table ($rows rows)', executor.execute,
+          ops: rows);
+      expect(outcome.success, isTrue, reason: '${outcome.error}');
+      expect(outcome.applied, hasLength(4),
+          reason: 'rename + two adds + one drop');
+
+      final names = db!
+          .select('PRAGMA table_info("auto_items")')
+          .map((r) => r['name'])
+          .toSet();
+      expect(names, containsAll(['title', 'priority', 'done']));
+      expect(names.intersection({'name', 'legacy'}), isEmpty);
+
+      // The upgraded app reads through an adapter built from the new schema.
+      final upgraded = SqliteLocalAdapter<BenchItem>(
+        database: db!,
+        table: 'auto_items',
+        fromMap: benchSchema.decode,
+        schema: benchSchema,
+      );
+      await upgraded.initialize();
+      final migrated = await upgraded.readAll(userId: 'u1');
+      expect(migrated, hasLength(rows));
+      expect(migrated.first.title, startsWith('legacy '));
+      expect(migrated.every((e) => e.priority == 0 && !e.done), isTrue);
+
+      final again = await bench.run(
+          'auto-migrate fingerprint fast path', executor.execute);
+      expect(again.success, isTrue);
+      expect(again.applied, isEmpty,
+          reason: 'unchanged declaration skips the pass');
+    });
+
+    testWidgets('the fingerprint survives an app relaunch (fresh connection)',
+        (tester) async {
+      db!.dispose();
+      db = sql.sqlite3.open(dbPath);
+      final reopened = SqliteLocalAdapter<BenchItem>(
+        database: db!,
+        table: 'auto_items',
+        fromMap: benchSchema.decode,
+        schema: benchSchema,
+      );
+      await reopened.initialize();
+      expect(await reopened.getStoredSchemaFingerprint(),
+          legacyUpgradeSchema('auto_items').fingerprint);
+      final executor = AutoMigrationExecutor<BenchItem>(
+        localAdapter: reopened,
+        schema: legacyUpgradeSchema('auto_items'),
+        dropRemovedColumns: true,
+        logger: DatumLogger(enabled: false),
+      );
+      expect(await executor.needsMigration(), isFalse,
+          reason: 'fast path across relaunch');
+    });
+
+    testWidgets(
+        'fail-fast: a non-nullable field without a default touches nothing',
+        (tester) async {
+      final legacy = SqliteLocalAdapter<BenchItem>(
+        database: db!,
+        table: 'failfast_items',
+        fromMap: BenchItem.fromMap,
+        columns: const {'name': 'TEXT'},
+      );
+      await legacy.initialize();
+      await legacy.overwriteAllRawData(
+          [legacyRow('f1', name: 'keep me')..remove('legacy')]);
+
+      final badSchema = DatumSchema<BenchItem>(name: 'failfast_items', fields: [
+        ...benchCore.all,
+        DatumFieldSpec<BenchItem, String>(
+            'title'), // non-nullable, no default, no hint
+      ]);
+      final outcome = await AutoMigrationExecutor<BenchItem>(
+        localAdapter: legacy,
+        schema: badSchema,
+        logger: DatumLogger(enabled: false),
+      ).execute();
+      expect(outcome.success, isFalse);
+      expect(outcome.error, isA<MigrationException>());
+      expect('${outcome.error}', contains('"title"'));
+
+      final names = db!
+          .select('PRAGMA table_info("failfast_items")')
+          .map((r) => r['name'])
+          .toSet();
+      expect(names, contains('name'), reason: 'nothing was touched');
+      expect(names, isNot(contains('title')));
+      expect(await legacy.getStoredSchemaFingerprint(), isNull,
+          reason: 'failures never stamp');
+    });
+  });
+
+  // --- Auto-migration: raw-map path on a legacy Hive store -----------------
+  group('Auto-migration · hive (raw maps on device)', () {
+    late Directory dir;
+
+    setUpAll(() async {
+      bench.section = 'automig';
+      dir = await Directory.systemTemp.createTemp('datum_automig_hive');
+      Hive.init('${dir.path}/hive');
+    });
+
+    tearDownAll(() async {
+      await dir.delete(recursive: true);
+    });
+
+    testWidgets('legacy box reconciles and the stamp survives a box reopen',
+        (tester) async {
+      const rows = 300;
+      const boxName = 'auto_hive_items';
+      final legacy = HiveLocalAdapter<BenchItem>(
+          entityBoxName: boxName, fromMap: BenchItem.fromMap);
+      await legacy.initialize();
+      await legacy.overwriteAllRawData(
+          [for (var i = 0; i < rows; i++) legacyRow('h$i', name: 'hive $i')]);
+
+      final schema = legacyUpgradeSchema(boxName);
+      final outcome = await bench.run(
+        'hive auto-migrate legacy box ($rows rows)',
+        () => AutoMigrationExecutor<BenchItem>(
+          localAdapter: legacy,
+          schema: schema,
+          dropRemovedColumns: true,
+          logger: DatumLogger(enabled: false),
+        ).execute(),
+        ops: rows,
+      );
+      expect(outcome.success, isTrue, reason: '${outcome.error}');
+
+      final raw = await legacy.getAllRawData();
+      expect(raw, hasLength(rows));
+      expect(
+          raw.every((r) =>
+              r['title'] != null && r['priority'] == 0 && r['done'] == false),
+          isTrue);
+      expect(raw.any((r) => r.containsKey('name') || r.containsKey('legacy')),
+          isFalse);
+      await legacy.dispose();
+
+      // Relaunch: reopen the same box, fast path via the persisted stamp.
+      final reopened = HiveLocalAdapter<BenchItem>(
+          entityBoxName: boxName, fromMap: BenchItem.fromMap);
+      await reopened.initialize();
+      expect(await reopened.getStoredSchemaFingerprint(), schema.fingerprint);
+      final executor = AutoMigrationExecutor<BenchItem>(
+        localAdapter: reopened,
+        schema: schema,
+        dropRemovedColumns: true,
+        logger: DatumLogger(enabled: false),
+      );
+      expect(await executor.needsMigration(), isFalse);
+      await reopened.dispose();
+    });
+  });
+
+  // --- Auto-migration: the full stack (Datum.initialize + sync) ------------
+  group('Auto-migration · full stack (Datum.initialize + sync)', () {
+    late Directory dir;
+    late sql.Database db;
+    late LocalSyncServer server;
+
+    setUpAll(() async {
+      bench.section = 'stack';
+      dir = await Directory.systemTemp.createTemp('datum_stack');
+      db = sql.sqlite3.open('${dir.path}/stack.db');
+      server = LocalSyncServer();
+      await server.start();
+    });
+
+    tearDownAll(() async {
+      try {
+        await Datum.instance.dispose().timeout(const Duration(seconds: 30));
+      } on StateError {
+        Datum.resetForTesting();
+      }
+      await server.stop();
+      db.dispose();
+      await dir.delete(recursive: true);
+    });
+
+    testWidgets(
+        'initialize reconciles a legacy store, then sync works on the new shape',
+        (tester) async {
+      const rows = 50;
+      final seedAdapter = SqliteLocalAdapter<BenchItem>(
+        database: db,
+        table: 'stack_items',
+        fromMap: BenchItem.fromMap,
+        columns: const {'name': 'TEXT', 'legacy': 'INTEGER'},
+      );
+      await seedAdapter.initialize();
+      await seedAdapter.overwriteAllRawData(
+          [for (var i = 0; i < rows; i++) legacyRow('k$i', name: 'stack $i')]);
+
+      final schema = legacyUpgradeSchema('stack_items');
+      final local = SqliteLocalAdapter<BenchItem>(
+        database: db,
+        table: 'stack_items',
+        fromMap: benchSchema.decode,
+        schema: benchSchema,
+      );
+      final result =
+          await bench.run('Datum.initialize with autoMigrate', () async {
+        return Datum.initialize(
+          config: DatumConfig<BenchItem>(
+            enableLogging: false,
+            schema: schema,
+            autoMigrate: true,
+            autoMigrateDropColumns: true,
+          ),
+          connectivityChecker: TestConnectivityChecker(),
+          registrations: [
+            DatumRegistration<BenchItem>(
+              localAdapter: local,
+              remoteAdapter: HttpRemoteAdapter<BenchItem>(
+                  baseUri: server.baseUri, fromMap: BenchItem.fromMap),
+            ),
+          ],
+        );
+      });
+      expect(result.isSuccess(), isTrue, reason: '${result.errorOrNull}');
+
+      final manager = Datum.manager<BenchItem>();
+      final migrated = await manager.readAll(userId: 'u1');
+      expect(migrated, hasLength(rows));
+      expect(migrated.first.title, startsWith('stack '));
+
+      // The reconciled store keeps syncing: push a new item and synchronize.
+      // (The seeded legacy rows were written raw — no pending ops — so only
+      // the fresh write is due for upload.)
+      await manager.push(
+          item: make('fresh', title: 'post-migration'), userId: 'u1');
+      final sync = await bench.run(
+          'sync after auto-migration', () => manager.synchronize('u1'));
+      expect(sync.failedCount, 0);
+      expect(server.storage['u1']?['fresh']?['title'], 'post-migration');
+    });
+  });
 
   // --- Performance: incremental sync at scale (cursor-based delta) ---------
   group('Performance · incremental sync at scale (sqlite + cursor delta)', () {
@@ -688,7 +1212,11 @@ void main() {
         database: ctx.database!,
         table: 'scale_items',
         fromMap: BenchItem.fromMap,
-        columns: const {'title': 'TEXT', 'priority': 'INTEGER', 'done': 'BOOLEAN'},
+        columns: const {
+          'title': 'TEXT',
+          'priority': 'INTEGER',
+          'done': 'BOOLEAN'
+        },
       );
       final result = await Datum.initialize(
         config: DatumConfig<BenchItem>(enableLogging: false),
@@ -698,7 +1226,8 @@ void main() {
             localAdapter: ctx.local,
             // The cursor-capable adapter — the engine prefers the /changes
             // feed over timestamps or full pulls once a cursor is stored.
-            remoteAdapter: CursorHttpRemoteAdapter<BenchItem>(baseUri: ctx.server.baseUri, fromMap: BenchItem.fromMap),
+            remoteAdapter: CursorHttpRemoteAdapter<BenchItem>(
+                baseUri: ctx.server.baseUri, fromMap: BenchItem.fromMap),
           ),
         ],
       );
@@ -718,14 +1247,22 @@ void main() {
     });
 
     testWidgets('baseline: $scaleRows-row dataset full sync', (tester) async {
-      final items = [for (var i = 0; i < scaleRows; i++) make('s$i', title: 'scale $i', priority: i % 7)];
-      await bench.run('local write ($scaleRows rows)', () => ctx.manager.saveMany(items: items, userId: 'u1'), ops: scaleRows);
-      final result = await bench.run('full sync push ($scaleRows ops)', () => ctx.manager.synchronize('u1'), ops: scaleRows);
+      final items = [
+        for (var i = 0; i < scaleRows; i++)
+          make('s$i', title: 'scale $i', priority: i % 7)
+      ];
+      await bench.run('local write ($scaleRows rows)',
+          () => ctx.manager.saveMany(items: items, userId: 'u1'),
+          ops: scaleRows);
+      final result = await bench.run('full sync push ($scaleRows ops)',
+          () => ctx.manager.synchronize('u1'),
+          ops: scaleRows);
       expect(result.failedCount, 0);
       expect(ctx.server.storage['u1']?.length, scaleRows);
     });
 
-    testWidgets('cursor delta pulls only the $changedRows changed rows', (tester) async {
+    testWidgets('cursor delta pulls only the $changedRows changed rows',
+        (tester) async {
       final seeder = await ctx.seeder();
       for (var i = 0; i < changedRows; i++) {
         final current = (await ctx.local.read('s$i', userId: 'u1'))!;
@@ -756,16 +1293,19 @@ void main() {
 
     testWidgets('idle cycle stays flat with $scaleRows rows', (tester) async {
       final mark = ctx.server.requestLog.length;
-      final result = await bench.run('idle cycle at $scaleRows rows', () => ctx.manager.synchronize('u1'));
+      final result = await bench.run(
+          'idle cycle at $scaleRows rows', () => ctx.manager.synchronize('u1'));
       expect(result.failedCount, 0);
       expect(result.syncedCount, 0);
       expect(ctx.server.requestLog.length - mark, lessThanOrEqualTo(4),
-          reason: 'an idle cycle must stay O(1) in requests regardless of dataset size');
+          reason:
+              'an idle cycle must stay O(1) in requests regardless of dataset size');
     });
   });
 
   group('CRDT · collaborative text (backend-independent)', () {
-    testWidgets('RgaText typing and two-replica merge converge', (tester) async {
+    testWidgets('RgaText typing and two-replica merge converge',
+        (tester) async {
       bench.section = 'crdt';
       var doc = RgaText(replicaId: 'device-a');
       await bench.run('RgaText append (300 chars)', () async {

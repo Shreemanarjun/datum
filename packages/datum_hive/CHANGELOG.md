@@ -1,5 +1,6 @@
 ## 0.1.0
 
+- **Auto-migration support**: both adapters mix in `SchemaFingerprintCapable`, persisting the declaration fingerprint in the metadata box (`__datum_schema_fingerprint__`) so `DatumConfig.autoMigrate` reconciliation is run-once across launches.
 - `query()` now actually honors `DatumQuery` (filters, sorting, pagination) via `DatumQueryMatcher` instead of returning all entities.
 - Implemented `readAllPaginated()` for paginated local reads.
 - Added `watchQuery()` for reactive, query-scoped streams.

@@ -11,6 +11,7 @@ import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart';
 import 'package:datum/source/core/manager/datum_sync_request_strategy.dart';
 import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:datum/source/core/models/cold_start_strategy.dart';
+import 'package:datum/source/core/schema/datum_schema.dart';
 
 import '../core/models/datum_entity.dart';
 
@@ -248,6 +249,24 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
   /// connections in the new isolate.
   final bool useIsolateSync;
 
+  /// The declared runtime schema for this entity — powers typed reads and,
+  /// with [autoMigrate], schema reconciliation at initialize.
+  ///
+  /// With [useIsolateSync], the schema's getters/codecs must be
+  /// isolate-sendable (top-level or static closures).
+  final DatumSchema<T>? schema;
+
+  /// Whether to reconcile the store's shape with [schema] during
+  /// `initialize()` — after the manual [migrations] chain runs. Missing
+  /// declared columns are added (renames honored via
+  /// `DatumFieldSpec.renamedFrom` hints); undeclared columns are kept and
+  /// warned about unless [autoMigrateDropColumns] is on.
+  final bool autoMigrate;
+
+  /// Whether auto-migration may drop stored columns that are not in
+  /// [schema]. Off by default — destructive changes are opt-in.
+  final bool autoMigrateDropColumns;
+
   const DatumConfig({
     this.autoSyncInterval = const Duration(minutes: 15),
     this.autoStartSync = false,
@@ -292,6 +311,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     this.maxRelationshipQueryCacheSize = 200,
     this.maxEntityExistenceCacheSize = 500,
     this.useIsolateSync = false,
+    this.schema,
+    this.autoMigrate = false,
+    this.autoMigrateDropColumns = false,
   });
 
   /// A default configuration with sensible production values.
@@ -340,6 +362,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     int? maxRelationshipQueryCacheSize,
     int? maxEntityExistenceCacheSize,
     bool? useIsolateSync,
+    DatumSchema<E>? schema,
+    bool? autoMigrate,
+    bool? autoMigrateDropColumns,
   }) {
     return DatumConfig<E>(
       autoSyncInterval: autoSyncInterval ?? this.autoSyncInterval,
@@ -386,6 +411,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       maxRelationshipQueryCacheSize: maxRelationshipQueryCacheSize ?? this.maxRelationshipQueryCacheSize,
       maxEntityExistenceCacheSize: maxEntityExistenceCacheSize ?? this.maxEntityExistenceCacheSize,
       useIsolateSync: useIsolateSync ?? this.useIsolateSync,
+      schema: schema ?? (this.schema is DatumSchema<E> ? this.schema as DatumSchema<E> : null),
+      autoMigrate: autoMigrate ?? this.autoMigrate,
+      autoMigrateDropColumns: autoMigrateDropColumns ?? this.autoMigrateDropColumns,
     );
   }
 
@@ -441,6 +469,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       maxRelationshipQueryCacheSize: maxRelationshipQueryCacheSize,
       maxEntityExistenceCacheSize: maxEntityExistenceCacheSize,
       useIsolateSync: useIsolateSync,
+      schema: schema is DatumSchema<E> ? schema as DatumSchema<E> : null,
+      autoMigrate: autoMigrate,
+      autoMigrateDropColumns: autoMigrateDropColumns,
     );
   }
 
@@ -502,6 +533,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       maxRelationshipQueryCacheSize,
       maxEntityExistenceCacheSize,
       useIsolateSync,
+      schema,
+      autoMigrate,
+      autoMigrateDropColumns,
     ];
   }
 }

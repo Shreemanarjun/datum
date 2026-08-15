@@ -148,6 +148,7 @@ void main() {
                   SidebarLink(text: "Sync Patterns", href: '/guides/sync_patterns'),
                   SidebarLink(text: "Advanced Sync Patterns", href: '/guides/advanced_sync'),
                   SidebarLink(text: "Schema Migrations", href: '/guides/migrations'),
+                  SidebarLink(text: "Typed Schemas & Auto-Migration", href: '/guides/typed_schema'),
                   SidebarLink(text: "Collaborative Editing & CRDTs", href: '/guides/collaborative_editing'),
                   SidebarLink(text: "Testing Your Sync Stack", href: '/guides/testing'),
                 ],

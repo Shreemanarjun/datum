@@ -354,6 +354,63 @@ Full guide: [Schema Migrations](https://datum.shreeman.dev/guides/migrations).
 
 ---
 
+## 🧬 Typed schemas & auto-migration — no codegen
+
+Declare each field **once** as a `DatumFieldSpec` and that declaration powers
+typed queries, cast-free map reads, derived SQLite columns, and automatic
+schema reconciliation:
+
+```dart continue
+abstract final class TaskFields {
+  static final title = DatumFieldSpec<Task, String>('title',
+      getter: (t) => t.title, defaultValue: '');
+  static final done = DatumFieldSpec<Task, bool>('done',
+      getter: (t) => t.done, defaultValue: false, renamedFrom: 'completed');
+}
+
+final core = datumCoreFieldSpecs<Task>();
+final taskSchema = DatumSchema<Task>(
+  name: 'tasks',
+  fields: [...core.all, TaskFields.title, TaskFields.done],
+);
+
+// Typed queries — a spec IS-A DatumQueryField, typos fail at compile time:
+final open = DatumQueryBuilder<Task>()
+    .whereField(TaskFields.done, isEqualTo: false)
+    .orderByField(TaskFields.title)
+    .build();
+
+// Cast-free reads with field-named errors (no `as` in fromMap):
+Task readTask(Map<String, dynamic> map) {
+  final r = taskSchema.reader(map);
+  return Task(
+    id: r(core.id),
+    userId: r(core.userId),
+    title: r(TaskFields.title),
+    done: r.getOr(TaskFields.done, false),
+    createdAt: r(core.createdAt),
+    modifiedAt: r(core.modifiedAt),
+    version: r(core.version),
+  );
+}
+```
+
+Then let `initialize()` keep the store in shape — added fields are backfilled
+with their defaults, renames are honored via the `renamedFrom:` hint (real
+`ALTER TABLE` on SQLite, raw-map rewrites on Hive), and a stored fingerprint
+makes unchanged launches skip the whole pass:
+
+```dart continue
+final config = DatumConfig<Task>(schema: taskSchema, autoMigrate: true);
+print(config.autoMigrate);
+```
+
+Manual `SchemaMigration` chains keep working unchanged — the auto pass runs
+after them and never touches the stored schema version. Full guide:
+[Typed Schemas & Auto-Migration](https://datum.shreeman.dev/guides/typed_schema).
+
+---
+
 ## 🗄️ Storage & backends
 
 | Package | What it is |

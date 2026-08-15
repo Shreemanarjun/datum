@@ -344,6 +344,40 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         );
       }
     }
+    await _runAutoMigration();
+  }
+
+  /// The opt-in auto-migration pass: after the manual version chain, the
+  /// store's shape is reconciled with the declared [DatumConfig.schema].
+  /// Failures surface through the same [MigrationErrorHandler] /
+  /// [MigrationException] path as manual migrations.
+  Future<void> _runAutoMigration() async {
+    final schema = config.schema;
+    if (schema == null || !config.autoMigrate) return;
+    final executor = AutoMigrationExecutor<T>(
+      localAdapter: localAdapter,
+      schema: schema,
+      dropRemovedColumns: config.autoMigrateDropColumns,
+      logger: _logger,
+    );
+    final outcome = await executor.execute();
+    if (outcome.applied.isNotEmpty) {
+      // A reconciliation rewrites raw rows / table shape wholesale.
+      _metadataHashCache.invalidateAll();
+    }
+    if (!outcome.success) {
+      _logger.error('Auto-migration failed: ${outcome.error}', outcome.stackTrace);
+      if (config.onMigrationError != null) {
+        await config.onMigrationError!(outcome.error!, outcome.stackTrace!);
+      } else {
+        throw MigrationException(
+          e: outcome.error,
+          message: 'Auto-migration failed',
+          code: DatumExceptionCode.schemaMismatch,
+          stackTrace: outcome.stackTrace,
+        );
+      }
+    }
   }
 
   Future<void> _setupAutoSyncIfEnabled() async {

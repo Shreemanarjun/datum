@@ -5,7 +5,7 @@ import 'package:datum/datum.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:meta/meta.dart';
 
-class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
+class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> with SchemaFingerprintCapable {
   /// The name of the Hive box where entities of type `T` will be stored.
   final String entityBoxName;
 
@@ -225,6 +225,20 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
   Future<void> setStoredSchemaVersion(int version) async {
     schemaVersion = version;
     await metadataBox.put(schemaVersionKey, {'version': version});
+  }
+
+  /// Reserved metadata-box key persisting the auto-migration fingerprint.
+  static const String schemaFingerprintKey = '__datum_schema_fingerprint__';
+
+  @override
+  Future<String?> getStoredSchemaFingerprint() async {
+    final stored = metadataBox.get(schemaFingerprintKey);
+    return stored?['fingerprint'] as String?;
+  }
+
+  @override
+  Future<void> setStoredSchemaFingerprint(String fingerprint) async {
+    await metadataBox.put(schemaFingerprintKey, {'fingerprint': fingerprint});
   }
 
   @override

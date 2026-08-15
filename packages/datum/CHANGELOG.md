@@ -2,6 +2,37 @@
 
 All changes below are additive and backward compatible unless noted.
 
+## 🧬 Typed schemas & auto-migration (no codegen)
+
+- **`DatumFieldSpec<E, V>`**: a full runtime field descriptor that IS-A
+  `DatumQueryField` — typed query refs (`whereField`/`orderByField`/Filter
+  helpers) plus a `codec`, `sqlType`, `defaultValue`, and a `renamedFrom`
+  rename hint. `DatumFieldCodec` ships inferred primitive codecs, lenient
+  DateTime (ISO-8601 and epoch-ms decode), `durationMicros`, `uri`,
+  `bigInt`, `enumByName`, `jsonObject`, and a `.nullable` wrapper.
+- **`DatumSchema<E>`**: declare each entity's serialized shape once
+  (`datumCoreFieldSpecs<E>()` provides the six sync fields with overridable
+  keys). Powers cast-free map reads (`schema.reader(map)` /
+  `schema.decode` with field-named `SchemaReadException`s), optional
+  `toMap` delegation, derived SQLite columns (`sqlColumns()`), and a
+  stable declaration `fingerprint`.
+- **Auto-migration**: `DatumConfig(schema:, autoMigrate: true)` reconciles
+  the store's actual shape with the declaration during `initialize()` —
+  after the manual `SchemaMigration` chain, never touching the stored int
+  schema version. Missing fields are added and backfilled with their
+  defaults (fail-fast when a non-nullable field has none), renames follow
+  `renamedFrom:` hints without data loss, and undeclared columns are kept
+  and warned about unless `autoMigrateDropColumns: true`. Real
+  `ALTER TABLE`/`UPDATE` in one transaction on SQL adapters (introspected
+  via `PRAGMA table_info` through `rawQuery`); snapshot-protected raw-map
+  rewrites on schemaless stores. A stored fingerprint
+  (`SchemaFingerprintCapable`) makes unchanged launches skip the pass
+  entirely.
+- **New capability mixins**: `SchemaFingerprintCapable` and
+  `SqlSchemaCapable` (additive; existing adapters unaffected). New
+  `AutoMigrationExecutor`, `diffSchema`, `SchemaRenameOperation`, and
+  introspectors are exported for direct use.
+
 ## ⚡ Sync performance & scale
 
 - **cursor-based incremental pull (delta v2)**: `CursorSyncCapable` —
