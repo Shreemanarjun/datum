@@ -51,6 +51,26 @@ automatically. The adapter does not own the database exclusively — share one
 `Database` across several adapters (one per entity type) and close it
 yourself when the app shuts down.
 
+## Schema-derived columns and strict mode
+
+Instead of hand-maintaining `columns:`, pass your
+[typed schema](/guides/typed_schema) and the payload columns are derived
+from it (explicit `columns:` still wins if both are given). The adapter
+also gains the auto-migration capabilities (`SqlSchemaCapable`,
+`SchemaFingerprintCapable`), so `DatumConfig.autoMigrate` reconciles the
+table with real DDL. `strictColumns: true` turns writing an undeclared
+payload key into an error instead of the historical silent drop:
+
+```dart no-verify
+final adapter = SqliteLocalAdapter<Task>(
+  database: db,
+  table: 'tasks',
+  fromMap: taskSchema.decode,
+  schema: taskSchema,
+  strictColumns: true,
+);
+```
+
 ## Use it like any other adapter
 
 ```dart

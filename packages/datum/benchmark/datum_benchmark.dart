@@ -273,6 +273,59 @@ Future<List<BenchResult>> run(int scale) async {
     original.diff(original);
   }));
 
+  // --- Runtime schema layer (typed, no codegen) vs hand-written baselines ----
+  final schemaCore = datumCoreFieldSpecs<BenchTask>();
+  final benchSchema = DatumSchema<BenchTask>(
+    name: 'bench_tasks',
+    fields: [
+      ...schemaCore.all,
+      DatumFieldSpec<BenchTask, String>('title', getter: (t) => t.title),
+      DatumFieldSpec<BenchTask, String>('description', getter: (t) => t.description),
+      DatumFieldSpec<BenchTask, int>('priority', getter: (t) => t.priority),
+      DatumFieldSpec<BenchTask, bool>('completed', getter: (t) => t.completed),
+      DatumFieldSpec<BenchTask, List<String>>('tags', getter: (t) => t.tags, codec: const _StringListCodec()),
+    ],
+    construct: (r) => BenchTask(
+      id: r.raw['id'] as String,
+      userId: r.raw['userId'] as String,
+      title: r.raw['title'] as String,
+      description: r.raw['description'] as String,
+      priority: r.raw['priority'] as int,
+      completed: r.raw['completed'] as bool,
+      tags: (r.raw['tags'] as List).cast<String>(),
+      modifiedAt: DateTime.parse(r.raw['modifiedAt'] as String),
+      createdAt: DateTime.parse(r.raw['createdAt'] as String),
+      version: r.raw['version'] as int,
+      isDeleted: r.raw['isDeleted'] as bool,
+    ),
+  );
+  final schemaMap = benchSchema.toMap(task);
+  final typedReader = benchSchema.reader(schemaMap);
+  final titleSpec = benchSchema.fieldByName('title')! as DatumFieldSpec<BenchTask, String>;
+  final prioritySpec = benchSchema.fieldByName('priority')! as DatumFieldSpec<BenchTask, int>;
+
+  results.add(bench('schema.toMap (vs toDatumMap)', 500000 * scale, () {
+    benchSchema.toMap(task);
+  }));
+  results.add(bench('schema.decode (vs fromMap)', 500000 * scale, () {
+    benchSchema.decode(schemaMap);
+  }));
+  results.add(bench('schema.reader typed get', 2000000 * scale, () {
+    typedReader.get(titleSpec);
+  }));
+  results.add(bench('schema.diffOf (changed)', 500000 * scale, () {
+    benchSchema.diffOf(original, changed);
+  }));
+  results.add(bench('schema.diffOf (no change)', 500000 * scale, () {
+    benchSchema.diffOf(original, original);
+  }));
+  results.add(bench('typed query build (whereField ×2 + orderBy)', 200000 * scale, () {
+    DatumQueryBuilder<BenchTask>().whereField(prioritySpec, isGreaterThan: 2).whereField(titleSpec, contains: 'a').orderByField(prioritySpec, descending: true).build();
+  }));
+  results.add(bench('string query build (baseline)', 200000 * scale, () {
+    DatumQueryBuilder<BenchTask>().where('priority', isGreaterThan: 2).where('title', contains: 'a').orderBy('priority', descending: true).build();
+  }));
+
   // --- Vector clock (causality tracking) -------------------------------------
   const clockA = VectorClock({'device-a': 5, 'device-b': 3, 'device-c': 9});
   const clockB = VectorClock({'device-b': 7, 'device-c': 2, 'device-d': 4});
@@ -477,4 +530,15 @@ Future<void> main(List<String> args) async {
   print('');
   print('Note: micro-benchmarks measure isolated CPU hot paths, not end-to-end');
   print('sync latency. See benchmark/README.md for the Tier-B manager/sync plan.');
+}
+
+/// Identity codec for a `List<String>` payload column.
+class _StringListCodec extends DatumFieldCodec<List<String>> {
+  const _StringListCodec();
+
+  @override
+  Object? encode(List<String> value) => value;
+
+  @override
+  List<String> decode(Object? raw) => (raw as List).cast<String>();
 }

@@ -181,13 +181,38 @@ runAdapterPerformanceTests(
 );
 ```
 
+## 8. Typed queries + auto-migration conformance
+
+Two more one-call suites certify the runtime schema layer against your
+adapter. `runTypedQueryConformanceTests` proves the typed path
+(`whereField` / spec Filter helpers), the string path, and a reference
+evaluation agree over the full operator matrix — the guarantee that makes
+[typed queries](/guides/typed_schema) a default on every adapter.
+`runAutoMigrationConformanceTests` certifies auto-migration: legacy-store
+reconciliation with rename hints, kept-vs-dropped undeclared columns, and
+fingerprint run-once across a relaunch:
+
+```dart no-verify
+runTypedQueryConformanceTests(
+  name: 'MyAdapter typed queries',
+  createLocal: () async => openMyAdapter(),
+);
+
+runAutoMigrationConformanceTests(
+  name: 'MyAdapter auto-migration',
+  createLocal: () async => openMyAdapter(), // store must preserve raw columns
+  reopenLocal: () async => openMyAdapter(),
+);
+```
+
 ## What to run when
 
 | You built… | Run |
 |---|---|
-| A local adapter | local conformance + migration conformance (+ crash if persistent) |
+| A local adapter | local conformance + migration + typed-query conformance (+ crash if persistent) |
 | A remote adapter | remote conformance |
 | A full stack (app) | stack conformance + chaos + fuzz |
+| Adopting [typed schemas](/guides/typed_schema) | typed-query + auto-migration conformance |
 | A performance claim | the performance report with thresholds |
 
 All seven suites together are a few hundred milliseconds to a few seconds —

@@ -71,12 +71,13 @@ void main() {
         DatumFieldSpec<ConformanceEntity, int>('score', defaultValue: 5),
       ],
     );
-    final outcome = await AutoMigrationExecutor<ConformanceEntity>(
+    final executor = AutoMigrationExecutor<ConformanceEntity>(
       localAdapter: adapter,
       schema: declared,
       dropRemovedColumns: true,
       logger: DatumLogger(enabled: false),
-    ).execute();
+    );
+    final outcome = await executor.execute();
     expect(outcome.success, isTrue, reason: '${outcome.error}');
 
     final row = (await adapter.getAllRawData()).single;
@@ -84,7 +85,7 @@ void main() {
     expect(row['score'], 5);
     expect(row.containsKey('name'), isFalse);
     expect(row.containsKey('legacy'), isFalse);
-    expect(await adapter.getStoredSchemaFingerprint(), declared.fingerprint);
+    expect(await adapter.getStoredSchemaFingerprint(), executor.appliedStamp);
     await adapter.dispose();
   });
 }

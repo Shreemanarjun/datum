@@ -1,6 +1,7 @@
 ## 0.1.0
 
 - Initial release.
+- `runTypedQueryConformanceTests` — certifies typed queries (`DatumFieldSpec` through `DatumQueryBuilder`) as a supported default on any local adapter: for the full operator matrix (comparisons, membership, between, string operators, null checks, composites, ordering, pagination) the typed path, the string path, and a reference evaluation must return identical results.
 - `runAutoMigrationConformanceTests` — certifies the `DatumSchema` auto-migration contract against any local adapter: legacy-store reconciliation (rename-with-hint keeps values, adds backfill defaults), kept-vs-dropped undeclared columns, and fingerprint run-once across a simulated relaunch.
 - `runSyncStackConformanceTests` — the full engine behavior matrix (push/pull round-trips, two-device convergence, offline queue replay, LWW conflict resolution with winner push-back, soft-delete propagation, stale-write protection, user isolation, no-op cycles, batch pushes, metadata beacons, incremental pulls) over ANY local/remote adapter pair: passing it certifies the pair as a compatible sync stack.
 - `TestConnectivityChecker` — flippable connectivity for offline/replay scenarios.

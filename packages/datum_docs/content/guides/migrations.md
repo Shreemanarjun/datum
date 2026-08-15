@@ -8,6 +8,12 @@ v1 data on disk. Datum migrations upgrade that persisted data **in place, on
 startup, exactly once** — with validation before anything is touched and
 rollback if anything fails.
 
+> **Routine add-a-field / rename-a-field churn?** You may not need to
+> write a migration at all — declare a [typed schema](/guides/typed_schema)
+> and let `autoMigrate` reconcile the store. Manual chains (this page) stay
+> the tool for value transforms, type changes, and scoped rewrites, and the
+> two compose: the version chain always runs first.
+
 ## The mental model
 
 - Each local store persists a **schema version** (starts at 0).

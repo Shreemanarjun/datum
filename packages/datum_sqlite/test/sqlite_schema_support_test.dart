@@ -182,7 +182,7 @@ void main() {
     expect(row['title'], 'Ada', reason: 'the rename preserved the value');
     expect(row['score'], 5, reason: 'the add backfilled its default');
 
-    expect(await adapter.getStoredSchemaFingerprint(), declared.fingerprint);
+    expect(await adapter.getStoredSchemaFingerprint(), executor.appliedStamp);
     expect(
       await executor.needsMigration(),
       isFalse,

@@ -16,6 +16,10 @@ import 'package:datum/source/core/schema/datum_field_codec.dart';
 /// Reads the value of this field from an entity (for `DatumSchema.toMap`).
 typedef DatumFieldGetter<E, V> = V Function(E entity);
 
+/// Which of the six standard sync fields a spec represents, when built by
+/// [datumCoreFieldSpecs]. Payload fields have no role.
+enum DatumCoreRole { id, userId, modifiedAt, createdAt, version, isDeleted }
+
 /// A full runtime descriptor for one serialized field of entity [E] with
 /// Dart value type [V].
 ///
@@ -40,7 +44,13 @@ class DatumFieldSpec<E, V> extends DatumQueryField<E, V> {
     this.sqlType,
     this.defaultValue,
     this.renamedFrom,
+    this.coreRole,
   }) : codec = codec ?? DatumFieldCodec.infer<V>();
+
+  /// Marks one of the six standard sync fields (set by
+  /// [datumCoreFieldSpecs]); null for payload fields. `DatumSchema.diffOf` /
+  /// `propsOf` use it to separate payload from sync metadata.
+  final DatumCoreRole? coreRole;
 
   /// Extracts this field's value from an entity; required for
   /// `DatumSchema.toMap` delegation, optional otherwise.
@@ -149,10 +159,10 @@ DatumCoreFields<E> datumCoreFieldSpecs<E extends DatumEntityInterface>({
   DatumFieldCodec<DateTime> dateCodec = DatumFieldCodec.dateTimeIso,
 }) =>
     DatumCoreFields._(
-      id: DatumFieldSpec<E, String>(id, getter: (e) => e.id),
-      userId: DatumFieldSpec<E, String>(userId, getter: (e) => e.userId),
-      modifiedAt: DatumFieldSpec<E, DateTime>(modifiedAt, getter: (e) => e.modifiedAt, codec: dateCodec),
-      createdAt: DatumFieldSpec<E, DateTime>(createdAt, getter: (e) => e.createdAt, codec: dateCodec),
-      version: DatumFieldSpec<E, int>(version, getter: (e) => e.version),
-      isDeleted: DatumFieldSpec<E, bool>(isDeleted, getter: (e) => e.isDeleted),
+      id: DatumFieldSpec<E, String>(id, getter: (e) => e.id, coreRole: DatumCoreRole.id),
+      userId: DatumFieldSpec<E, String>(userId, getter: (e) => e.userId, coreRole: DatumCoreRole.userId),
+      modifiedAt: DatumFieldSpec<E, DateTime>(modifiedAt, getter: (e) => e.modifiedAt, codec: dateCodec, coreRole: DatumCoreRole.modifiedAt),
+      createdAt: DatumFieldSpec<E, DateTime>(createdAt, getter: (e) => e.createdAt, codec: dateCodec, coreRole: DatumCoreRole.createdAt),
+      version: DatumFieldSpec<E, int>(version, getter: (e) => e.version, coreRole: DatumCoreRole.version),
+      isDeleted: DatumFieldSpec<E, bool>(isDeleted, getter: (e) => e.isDeleted, coreRole: DatumCoreRole.isDeleted),
     );

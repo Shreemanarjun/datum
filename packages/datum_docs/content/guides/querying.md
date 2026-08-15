@@ -183,6 +183,12 @@ final complexQuery = await Datum.manager<Task>().query(
 
 ## Query Builder
 
+> **No-codegen typed fields:** declare `DatumFieldSpec`s once (see
+> [Typed Schemas](/guides/typed_schema)) and use them with `whereField` /
+> `orderByField` below — field names and value types are then checked at
+> compile time, and the results are conformance-certified to match the
+> string-based queries on every adapter.
+
 For more complex queries, use the fluent `DatumQueryBuilder` API:
 
 ```dart

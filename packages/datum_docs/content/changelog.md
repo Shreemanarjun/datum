@@ -10,6 +10,18 @@ description: Version history and release notes for Datum.
 The largest release to date. Full details in the
 [package changelog](https://pub.dev/packages/datum/changelog); highlights:
 
+### 🧬 Typed schemas & auto-migration (no codegen)
+
+- `DatumFieldSpec` / `DatumSchema`: one runtime declaration per entity
+  powering typed query fields, cast-free map reads (`schema.reader` /
+  `decode`), schema-driven `diffOf`/`propsOf`, derived SQLite columns, and
+  `DatumConfig.autoMigrate` reconciliation with `renamedFrom:` rename hints
+  and fingerprint-gated run-once. See
+  [Typed Schemas & Auto-Migration](/guides/typed_schema).
+- Typed queries are conformance-certified across adapters
+  (`runTypedQueryConformanceTests`), and auto-migration has its own suite
+  (`runAutoMigrationConformanceTests`) in `datum_test`.
+
 ### ⚡ Sync performance & scale
 - **Incremental pulls** — `DeltaSyncCapable` (timestamp watermark) and `CursorSyncCapable` (opaque change cursor) let a pull transfer only what changed instead of the full dataset. See [Incremental Sync](/guides/performance/incremental_sync).
 - **Metadata hash cache** — idle sync cycles no longer re-read and re-hash the local store. See [Performance Tuning](/guides/performance/tuning).

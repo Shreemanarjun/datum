@@ -46,6 +46,18 @@ class AutoMigrationExecutor<T extends DatumEntityInterface> {
   /// Whether undeclared columns are dropped (default: kept + warned).
   final bool dropRemovedColumns;
 
+  /// The value stamped after a successful pass: the schema fingerprint plus
+  /// the drop policy. Turning [dropRemovedColumns] on later therefore
+  /// invalidates the fast path and re-runs the pass once; turning it off
+  /// still fast-paths (a drop-mode pass reconciled a superset).
+  String get appliedStamp => dropRemovedColumns ? '${schema.fingerprint}+drop' : schema.fingerprint;
+
+  Future<bool> _alreadyApplied() async {
+    final stored = await _storedFingerprint();
+    if (stored == appliedStamp) return true;
+    return !dropRemovedColumns && stored == '${schema.fingerprint}+drop';
+  }
+
   bool get _sqlPath {
     final adapter = localAdapter;
     return adapter is RawQueryCapable && adapter is SqlSchemaCapable && (adapter as SqlSchemaCapable).sqlDialect != SqlDialect.custom;
@@ -60,7 +72,7 @@ class AutoMigrationExecutor<T extends DatumEntityInterface> {
 
   Future<void> _stamp() async {
     if (localAdapter case final SchemaFingerprintCapable capable) {
-      await capable.setStoredSchemaFingerprint(schema.fingerprint);
+      await capable.setStoredSchemaFingerprint(appliedStamp);
     }
   }
 
@@ -79,7 +91,7 @@ class AutoMigrationExecutor<T extends DatumEntityInterface> {
   /// Whether a reconciliation pass would change anything (fingerprint fast
   /// path first, then a real introspection + diff).
   Future<bool> needsMigration() async {
-    if (await _storedFingerprint() == schema.fingerprint) return false;
+    if (await _alreadyApplied()) return false;
     final shape = await _introspect();
     if (!_sqlPath && shape.rowCount == 0) return false;
     final result = diffSchema<T>(
@@ -98,7 +110,7 @@ class AutoMigrationExecutor<T extends DatumEntityInterface> {
   /// outcome, with the store restored to its pre-pass state.
   Future<AutoMigrationOutcome> execute() async {
     try {
-      if (await _storedFingerprint() == schema.fingerprint) {
+      if (await _alreadyApplied()) {
         return _success(const [], const []);
       }
       final shape = await _introspect();

@@ -92,6 +92,64 @@ void main() {
     });
   });
 
+  group('query interop — full builder surface', () {
+    // Normalizes list values: the typed path reifies List<V> where the
+    // string path holds List<dynamic> — identical contents, different
+    // runtime types, and record equality would see them as different.
+    List<(String, FilterOperator, Object?)> shape(DatumQuery q) => [
+          for (final f in q.filters.whereType<Filter>()) (f.field, f.operator, f.value is List ? List<Object?>.of(f.value as List).toString() : f.value),
+        ];
+
+    test('every whereField parameter delegates identically to the string path', () {
+      final typed = DatumQueryBuilder<SchemaTask>()
+          .whereField(SchemaTask.priorityField, isEqualTo: 1, isNotEqualTo: 2, isGreaterThan: 3, isGreaterThanOrEqualTo: 4, isLessThan: 5, isLessThanOrEqualTo: 6, isIn: [7, 8], isNotIn: [9], between: [10, 11])
+          .whereField(SchemaTask.titleField, contains: 'a', containsIgnoreCase: 'B', startsWith: 'c', endsWith: 'd', matches: r'^e$')
+          .build();
+      final stringly = DatumQueryBuilder<SchemaTask>()
+          .where('priority', isEqualTo: 1, isNotEqualTo: 2, isGreaterThan: 3, isGreaterThanOrEqualTo: 4, isLessThan: 5, isLessThanOrEqualTo: 6, isIn: [7, 8], isNotIn: [9], between: [10, 11])
+          .where('title', contains: 'a', containsIgnoreCase: 'B', startsWith: 'c', endsWith: 'd', matches: r'^e$')
+          .build();
+      expect(shape(typed), shape(stringly));
+      expect(shape(typed), hasLength(14));
+    });
+
+    test('whereFieldNull / whereFieldNotNull and orderByField nullSortOrder delegate', () {
+      final typed = DatumQueryBuilder<SchemaTask>().whereFieldNull(SchemaTask.dueField).whereFieldNotNull(SchemaTask.titleField).orderByField(SchemaTask.dueField, descending: true, nullSortOrder: NullSortOrder.first).build();
+      expect(shape(typed), [
+        ('due', FilterOperator.isNull, null),
+        ('title', FilterOperator.isNotNull, null),
+      ]);
+      final sort = typed.sorting.single;
+      expect(sort.field, 'due');
+      expect(sort.descending, isTrue);
+      expect(sort.nullSortOrder, NullSortOrder.first);
+    });
+
+    test('remaining Filter helpers on specs cover the operator set', () {
+      expect(SchemaTask.priorityField.equalTo(1).operator, FilterOperator.equals);
+      expect(SchemaTask.priorityField.notEqualTo(1).operator, FilterOperator.notEquals);
+      expect(SchemaTask.priorityField.greaterThan(1).operator, FilterOperator.greaterThan);
+      expect(SchemaTask.priorityField.lessThan(1).operator, FilterOperator.lessThan);
+      expect(SchemaTask.priorityField.lessThanOrEqual(1).operator, FilterOperator.lessThanOrEqual);
+      expect(SchemaTask.priorityField.isIn([1, 2]).operator, FilterOperator.isIn);
+      expect(SchemaTask.priorityField.isNotIn([1]).operator, FilterOperator.isNotIn);
+      expect(SchemaTask.dueField.isNotNull.operator, FilterOperator.isNotNull);
+    });
+  });
+
+  group('coreRole', () {
+    test('core specs carry their role; payload specs carry none', () {
+      final core = datumCoreFieldSpecs<SchemaTask>();
+      expect(core.id.coreRole, DatumCoreRole.id);
+      expect(core.userId.coreRole, DatumCoreRole.userId);
+      expect(core.modifiedAt.coreRole, DatumCoreRole.modifiedAt);
+      expect(core.createdAt.coreRole, DatumCoreRole.createdAt);
+      expect(core.version.coreRole, DatumCoreRole.version);
+      expect(core.isDeleted.coreRole, DatumCoreRole.isDeleted);
+      expect(SchemaTask.titleField.coreRole, isNull);
+    });
+  });
+
   group('datumCoreFieldSpecs', () {
     test('defaults to camelCase keys with getters and lenient dates', () {
       final core = datumCoreFieldSpecs<SchemaTask>();

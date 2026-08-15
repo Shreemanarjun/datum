@@ -3,6 +3,7 @@
 /// code generation.
 library;
 
+import 'package:collection/collection.dart';
 import 'package:datum/source/core/errors/datum_exception.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/query/datum_query_sql_converter.dart';
@@ -87,6 +88,48 @@ class DatumSchema<E extends DatumEntityInterface> {
     }
     return getter(entity);
   }
+
+  /// A payload-only delta between two entity versions — the schema-driven
+  /// implementation of `DatumEntity.diff`, mirroring `datum_generator`'s
+  /// `datumDiff`: core sync fields are excluded from the comparison, and
+  /// when anything changed the new `modifiedAt`/`version` are stamped in.
+  /// Returns null when nothing changed. Requires getters on every field.
+  ///
+  /// ```dart
+  /// @override
+  /// Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) =>
+  ///     taskSchema.diffOf(oldVersion as Task, this);
+  /// ```
+  Map<String, dynamic>? diffOf(E oldVersion, E newVersion) {
+    const deepEquals = DeepCollectionEquality();
+    final delta = <String, dynamic>{};
+    for (final field in fields) {
+      if (field.coreRole != null) continue;
+      final encoded = field as DatumFieldSpec<E, Object?>;
+      final before = encoded.encode(_valueOf(field, oldVersion));
+      final after = encoded.encode(_valueOf(field, newVersion));
+      if (!deepEquals.equals(before, after)) delta[field.name] = after;
+    }
+    if (delta.isEmpty) return null;
+    for (final field in fields) {
+      if (field.coreRole == DatumCoreRole.modifiedAt || field.coreRole == DatumCoreRole.version) {
+        delta[field.name] = (field as DatumFieldSpec<E, Object?>).encode(_valueOf(field, newVersion));
+      }
+    }
+    return delta;
+  }
+
+  /// The payload field values of [entity], for `Equatable.props` overrides
+  /// without restating field names (core fields come from `super.props`):
+  ///
+  /// ```dart
+  /// @override
+  /// List<Object?> get props => [...super.props, ...taskSchema.propsOf(this)];
+  /// ```
+  List<Object?> propsOf(E entity) => [
+        for (final field in fields)
+          if (field.coreRole == null) _valueOf(field, entity),
+      ];
 
   /// Checks a raw [map] against the declaration: missing non-nullable keys
   /// and undecodable values. For tests and debug tooling.

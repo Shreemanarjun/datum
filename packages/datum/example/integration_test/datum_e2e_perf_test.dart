@@ -999,7 +999,7 @@ void main() {
       );
       await reopened.initialize();
       expect(await reopened.getStoredSchemaFingerprint(),
-          legacyUpgradeSchema('auto_items').fingerprint);
+          '${legacyUpgradeSchema('auto_items').fingerprint}+drop');
       final executor = AutoMigrationExecutor<BenchItem>(
         localAdapter: reopened,
         schema: legacyUpgradeSchema('auto_items'),
@@ -1099,7 +1099,7 @@ void main() {
       final reopened = HiveLocalAdapter<BenchItem>(
           entityBoxName: boxName, fromMap: BenchItem.fromMap);
       await reopened.initialize();
-      expect(await reopened.getStoredSchemaFingerprint(), schema.fingerprint);
+      expect(await reopened.getStoredSchemaFingerprint(), '${schema.fingerprint}+drop');
       final executor = AutoMigrationExecutor<BenchItem>(
         localAdapter: reopened,
         schema: schema,

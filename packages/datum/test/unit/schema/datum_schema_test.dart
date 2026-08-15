@@ -117,6 +117,51 @@ void main() {
     });
   });
 
+  group('diffOf / propsOf', () {
+    test('diffOf returns null when nothing changed', () {
+      final task = makeSchemaTask(title: 'same', priority: 1);
+      expect(SchemaTask.schema.diffOf(task, task), isNull);
+    });
+
+    test('diffOf emits only changed payload fields plus modifiedAt/version', () {
+      final before = makeSchemaTask(title: 'old', priority: 1);
+      final after = SchemaTask(
+        id: before.id,
+        userId: before.userId,
+        title: 'new',
+        priority: 1,
+        createdAt: before.createdAt,
+        modifiedAt: DateTime.utc(2026, 5),
+        version: 2,
+      );
+      final delta = SchemaTask.schema.diffOf(before, after)!;
+      expect(delta['title'], 'new');
+      expect(delta.containsKey('priority'), isFalse, reason: 'unchanged fields stay out');
+      expect(delta.containsKey('id'), isFalse, reason: 'core fields are never payload');
+      expect(delta['modifiedAt'], '2026-05-01T00:00:00.000Z');
+      expect(delta['version'], 2);
+    });
+
+    test('diffOf compares through codecs (DateTime payload)', () {
+      final before = makeSchemaTask(due: DateTime.utc(2026, 1));
+      final after = SchemaTask(
+        id: before.id,
+        userId: before.userId,
+        title: before.title,
+        due: DateTime.utc(2026, 2),
+        createdAt: before.createdAt,
+        modifiedAt: before.modifiedAt,
+        version: before.version,
+      );
+      expect(SchemaTask.schema.diffOf(before, after)!['due'], '2026-02-01T00:00:00.000Z');
+    });
+
+    test('propsOf returns payload values only, in declaration order', () {
+      final task = makeSchemaTask(title: 'p', priority: 9);
+      expect(SchemaTask.schema.propsOf(task), ['p', 9, null]);
+    });
+  });
+
   group('validate', () {
     test('reports missing keys, nulls, and undecodable values; passes clean maps', () {
       expect(SchemaTask.schema.validate(rawTask()), isEmpty);

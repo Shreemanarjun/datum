@@ -118,8 +118,9 @@ AutoMigrationExecutor<SchemaTask> executorFor(LocalAdapter<SchemaTask> adapter, 
 void main() {
   group('fingerprint fast path', () {
     test('a matching stamp skips introspection entirely', () async {
-      final adapter = _FingerprintMapAdapter([legacyRow('a')])..fingerprint = reconciliationSchema().fingerprint;
+      final adapter = _FingerprintMapAdapter([legacyRow('a')]);
       final executor = executorFor(adapter);
+      adapter.fingerprint = executor.appliedStamp;
       expect(await executor.needsMigration(), isFalse);
       final outcome = await executor.execute();
       expect(outcome.success, isTrue);
@@ -129,9 +130,10 @@ void main() {
 
     test('a fresh install stamps without touching rows', () async {
       final adapter = _FingerprintMapAdapter();
-      final outcome = await executorFor(adapter).execute();
+      final executor = executorFor(adapter);
+      final outcome = await executor.execute();
       expect(outcome.success, isTrue);
-      expect(adapter.fingerprint, reconciliationSchema().fingerprint);
+      expect(adapter.fingerprint, executor.appliedStamp);
       expect(await executorFor(adapter).needsMigration(), isFalse);
     });
   });
@@ -148,7 +150,7 @@ void main() {
         expect(row['priority'], 5);
       }
       expect(adapter.rows.map((r) => r['title']), ['alpha', 'beta']);
-      expect(adapter.fingerprint, reconciliationSchema().fingerprint);
+      expect(adapter.fingerprint, executorFor(adapter).appliedStamp);
     });
 
     test('keeps undeclared columns by default, surfacing warnings', () async {
@@ -157,6 +159,20 @@ void main() {
       expect(outcome.success, isTrue);
       expect(adapter.rows.single.containsKey('legacy'), isTrue);
       expect(outcome.warnings.single, contains('"legacy"'));
+    });
+
+    test('enabling dropRemovedColumns later re-runs the pass; disabling later fast-paths', () async {
+      final adapter = _FingerprintMapAdapter([legacyRow('a')]);
+      expect((await executorFor(adapter, drop: false).execute()).success, isTrue);
+      expect(adapter.rows.single.containsKey('legacy'), isTrue, reason: 'kept in keep-mode');
+
+      // The policy is part of the stamp: flipping it invalidates the fast path once.
+      final dropRun = await executorFor(adapter).execute();
+      expect(dropRun.success, isTrue);
+      expect(adapter.rows.single.containsKey('legacy'), isFalse);
+
+      // Back to keep-mode: the drop stamp reconciled a superset — fast path holds.
+      expect(await executorFor(adapter, drop: false).needsMigration(), isFalse);
     });
 
     test('a mid-write failure restores the snapshot and leaves no stamp', () async {

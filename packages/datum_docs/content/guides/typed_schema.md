@@ -53,7 +53,11 @@ every problem at once.
 
 A `DatumFieldSpec` **is** a `DatumQueryField`, so everything the typed query
 surface accepts already works — misspelled fields and wrongly-typed values
-now fail at compile time:
+now fail at compile time. Typed queries are a **certified default across
+adapters**: the conformance kit's `runTypedQueryConformanceTests` proves,
+per adapter, that the typed path, the string path, and a reference
+evaluation return identical results for the whole operator matrix — through
+real SQL push-down on SQLite and map matching on Hive/in-memory alike:
 
 ```dart continue
 final query = DatumQueryBuilder<Task>()
@@ -99,6 +103,41 @@ Prefer full delegation? Give the schema a `construct:` callback and
 `taskSchema.decode` becomes a valid `fromMap` tear-off; with getters on
 every field, `taskSchema.toMap(entity)` can implement `toDatumMap` too.
 
+## Schema-driven diff and equality
+
+The same declaration also replaces the hand-written `diff` and `props`
+boilerplate. `diffOf` compares payload fields through their codecs (core
+sync fields excluded) and stamps the new `modifiedAt`/`version` into a
+non-empty delta; `propsOf` yields the payload values for `Equatable`:
+
+```dart continue
+final updated = Task(
+  id: task.id,
+  userId: task.userId,
+  title: 'renamed',
+  createdAt: task.createdAt,
+  modifiedAt: DateTime.now(),
+  version: task.version + 1,
+);
+final delta = taskSchema.diffOf(task, updated);
+print(delta?.keys); // (title, modifiedAt, version) — unchanged fields stay out
+print(taskSchema.diffOf(task, task)); // null — nothing changed
+
+final payloadProps = taskSchema.propsOf(task);
+print(payloadProps.length);
+```
+
+In your entity they become one-liners:
+
+```dart no-verify
+@override
+Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) =>
+    taskSchema.diffOf(oldVersion as Task, this);
+
+@override
+List<Object?> get props => [...super.props, ...taskSchema.propsOf(this)];
+```
+
 ## 3. Derived SQLite columns
 
 `SqliteLocalAdapter` can derive its payload columns from the schema instead
@@ -133,9 +172,11 @@ print(config.autoMigrate);
 
 On each launch the engine
 
-1. checks the stored **schema fingerprint** — unchanged declaration means
+1. checks the stored **schema fingerprint** — an unchanged declaration means
    the whole pass is skipped (adapters mixing in `SchemaFingerprintCapable`,
-   like `datum_sqlite` and `datum_hive`, persist it);
+   like `datum_sqlite` and `datum_hive`, persist it). The drop policy is
+   part of the stamp, so turning `autoMigrateDropColumns` on later re-runs
+   the pass once instead of being silently ignored;
 2. introspects the actual shape — `PRAGMA table_info` through the adapter's
    own `rawQuery` on SQL stores, a raw-row key scan on schemaless stores;
 3. diffs it against the declaration and applies the difference:
@@ -167,19 +208,31 @@ absorb the routine add-a-field / rename-a-field churn.
 
 The conformance kit ships a suite for the auto-migration contract — seeded
 legacy stores, rename-with-hint, kept-vs-dropped columns, and fingerprint
-run-once across a simulated relaunch:
+run-once across a simulated relaunch. Run it against a **raw-preserving**
+store (SQLite, Hive — anything whose `getAllRawData` returns what is
+actually on disk; `InMemoryLocalAdapter` round-trips through the entity and
+so cannot hold a legacy shape):
 
 ```dart
-runAutoMigrationConformanceTests(
-  name: 'InMemory',
-  createLocal: () async {
-    final adapter = InMemoryLocalAdapter<ConformanceEntity>(
-      fromMap: ConformanceEntity.fromMap,
-    );
-    await adapter.initialize();
-    return adapter;
-  },
-);
+import 'package:datum_sqlite/datum_sqlite.dart';
+import 'package:sqlite3/sqlite3.dart';
+
+void main() {
+  runAutoMigrationConformanceTests(
+    name: 'SqliteLocalAdapter',
+    createLocal: () async {
+      final adapter = SqliteLocalAdapter<ConformanceEntity>(
+        database: sqlite3.openInMemory(),
+        table: 'entities',
+        fromMap: ConformanceEntity.fromMap,
+        // The suite seeds a legacy shape; declare its columns.
+        columns: const {'name': 'TEXT', 'legacy': 'INTEGER'},
+      );
+      await adapter.initialize();
+      return adapter;
+    },
+  );
+}
 ```
 
 See [Testing Your Sync Stack](/guides/testing) for the rest of the kit.

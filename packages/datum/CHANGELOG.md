@@ -28,6 +28,18 @@ All changes below are additive and backward compatible unless noted.
   rewrites on schemaless stores. A stored fingerprint
   (`SchemaFingerprintCapable`) makes unchanged launches skip the pass
   entirely.
+- **Schema-driven `diffOf` / `propsOf`**: the schema also replaces the
+  hand-written `diff` and `props` boilerplate — `schema.diffOf(old, new)`
+  emits a payload-only delta through the field codecs (stamping the new
+  `modifiedAt`/`version`), and `schema.propsOf(entity)` feeds `Equatable`.
+  Core sync fields are marked via `DatumFieldSpec.coreRole`.
+- **Typed queries certified across adapters**: `whereField`/`orderByField`
+  with specs produce results identical to string queries and a reference
+  evaluation on every adapter (see `runTypedQueryConformanceTests` in
+  `datum_test`); micro-benchmarks show ~80 ns per query build over the
+  string path. The auto-migration stamp includes the drop policy, so
+  enabling `autoMigrateDropColumns` later re-runs the pass instead of
+  being silently ignored.
 - **New capability mixins**: `SchemaFingerprintCapable` and
   `SqlSchemaCapable` (additive; existing adapters unaffected). New
   `AutoMigrationExecutor`, `diffSchema`, `SchemaRenameOperation`, and
