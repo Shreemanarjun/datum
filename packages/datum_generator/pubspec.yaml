@@ -1,5 +1,5 @@
 name: datum_generator
-description: Code generator for the Datum framework.
+description: Code generator for the Datum framework — derives toDatumMap, fromMap, copyWith, and diff for entities via build_runner, wire-compatible with the runtime typed-schema layer.
 version: 1.1.0
 resolution: workspace
 homepage: https://www.shreeman.dev

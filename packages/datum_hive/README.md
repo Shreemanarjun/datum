@@ -26,7 +26,7 @@ Add `datum_hive` to your `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  datum_hive: ^latest_version
+  datum_hive: ^1.1.0
 ```
 
 Then, run `flutter pub get`.

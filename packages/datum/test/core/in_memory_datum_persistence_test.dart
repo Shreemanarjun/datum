@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/persistence/in_memory_datum_persistence.dart';
 import 'package:test/test.dart';
 
 void main() {

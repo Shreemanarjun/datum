@@ -2,6 +2,9 @@
 
 All changes below are additive and backward compatible unless noted.
 
+- Exported from the package barrel: `DatumConfigPresets`, `DatumPersistence`,
+  `InMemoryDatumPersistence`.
+
 ## 🧬 Typed schemas & auto-migration (no codegen)
 
 - **`DatumFieldSpec<E, V>`**: a full runtime field descriptor that IS-A

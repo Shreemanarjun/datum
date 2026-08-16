@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/persistence/datum_persistence.dart';
 
 /// In-memory implementation of [DatumPersistence] for testing and development.
 ///

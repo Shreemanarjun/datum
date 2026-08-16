@@ -22,14 +22,14 @@ Add `datum_generator` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  datum: ^1.0.5
+  datum: ^1.1.0
   # Required for annotations
-  datum_generator: ^1.0.1
+  datum_generator: ^1.1.0
 
 dev_dependencies:
   build_runner: ^2.4.0
   # Required for the code generator
-  datum_generator: ^1.0.1
+  datum_generator: ^1.1.0
 ```
 
 ## Basic Usage

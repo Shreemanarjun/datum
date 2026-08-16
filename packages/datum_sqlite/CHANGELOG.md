@@ -1,4 +1,4 @@
-## 0.1.0
+## 1.1.0
 
 - Initial release.
 - **Fix — rows are keyed by `(id, userId)`**: the table used

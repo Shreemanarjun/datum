@@ -1,5 +1,4 @@
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/persistence/in_memory_datum_persistence.dart';
 import 'package:test/test.dart';
 
 /// Waits for pending microtasks/events so that async stream emissions settle.

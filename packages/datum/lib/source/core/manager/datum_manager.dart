@@ -3,7 +3,6 @@ import 'dart:isolate';
 
 import 'package:collection/collection.dart';
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/persistence/datum_persistence.dart';
 
 import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';

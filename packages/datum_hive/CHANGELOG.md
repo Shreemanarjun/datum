@@ -1,4 +1,4 @@
-## 0.1.0
+## 1.1.0
 
 - **Fix — rows are keyed by `(userId, id)`**: the box was keyed by entity
   id alone, so one user's create/update silently overwrote another user's

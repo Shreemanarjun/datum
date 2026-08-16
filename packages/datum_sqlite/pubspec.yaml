@@ -1,6 +1,6 @@
 name: datum_sqlite
 description: A SQLite-backed persistence layer for the Datum ecosystem — native SQL query pushdown, real transactions, and ALTER TABLE schema migrations via SqlMigrationExecutor.
-version: 0.1.0
+version: 1.1.0
 resolution: workspace
 homepage: https://www.shreeman.dev
 repository: https://github.com/Shreemanarjun/datum

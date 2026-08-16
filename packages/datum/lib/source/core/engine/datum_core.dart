@@ -1,8 +1,6 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/persistence/datum_persistence.dart';
-import 'package:datum/source/core/persistence/in_memory_datum_persistence.dart';
 import 'package:meta/meta.dart';
 import 'package:rxdart/rxdart.dart';
 

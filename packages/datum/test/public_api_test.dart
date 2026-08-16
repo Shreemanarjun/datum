@@ -16,6 +16,9 @@ import 'package:test/test.dart';
 const _expectedExports = <String>{
   'package:datum/source/core/errors/datum_exception.dart',
   'source/adapter/adapter_capabilities.dart',
+  'source/config/config_presets.dart',
+  'source/core/persistence/datum_persistence.dart',
+  'source/core/persistence/in_memory_datum_persistence.dart',
   'source/adapter/in_memory_local_adapter.dart',
   'source/adapter/local_adapter.dart',
   'source/adapter/remote_adapter.dart',
