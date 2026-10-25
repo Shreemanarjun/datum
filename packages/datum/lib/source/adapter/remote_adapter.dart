@@ -46,6 +46,20 @@ abstract class RemoteAdapter<T extends DatumEntityInterface> {
   /// into a native query for the underlying service (e.g., a REST API call).
   Future<List<T>> query(DatumQuery query, {String? userId});
 
+  /// Executes a raw query against the remote data source.
+  ///
+  /// Bypasses Datum's query system and returns raw rows as `Map<String, dynamic>`.
+  /// Support depends on the remote adapter implementation.
+  Future<List<Map<String, dynamic>>> queryRaw(
+    String query, {
+    List<dynamic> variables = const [],
+    String? userId,
+  }) {
+    throw UnimplementedError(
+      'queryRaw is not implemented for this remote adapter.',
+    );
+  }
+
   // --- Write Methods ---
 
   /// Create a new entity on the remote data source.

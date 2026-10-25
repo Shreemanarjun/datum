@@ -78,6 +78,20 @@ abstract class LocalAdapter<T extends DatumEntityInterface> {
   /// into a native query for the underlying database (e.g., SQL).
   Future<List<T>> query(DatumQuery query, {String? userId});
 
+  /// Executes a raw query against the underlying database.
+  ///
+  /// Bypasses Datum's query system and returns raw rows as `Map<String, dynamic>`.
+  /// Changes made through raw queries may not be tracked by Datum.
+  Future<List<Map<String, dynamic>>> queryRaw(
+    String query, {
+    List<dynamic> variables = const [],
+    String? userId,
+  }) {
+    throw UnimplementedError(
+      'queryRaw is not implemented for this local adapter.',
+    );
+  }
+
   // --- Write Methods ---
 
   /// Create a new entity.
