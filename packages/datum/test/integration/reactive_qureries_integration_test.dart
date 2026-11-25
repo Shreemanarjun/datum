@@ -83,7 +83,7 @@ void main() {
       final entity = TestEntity.create('entity1', 'user1', 'Item 1');
       final updatedEntity = entity.copyWith(name: 'Updated Item');
 
-      final stream = manager.watchById('entity1', 'user1');
+      final stream = manager.watchById('entity1', userId: 'user1');
 
       final completer = Completer<List<TestEntity?>>();
       final receivedEvents = <TestEntity?>[];

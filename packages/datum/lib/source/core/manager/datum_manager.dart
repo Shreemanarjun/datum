@@ -608,10 +608,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
   Future<T> push({
     required T item,
-    required String userId,
+    String? userId,
     DataSource source = DataSource.local,
     bool forceRemoteSync = false,
   }) async {
+    userId ??= item.userId;
     _ensureInitialized();
     _relationLoader.registerRelationSchema(item);
     // Check for user switch before proceeding.
@@ -963,7 +964,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// A soft-delete tombstone emits null like a hard delete would, unless
   /// [includeDeleted] is true.
   /// Returns null if the adapter does not support reactive queries.
-  Stream<T?> watchById(String id, String? userId, {bool includeDeleted = false}) {
+  Stream<T?> watchById(String id, {String? userId, bool includeDeleted = false}) {
     _ensureInitialized();
     final adapterStream = localAdapter.watchById(id, userId: userId);
     if (adapterStream == null) return Stream<T?>.empty();

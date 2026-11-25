@@ -1069,8 +1069,8 @@ class Datum {
     return Datum.manager<T>().watchAll(userId: userId, includeInitialData: includeInitialData);
   }
 
-  Stream<T?>? watchById<T extends DatumEntityInterface>(String id, String? userId) {
-    return Datum.manager<T>().watchById(id, userId);
+  Stream<T?>? watchById<T extends DatumEntityInterface>(String id, {String? userId}) {
+    return Datum.manager<T>().watchById(id, userId: userId);
   }
 
   Stream<PaginatedResult<T>>? watchAllPaginated<T extends DatumEntityInterface>(

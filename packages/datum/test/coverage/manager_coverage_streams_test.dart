@@ -291,7 +291,7 @@ void main() {
     });
 
     test('watchById returns an empty stream', () async {
-      expect(await manager.watchById('missing', 'u1').isEmpty, isTrue);
+      expect(await manager.watchById('missing', userId: 'u1').isEmpty, isTrue);
     });
 
     test('watchQuery returns an empty stream', () async {
@@ -360,7 +360,7 @@ void main() {
 
       localAdapter.addLocalItem('u1', makeEntity('e1', name: 'one'));
 
-      final item = await manager.watchById('e1', 'u1').first;
+      final item = await manager.watchById('e1', userId: 'u1').first;
       expect(item, isNotNull);
       expect(item!.name, 'one');
 
@@ -479,7 +479,7 @@ void main() {
     test('watchById swallows stream errors and continues emitting', () async {
       final events = <TestEntity?>[];
       final errors = <Object>[];
-      final sub = manager.watchById('e1', 'u1').listen(events.add, onError: errors.add);
+      final sub = manager.watchById('e1', userId: 'u1').listen(events.add, onError: errors.add);
 
       localAdapter.watchByIdCtrl.addError(StateError('watchById error (test)'));
       localAdapter.watchByIdCtrl.add(makeEntity('e1'));

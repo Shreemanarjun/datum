@@ -216,7 +216,7 @@ void main() {
 
       // Stubbing manager methods that will be called by Datum.instance
       when(() => mockManager.watchAll(userId: any(named: 'userId'), includeInitialData: any(named: 'includeInitialData'))).thenAnswer((_) => Stream.value([]));
-      when(() => mockManager.watchById(any(), any())).thenAnswer((_) => Stream.value(null));
+      when(() => mockManager.watchById(any(), userId: any(named: 'userId'))).thenAnswer((_) => Stream.value(null));
       when(() => mockManager.watchAllPaginated(any(), userId: any(named: 'userId'))).thenAnswer(
         (_) => Stream.value(
           const PaginatedResult(
@@ -371,7 +371,7 @@ void main() {
 
     test('Datum.watchById calls manager.watchById', () async {
       // Act
-      final result = await Datum.instance.watchById<TestEntity>('id1', 'user1')!.first;
+      final result = await Datum.instance.watchById<TestEntity>('id1', userId: 'user1')!.first;
 
       // Assert: observable outcome (null from our stubs)
       expect(result, isNull);

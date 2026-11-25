@@ -1,3 +1,16 @@
+# Unreleased
+
+- ⚡ Watch streams coalesce change bursts (`rereadingWatch`, exported): a
+  500-write burst re-reads 2× instead of 500× (~16× faster). `watchById`
+  ignores other entities; Hive `watchAll` ignores other users.
+- ⚡ Writes no longer spawn an isolate per item to measure payload size
+  (`push` ~1.8× faster).
+- ⚡ SQLite: indexes on `userId` and `pending_ops(user_id)`; pending ops are
+  returned in insertion order and keep their position when retried.
+- `DatumManager.push`: `userId` is optional and defaults to `item.userId`.
+- **Breaking:** `watchById(id, {userId, includeDeleted})` on `DatumManager`
+  and `Datum` — `userId` is now named.
+
 # 1.1.0
 
 All changes below are additive and backward compatible unless noted.

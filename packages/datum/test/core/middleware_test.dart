@@ -187,7 +187,7 @@ void main() {
       ).thenAnswer((_) => streamController.stream);
 
       // Act & Assert
-      final stream = manager.watchById(stored.id, userId);
+      final stream = manager.watchById(stored.id, userId: userId);
       expect(
         stream,
         emitsInOrder([

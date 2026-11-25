@@ -86,7 +86,7 @@ The main entry point for Datum operations, providing a comprehensive API for dat
 - `onSyncStarted` / `onSyncProgress` / `onSyncCompleted` / `onSyncError`: Sync lifecycle events
 - `onConflict`: Conflict detection events
 - `watchAll({String? userId})`: Reactive stream of all entities
-- `watchById(String id, String? userId)`: Reactive stream of single entity
+- `watchById(String id, {String? userId, bool includeDeleted})`: Reactive stream of single entity
 - `watchStorageSize({String? userId})`: Reactive storage size monitoring
 
 **Querying:**

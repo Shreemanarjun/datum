@@ -275,8 +275,8 @@ void main() {
     final queried = await entities.watchQuery(const DatumQuery(sorting: [SortDescriptor('value')]), userId: 'u1').first;
     expect(queried.map((e) => e.id).toList(), ['e1', 'e2', 'e3']);
 
-    expect(await entities.watchById('gone', 'u1').first, isNull);
-    expect((await entities.watchById('gone', 'u1', includeDeleted: true).first)?.isDeleted, isTrue);
+    expect(await entities.watchById('gone', userId: 'u1').first, isNull);
+    expect((await entities.watchById('gone', userId: 'u1', includeDeleted: true).first)?.isDeleted, isTrue);
   });
 
   test('the tombstone delta increments the vector clock only for clock entities', () async {
