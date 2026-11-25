@@ -82,6 +82,7 @@ class _SplashViewState extends ConsumerState<SplashView> {
           loadingWidget: () => child!,
           errorWidget: (error, stackTrace) {
             talker.error("Initialization error: $error", stackTrace);
+            debugPrint("Initialization error: $error\n$stackTrace");
             // Still proceed with initialization even if there are errors
             widget.onInitialized(ProviderContainer());
             return const SizedBox.shrink();
