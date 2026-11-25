@@ -68,8 +68,7 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
 
   @override
   Future<List<T>> readAll({String? userId}) async {
-    if (userId != null) return _storage[userId]?.values.map(_fresh).toList() ?? [];
-    return _storage.values.expand((m) => m.values).map(_fresh).toList();
+    return _stored(userId).map(_fresh).toList();
   }
 
   @override
@@ -98,9 +97,12 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
   @override
   Future<List<String>> getAllUserIds() async => _storage.keys.toList();
 
+  Iterable<T> _stored(String? userId) => userId != null ? (_storage[userId]?.values ?? const []) : _storage.values.expand((m) => m.values);
+
   @override
   Future<List<T>> query(DatumQuery query, {String? userId}) async {
-    return DatumQueryMatcher.apply(await readAll(userId: userId), query);
+    // Filter the stored instances; copy only the matches.
+    return DatumQueryMatcher.apply(_stored(userId).toList(), query).map(_fresh).toList();
   }
 
   @override
@@ -197,7 +199,7 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
 
   @override
   Stream<int>? watchCount({DatumQuery? query, String? userId}) {
-    return _watch(() async => query != null ? (await this.query(query, userId: userId)).length : (await readAll(userId: userId)).length, userId: userId);
+    return _watch(() async => query != null ? DatumQueryMatcher.apply(_stored(userId).toList(), query).length : _stored(userId).length, userId: userId);
   }
 
   @override

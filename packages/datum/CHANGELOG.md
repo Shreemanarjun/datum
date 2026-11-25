@@ -7,6 +7,9 @@
   (`push` ~1.8× faster).
 - ⚡ SQLite: indexes on `userId` and `pending_ops(user_id)`; pending ops are
   returned in insertion order and keep their position when retried.
+- ⚡ In-memory `query`/`watchCount` filter before copying; query sorting
+  serializes each entity once instead of per comparison. SQLite
+  `watchCount` uses `COUNT(*)`, `watchFirst` uses `LIMIT 1`.
 - `DatumManager.push`: `userId` is optional and defaults to `item.userId`.
 - **Breaking:** `watchById(id, {userId, includeDeleted})` on `DatumManager`
   and `Datum` — `userId` is now named.

@@ -18,22 +18,9 @@ abstract final class DatumQueryMatcher {
     List<T> items,
     DatumQuery query,
   ) {
-    var filtered = items.where((item) {
-      final json = item.toDatumMap();
-      return matchesMap(json, query);
-    }).toList();
-
-    if (query.sorting.isNotEmpty) {
-      filtered.sort((a, b) => _compare(a.toDatumMap(), b.toDatumMap(), query.sorting));
-    }
-
-    if (query.offset != null) {
-      filtered = filtered.skip(query.offset!).toList();
-    }
-    if (query.limit != null) {
-      filtered = filtered.take(query.limit!).toList();
-    }
-    return filtered;
+    // Serialize each entity once; the sort comparator reuses the maps.
+    final byJson = <Map<String, dynamic>, T>{for (final item in items) item.toDatumMap(): item};
+    return [for (final json in applyToMaps(byJson.keys.toList(), query)) byJson[json] as T];
   }
 
   /// Applies [query] to a list of raw maps (used when an adapter stores rows as

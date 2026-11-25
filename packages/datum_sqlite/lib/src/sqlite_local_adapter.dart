@@ -304,6 +304,19 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
 
   @override
   Future<List<T>> query(DatumQuery query, {String? userId}) async {
+    final (:sql, :params) = _scopedSql(query, userId);
+    return database.select(sql, params).map(_entityFromRow).toList();
+  }
+
+  int _count(DatumQuery? query, String? userId) {
+    final (:sql, :params) = _scopedSql(query ?? const DatumQuery(), userId);
+    return database.select('SELECT COUNT(*) AS c FROM ($sql)', params).first['c'] as int;
+  }
+
+  ({String sql, List<Object?> params}) _scopedSql(
+    DatumQuery query,
+    String? userId,
+  ) {
     // Push the query down to SQLite. User scoping joins the query's own
     // filters so LIMIT/OFFSET apply AFTER scoping, as callers expect.
     // The caller's filters are wrapped in a composite so the userId scope
@@ -325,10 +338,7 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
     final (:sql, :params) = scoped.toSql(table);
     // Filter values arrive as Dart objects (DateTime, bool) that sqlite3's
     // binder rejects or misreads — encode them like the write path does.
-    return database
-        .select(sql, params.map(_encode).toList())
-        .map(_entityFromRow)
-        .toList();
+    return (sql: sql, params: params.map(_encode).toList());
   }
 
   // --- Writes --------------------------------------------------------------
@@ -665,19 +675,16 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
       _watch(() => this.query(query, userId: userId), userId: userId);
 
   @override
-  Stream<int>? watchCount({DatumQuery? query, String? userId}) => _watch(
-    () async => query == null
-        ? (await readAll(userId: userId)).length
-        : (await this.query(query, userId: userId)).length,
-    userId: userId,
-  );
+  Stream<int>? watchCount({DatumQuery? query, String? userId}) =>
+      _watch(() async => _count(query, userId), userId: userId);
 
   @override
   Stream<T?>? watchFirst({DatumQuery? query, String? userId}) =>
       _watch(() async {
-        final items = query == null
-            ? await readAll(userId: userId)
-            : await this.query(query, userId: userId);
+        final items = await this.query(
+          (query ?? const DatumQuery()).copyWith(limit: 1),
+          userId: userId,
+        );
         return items.isEmpty ? null : items.first;
       }, userId: userId);
 
