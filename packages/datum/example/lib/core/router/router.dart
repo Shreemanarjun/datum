@@ -33,8 +33,8 @@ class AppRouter extends RootStackRouter {
           path: 'paint',
         ),
         AutoRoute(
-          page: CounterRoute.page,
-          path: 'counter',
+          page: SettingsRoute.page,
+          path: 'settings',
         ),
       ],
     ),

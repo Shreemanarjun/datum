@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
-import 'package:datum/source/core/persistence/datum_persistence.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
 /// Hive-based implementation of [DatumPersistence] for the example app.

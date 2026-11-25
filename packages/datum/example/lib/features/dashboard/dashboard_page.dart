@@ -1,23 +1,22 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:example/core/router/router.gr.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 @RoutePage()
-class DashboardPage extends ConsumerWidget {
+class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return AutoTabsRouter(
       routes: const [
         HomeRoute(),
         SimpleDatumRoute(),
         PaintRoute(),
-        CounterRoute(),
+        SettingsRoute(),
       ],
       builder: (context, child) {
         final tabsRouter = AutoTabsRouter.of(context);
@@ -122,8 +121,8 @@ class _Sidebar extends StatelessWidget {
                     onTap: () => onNavItemTapped(2),
                   ),
                   _SidebarItem(
-                    label: 'Counter',
-                    icon: LucideIcons.timer,
+                    label: 'Settings',
+                    icon: LucideIcons.settings,
                     isActive: activeIndex == 3,
                     onTap: () => onNavItemTapped(3),
                   ),
@@ -228,7 +227,7 @@ class _BottomNav extends StatelessWidget {
                 onTap: () => onNavItemTapped(2),
               ),
               _BottomNavItem(
-                icon: LucideIcons.timer,
+                icon: LucideIcons.settings,
                 isActive: activeIndex == 3,
                 onTap: () => onNavItemTapped(3),
               ),

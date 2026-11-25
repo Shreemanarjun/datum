@@ -1,17 +1,16 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:example/features/tasks/presentation/widgets/sync_dashboard_widget.dart';
 
 @RoutePage()
-class HomePage extends ConsumerWidget {
+class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final user = Supabase.instance.client.auth.currentUser;
     final theme = ShadTheme.of(context);
     final isMobile = ResponsiveBreakpoints.of(context).isMobile;
@@ -125,7 +124,7 @@ class HomePage extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 16),
-        SyncDashboardWidget(userId: userId),
+        SyncDashboardWidget(key: ValueKey(userId), userId: userId),
       ],
     );
   }

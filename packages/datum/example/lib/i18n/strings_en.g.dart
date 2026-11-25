@@ -61,8 +61,8 @@ class Translations with BaseTranslations<AppLocale, Translations> {
   /// en: 'Spanish'
   String get locale_es => 'Spanish';
 
-  /// en: 'Counter'
-  String get counterAppBarTitle => 'Counter';
+  /// en: 'Settings'
+  String get settingsTitle => 'Settings';
 }
 
 /// The flat map containing all translations for locale <en>.
@@ -76,7 +76,7 @@ extension on Translations {
       'locale' => 'en',
       'locale_en' => 'English',
       'locale_es' => 'Spanish',
-      'counterAppBarTitle' => 'Counter',
+      'settingsTitle' => 'Settings',
       _ => null,
     };
   }

@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:example/isolate_logger.dart';
@@ -180,28 +179,10 @@ class _TalkerDatumLogger implements datum_logger.DatumLogger {
   datum_logger.DatumLogger getWorkerLogger() => this;
 }
 
-///This bootstrap function builds widget asynchronusly
-///where builder function used for building your start widget.
-///You can override riverpod providers ,also setup observers
-///or you can put a provider container in parent
-Future<void> bootstrap(
-  FutureOr<Widget> Function() builder, {
-  required ProviderContainer parent,
-}) async {
-  talker.info("Bootstrap called - replacing app widget tree");
+/// Replaces the splash tree with the app built by [builder].
+Future<void> bootstrap(FutureOr<Widget> Function() builder) async {
   FlutterError.onError = (details) {
     log(details.exceptionAsString(), stackTrace: details.stack);
   };
-
-  final child = await builder();
-  talker.info("Builder completed, calling runApp with new widget tree");
-
-  runApp(
-    UncontrolledProviderScope(
-      container: parent,
-      child: child,
-    ),
-  );
-
-  talker.info("runApp completed - app should now show main interface");
+  runApp(await builder());
 }

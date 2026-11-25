@@ -1,95 +1,90 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:example/bootstrap.dart';
-import 'package:example/features/splash/controller/future_initializer.dart';
-import 'package:example/shared/riverpod_ext/asynvalue_easy_when.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 
-///This view displayed for initializing all the required things on initialization.
-/// This will help for initial loading screen for apps with heavy things initialization;
-class SplashView extends ConsumerStatefulWidget {
-  /// If true ,this will defer the first frame upto all async initialization done.
-  /// On deferring the screen will be blasnk upto the completion of initialization.
-  ///
-  /// If false, it will show splash loader from the start of the app upto intialization
-  ///  without deferring the first frame.
-  ///
-  final bool removeSpalshLoader;
-  final void Function(ProviderContainer container) onInitialized;
+/// Shows a loader while [initialization] runs, then calls [onInitialized].
+/// An initialization failure is logged and shown on screen.
+class SplashView extends SignalStatefulWidget {
   const SplashView({
     super.key,
+    required this.initialization,
     required this.onInitialized,
-    required this.removeSpalshLoader,
   });
 
+  final FutureSignal<void> initialization;
+  final VoidCallback onInitialized;
+
   @override
-  ConsumerState<SplashView> createState() => _SplashViewState();
+  State<SplashView> createState() => _SplashViewState();
 }
 
-class _SplashViewState extends ConsumerState<SplashView> {
-  late Stopwatch stopwatch;
+class _SplashViewState extends State<SplashView> {
+  final _stopwatch = Stopwatch()..start();
+  late final EffectCleanup _disposeEffect;
+
   @override
   void initState() {
-    stopwatch = Stopwatch()..start();
     super.initState();
-    if (widget.removeSpalshLoader) {
-      RendererBinding.instance.deferFirstFrame();
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    if (widget.removeSpalshLoader) {
-      ref.read(futureInitializerPod.future).whenComplete(
-        () {
-          RendererBinding.instance.allowFirstFrame();
-        },
-      );
-    }
-
-    super.didChangeDependencies();
+    _disposeEffect = effect(() {
+      switch (widget.initialization.value) {
+        case AsyncData():
+          talker
+              .info('Initialization took ${_stopwatch.elapsedMilliseconds}ms');
+          untracked(widget.onInitialized);
+        case AsyncError(:final error, :final stackTrace):
+          talker.error('Initialization failed', error, stackTrace);
+        default:
+      }
+    });
   }
 
   @override
   void dispose() {
-    stopwatch.stop();
-    talker.info("Page disposed after takes ${stopwatch.elapsedMilliseconds}");
+    _disposeEffect();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer(
-      builder: (context, ref, child) {
-        final futureAsync = ref.watch(futureInitializerPod);
-        ref.listen(
-          futureInitializerPod,
-          (previous, next) {
-            talker.debug("Future initializer state changed: $next");
-            if (next is AsyncData && next.value != null) {
-              talker.info(
-                  "Initialization takes ${stopwatch.elapsedMilliseconds} - calling onInitialized");
-              widget.onInitialized(next.requireValue);
-            } else if (next is AsyncError) {
-              talker.error("Future initializer error: ${next.error}");
-            }
-          },
-        );
-        return futureAsync.easyWhen(
-          data: (data) {
-            return const SizedBox.shrink();
-          },
-          loadingWidget: () => child!,
-          errorWidget: (error, stackTrace) {
-            talker.error("Initialization error: $error", stackTrace);
-            debugPrint("Initialization error: $error\n$stackTrace");
-            // Still proceed with initialization even if there are errors
-            widget.onInitialized(ProviderContainer());
-            return const SizedBox.shrink();
-          },
-        );
-      },
-      child: const LoaderChild(),
+    return switch (widget.initialization.value) {
+      AsyncError(:final error, :final stackTrace) =>
+        InitializationError(error: error, stackTrace: stackTrace),
+      AsyncData() => const SizedBox.shrink(),
+      _ => const LoaderChild(),
+    };
+  }
+}
+
+class InitializationError extends StatelessWidget {
+  const InitializationError(
+      {super.key, required this.error, required this.stackTrace});
+
+  final Object error;
+  final StackTrace stackTrace;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Initialization failed',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              SelectableText('$error',
+                  style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: 8),
+              SelectableText('$stackTrace',
+                  style: const TextStyle(fontSize: 11)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -145,7 +140,7 @@ class _LoaderChildState extends State<LoaderChild>
               bottom: 16,
               child: Material(
                   child: Text(
-                "Welcome to Riverpod Simple Architecture App",
+                "Welcome to Datum Example App",
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                 ),

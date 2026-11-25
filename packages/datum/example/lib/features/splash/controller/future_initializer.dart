@@ -10,21 +10,19 @@ import 'package:example/features/tasks/data/entities/task.dart';
 import 'package:example/features/auth/data/adapters/supabase_adapter.dart';
 import 'package:example/data/paint/entity/paint_stroke.dart';
 import 'package:example/data/paint/entity/paint_canvas.dart';
-import 'package:example/features/tasks/presentation/controllers/simple_datum_provider.dart';
 import 'package:example/my_datum_observer.dart';
-import 'package:example/shared/riverpod_ext/riverpod_observer/riverpod_obs.dart';
-import 'package:example/shared/riverpod_ext/riverpod_observer/talker_riverpod_settings.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:example/i18n/strings.g.dart';
-import 'package:example/shared/pods/internet_checker_pod.dart';
-import 'package:example/shared/pods/translation_pod.dart';
 import 'package:platform_info/platform_info.dart';
 import 'package:example/bootstrap.dart';
-import 'package:example/core/local_storage/app_storage_pod.dart';
-import 'package:example/features/splash/controller/box_encryption_key_pod.dart';
 import 'package:example/init.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:example/core/theme/theme_controller.dart';
+import 'package:example/shared/translations.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:signals_flutter/signals_flutter.dart';
+import 'dart:convert';
+import 'dart:typed_data';
 
 /// Top-level functions to avoid closure capture issues with Isolate
 Future<String?> _initialUserId() async {
@@ -41,11 +39,21 @@ Future<void> _onMigrationError(Object error, StackTrace stackTrace) async {
   talker.error(error, stackTrace);
 }
 
-final futureInitializerPod = FutureProvider<ProviderContainer>((
-  ref,
-) async {
-  ///Additional intial delay duration for app
-  // await Future.delayed(const Duration(seconds: 1));
+/// Reads (or creates on first launch) the AES key for the app's Hive box.
+Future<Uint8List> _boxEncryptionKey() async {
+  const storage = FlutterSecureStorage(
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+  );
+  const storageKey = 'DatumStorage';
+  var key = await storage.read(key: storageKey);
+  if (key == null) {
+    key = base64UrlEncode(Hive.generateSecureKey());
+    await storage.write(key: storageKey, value: key);
+  }
+  return base64Url.decode(key);
+}
+
+Future<void> initializeApp() async {
   await (init());
   await IsolatedHive.initFlutter();
   await Hive.initFlutter();
@@ -55,21 +63,17 @@ final futureInitializerPod = FutureProvider<ProviderContainer>((
     publishableKey: Secrets.SUPABASE_ANON_KEY,
   );
   final encryptionCipher = await Platform.I.when(
-    mobile: () async {
-      final encryptionKey = await ref.watch(boxEncryptionKeyPod.future);
-      return HiveAesCipher(encryptionKey);
-    },
+    mobile: () async => HiveAesCipher(await _boxEncryptionKey()),
   );
 
   ///Load device translations
   ///
-  AppLocale deviceLocale = AppLocaleUtils.findDeviceLocale();
-  final translations = await deviceLocale.build();
+  translations.value = await AppLocaleUtils.findDeviceLocale().build();
 
-  final appBox = await Hive.openBox(
+  bindThemeStorage(await Hive.openBox(
     'DatumAppBox',
     encryptionCipher: encryptionCipher,
-  );
+  ));
   final config = DatumConfig(
     enableLogging: true,
     autoStartSync: true, // Enable auto-start sync with reactive user ID
@@ -140,41 +144,11 @@ final futureInitializerPod = FutureProvider<ProviderContainer>((
     ],
   );
 
-  return ProviderContainer(
-    overrides: [
-      appBoxProvider.overrideWithValue(appBox),
-      translationsPod.overrideWith((ref) => translations),
-      enableInternetCheckerPod.overrideWithValue(false),
-      simpleDatumProvider.overrideWith(
-        (ref) => datum.fold(
-          (l, s) => throw l,
-          (r) => r,
-        ),
-      ),
-    ],
-    observers: [
-      ///Added new talker riverpod observer
-      ///
-      /// If you want old behaviour
-      /// Replace with
-      ///
-      ///  MyObserverLogger( talker: talker,)
-      ///
-      ///
-      ///
-      ///
-      TalkerRiverpodObserver(
-        talker: talker,
-        settings: TalkerRiverpodLoggerSettings(
-          printProviderDisposed: true,
-          providerFilter: (provider) {
-            if (provider.name == "countdownProvider") {
-              return false;
-            }
-            return true;
-          },
-        ),
-      ),
-    ],
-  );
-});
+  datum.fold(
+      (error, stackTrace) =>
+          Error.throwWithStackTrace(error, stackTrace ?? StackTrace.current),
+      (_) {});
+}
+
+/// App startup. Read by the splash screen; errors surface there.
+final appInitialization = futureSignal(initializeApp);

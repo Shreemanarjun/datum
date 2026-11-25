@@ -3,7 +3,6 @@ import 'package:datum/datum.dart';
 import 'package:example/features/tasks/data/adapters/hive_adapter.dart';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce_test/hive_ce_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -59,11 +58,9 @@ void main() {
 
       // Build the app
       await tester.pumpWidget(
-        ProviderScope(
-          child: MaterialApp(
-            home: DatumProviderWithLifecycle(
-              child: Container(),
-            ),
+        MaterialApp(
+          home: DatumProviderWithLifecycle(
+            child: Container(),
           ),
         ),
       );

@@ -4,33 +4,34 @@ import 'package:flash/flash_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:example/core/router/auto_route_observer.dart';
-import 'package:example/core/router/router_pod.dart';
+import 'package:example/core/router/router.dart';
 import 'package:example/core/theme/theme_controller.dart';
 import 'package:example/i18n/strings.g.dart';
 import 'package:example/shared/helper/global_helper.dart';
-import 'package:example/shared/widget/no_internet_widget.dart';
 import 'package:example/shared/widget/responsive_wrapper.dart';
-import 'package:example/shared/pods/translation_pod.dart';
+import 'package:example/shared/translations.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 
 ///This class holds Material App or Cupertino App
 ///with routing,theming and locale setup .
 ///Also responsive framerwork used for responsive application
 ///which auto resize or autoscale the app.
-class App extends ConsumerStatefulWidget {
+class App extends SignalStatefulWidget {
   const App({super.key});
 
   @override
-  ConsumerState<App> createState() => _AppState();
+  State<App> createState() => _AppState();
 }
 
-class _AppState extends ConsumerState<App> with GlobalHelper {
+class _AppState extends State<App> with GlobalHelper {
+  final _router = AppRouter();
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
-    final approuter = ref.watch(autorouterProvider);
-    final currentTheme = ref.watch(themecontrollerProvider);
+    final currentTheme = themeMode.value;
     return ShadApp.router(
       debugShowCheckedModeBanner: false,
       title: 'Datum Test App',
@@ -43,13 +44,13 @@ class _AppState extends ConsumerState<App> with GlobalHelper {
         brightness: Brightness.light,
         colorScheme: const ShadSlateColorScheme.light(),
       ),
-      routerConfig: approuter.config(
+      routerConfig: _router.config(
         placeholder: (context) => const SizedBox.shrink(),
         navigatorObservers: () => [
           RouterObserver(),
         ],
       ),
-      locale: ref.watch(translationsPod).$meta.locale.flutterLocale,
+      locale: translations.value.$meta.locale.flutterLocale,
       supportedLocales: AppLocaleUtils.supportedLocales,
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       builder: (context, child) {
@@ -106,10 +107,7 @@ class _AppState extends ConsumerState<App> with GlobalHelper {
         }
 
         ///Add toast support for flash
-        return Toast(
-          navigatorKey: navigatorKey,
-          child: child,
-        ).monitorConnection();
+        return Toast(navigatorKey: _navigatorKey, child: child);
       },
     );
   }

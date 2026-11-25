@@ -1,45 +1,36 @@
 import 'dart:ui' as ui;
 import 'package:example/bootstrap.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:datum/datum.dart';
 import 'package:example/data/paint/entity/paint_stroke.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 
-// ============================================================================
-// PROVIDERS
-// ============================================================================
+Stream<List<PaintStroke>> _watchStrokes(String canvasId) {
+  final userId = Supabase.instance.client.auth.currentUser?.id;
+  if (userId == null) return Stream.value([]);
 
-final paintStrokesStreamProvider =
-    StreamProvider.autoDispose.family<List<PaintStroke>, String>(
-  (ref, canvasId) async* {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) {
-      yield [];
-      return;
-    }
+  return Datum.manager<PaintStroke>()
+      .watchAll(userId: userId, includeInitialData: true)
+      .map((allStrokes) => allStrokes
+          .where((stroke) => stroke.canvasId == canvasId && !stroke.isDeleted)
+          .toList()
+        ..sort((a, b) => a.order.compareTo(b.order)));
+}
 
-    yield* Datum.manager<PaintStroke>()
-        .watchAll(userId: userId, includeInitialData: true)
-        .map((allStrokes) => allStrokes
-            .where((stroke) => stroke.canvasId == canvasId && !stroke.isDeleted)
-            .toList()
-          ..sort((a, b) => a.order.compareTo(b.order)));
-  },
-  name: 'paintStrokesStreamProvider',
-);
-
-class PaintCanvas extends ConsumerStatefulWidget {
+class PaintCanvas extends SignalStatefulWidget {
   final String canvasId;
 
   const PaintCanvas({super.key, required this.canvasId});
 
   @override
-  ConsumerState<PaintCanvas> createState() => _PaintCanvasState();
+  State<PaintCanvas> createState() => _PaintCanvasState();
 }
 
-class _PaintCanvasState extends ConsumerState<PaintCanvas> {
+class _PaintCanvasState extends State<PaintCanvas> {
+  late final _strokes = streamSignal(() => _watchStrokes(widget.canvasId));
+
   final List<PaintStroke> _redoStrokes = [];
 
   /// High-performance notifier for the active stroke being drawn
@@ -54,6 +45,7 @@ class _PaintCanvasState extends ConsumerState<PaintCanvas> {
 
   @override
   void dispose() {
+    _strokes.dispose();
     _currentPointsNotifier.dispose();
     super.dispose();
   }
@@ -105,11 +97,7 @@ class _PaintCanvasState extends ConsumerState<PaintCanvas> {
   }
 
   Future<void> _undo() async {
-    final strokesAsync = ref.read(paintStrokesStreamProvider(widget.canvasId));
-    final strokes = strokesAsync.maybeWhen(
-      data: (data) => data,
-      orElse: () => <PaintStroke>[],
-    );
+    final strokes = _strokes.peek().value ?? <PaintStroke>[];
 
     if (strokes.isEmpty) return;
     final lastStroke = strokes.last;
@@ -136,11 +124,7 @@ class _PaintCanvasState extends ConsumerState<PaintCanvas> {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
 
-    final strokesAsync = ref.read(paintStrokesStreamProvider(widget.canvasId));
-    final strokes = strokesAsync.maybeWhen(
-      data: (data) => data,
-      orElse: () => <PaintStroke>[],
-    );
+    final strokes = _strokes.peek().value ?? <PaintStroke>[];
 
     for (final stroke in strokes) {
       final deletedStroke = stroke.copyWith(isDeleted: true) as PaintStroke;
@@ -187,7 +171,7 @@ class _PaintCanvasState extends ConsumerState<PaintCanvas> {
 
   @override
   Widget build(BuildContext context) {
-    final strokesAsync = ref.watch(paintStrokesStreamProvider(widget.canvasId));
+    final strokesAsync = _strokes.value;
     final theme = ShadTheme.of(context);
 
     return Column(
@@ -207,7 +191,7 @@ class _PaintCanvasState extends ConsumerState<PaintCanvas> {
                 _buildDivider(theme),
                 _buildWidthPicker(theme),
                 _buildDivider(theme),
-                strokesAsync.maybeWhen(
+                strokesAsync.maybeMap(
                   data: (strokes) => _buildActions(strokes, theme),
                   orElse: () => _buildDisabledActions(theme),
                 ),
@@ -225,7 +209,7 @@ class _PaintCanvasState extends ConsumerState<PaintCanvas> {
         Expanded(
           child: Container(
             color: Colors.white,
-            child: strokesAsync.when(
+            child: strokesAsync.map(
               data: (strokes) {
                 // Sync optimistic cache: Remove strokes that have now safely
                 // arrived in the stream.

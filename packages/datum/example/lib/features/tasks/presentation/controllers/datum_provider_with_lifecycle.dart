@@ -1,10 +1,9 @@
 import 'package:datum/datum.dart';
 import 'package:example/bootstrap.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class DatumProviderWithLifecycle extends ConsumerStatefulWidget {
+class DatumProviderWithLifecycle extends StatefulWidget {
   final Widget child;
 
   const DatumProviderWithLifecycle({super.key, required this.child});
@@ -14,8 +13,7 @@ class DatumProviderWithLifecycle extends ConsumerStatefulWidget {
       DatumProviderWithLifecycleState();
 }
 
-class DatumProviderWithLifecycleState
-    extends ConsumerState<DatumProviderWithLifecycle>
+class DatumProviderWithLifecycleState extends State<DatumProviderWithLifecycle>
     with WidgetsBindingObserver {
   @override
   void initState() {

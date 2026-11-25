@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 import 'package:datum/datum.dart';
 import 'package:example/data/paint/entity/paint_canvas.dart';
 import 'package:example/bootstrap.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-final paintCanvasesStreamProvider =
-    StreamProvider.autoDispose<List<PaintCanvas>>((ref) {
+Stream<List<PaintCanvas>> _watchCanvases() {
   final userId = Supabase.instance.client.auth.currentUser?.id;
   if (userId == null) return Stream.value([]);
 
@@ -15,29 +14,41 @@ final paintCanvasesStreamProvider =
       .watchAll(userId: userId, includeInitialData: true)
       .map((canvases) => canvases.where((c) => !c.isDeleted).toList()
         ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt)));
-});
+}
 
-class PaintCanvasList extends ConsumerWidget {
+class PaintCanvasList extends SignalStatefulWidget {
   final Function(String) onCanvasSelected;
 
   const PaintCanvasList({super.key, required this.onCanvasSelected});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final canvasesAsync = ref.watch(paintCanvasesStreamProvider);
+  State<PaintCanvasList> createState() => _PaintCanvasListState();
+}
+
+class _PaintCanvasListState extends State<PaintCanvasList> {
+  final _canvases = streamSignal(_watchCanvases);
+
+  @override
+  void dispose() {
+    _canvases.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = ShadTheme.of(context);
 
-    return canvasesAsync.when(
-      data: (canvases) => _buildList(context, ref, canvases, theme),
+    return _canvases.value.map(
+      data: (canvases) => _buildList(context, canvases, theme),
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (err, stack) => Center(child: Text('Error: $err')),
     );
   }
 
-  Widget _buildList(BuildContext context, WidgetRef ref,
-      List<PaintCanvas> canvases, ShadThemeData theme) {
+  Widget _buildList(
+      BuildContext context, List<PaintCanvas> canvases, ShadThemeData theme) {
     if (canvases.isEmpty) {
-      return _buildEmptyState(context, ref, theme);
+      return _buildEmptyState(context, theme);
     }
     return Column(
       children: [
@@ -51,7 +62,7 @@ class PaintCanvasList extends ConsumerWidget {
               ),
               const Spacer(),
               ShadButton.outline(
-                onPressed: () => _createNewCanvas(context, ref),
+                onPressed: () => _createNewCanvas(context),
                 leading: const Icon(LucideIcons.plus, size: 16),
                 child: const Text('New Painting'),
               ),
@@ -90,8 +101,8 @@ class PaintCanvasList extends ConsumerWidget {
                       '${canvas.strokeCount} strokes • Modified ${canvas.modifiedAt.toString().split(' ')[0]}',
                       style: theme.textTheme.muted,
                     ),
-                    trailing: _buildPopupMenu(context, ref, canvas, theme),
-                    onTap: () => onCanvasSelected(canvas.id),
+                    trailing: _buildPopupMenu(context, canvas, theme),
+                    onTap: () => widget.onCanvasSelected(canvas.id),
                   ),
                 ),
               );
@@ -102,8 +113,7 @@ class PaintCanvasList extends ConsumerWidget {
     );
   }
 
-  Widget _buildEmptyState(
-      BuildContext context, WidgetRef ref, ShadThemeData theme) {
+  Widget _buildEmptyState(BuildContext context, ShadThemeData theme) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -125,7 +135,7 @@ class PaintCanvasList extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           ShadButton(
-            onPressed: () => _createNewCanvas(context, ref),
+            onPressed: () => _createNewCanvas(context),
             leading: const Icon(LucideIcons.plus, size: 16),
             child: const Text('Create New Painting'),
           ),
@@ -134,12 +144,12 @@ class PaintCanvasList extends ConsumerWidget {
     );
   }
 
-  Widget _buildPopupMenu(BuildContext context, WidgetRef ref,
-      PaintCanvas canvas, ShadThemeData theme) {
+  Widget _buildPopupMenu(
+      BuildContext context, PaintCanvas canvas, ShadThemeData theme) {
     return PopupMenuButton<String>(
       onSelected: (value) {
         if (value == 'delete') {
-          _deleteCanvas(context, ref, canvas);
+          _deleteCanvas(context, canvas);
         }
       },
       itemBuilder: (context) => [
@@ -157,7 +167,7 @@ class PaintCanvasList extends ConsumerWidget {
     );
   }
 
-  Future<void> _createNewCanvas(BuildContext context, WidgetRef ref) async {
+  Future<void> _createNewCanvas(BuildContext context) async {
     final titleController = TextEditingController(text: 'New Painting');
     final descriptionController = TextEditingController();
 
@@ -220,15 +230,14 @@ class PaintCanvasList extends ConsumerWidget {
           );
         }
 
-        onCanvasSelected(canvas.id);
+        widget.onCanvasSelected(canvas.id);
       } catch (e) {
         talker.error('Failed to create canvas: $e');
       }
     }
   }
 
-  Future<void> _deleteCanvas(
-      BuildContext context, WidgetRef ref, PaintCanvas canvas) async {
+  Future<void> _deleteCanvas(BuildContext context, PaintCanvas canvas) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(

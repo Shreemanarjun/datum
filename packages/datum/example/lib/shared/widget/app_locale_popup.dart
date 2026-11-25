@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 import 'package:example/i18n/strings.g.dart';
-import 'package:example/shared/pods/translation_pod.dart';
+import 'package:example/shared/translations.dart';
 
 ///This widget can be used to change the local in a popup
-class AppLocalePopUp extends ConsumerWidget {
+class AppLocalePopUp extends SignalWidget {
   const AppLocalePopUp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = ref.watch(translationsPod);
+  Widget build(BuildContext context) {
+    final t = translations.value;
     final curentlocale = t.$meta.locale;
     final localeName = t["locale_${curentlocale.languageCode}"].toString();
 
@@ -24,15 +24,7 @@ class AppLocalePopUp extends ConsumerWidget {
         ),
         //  icon: const Icon(Icons.translate),
         // Callback that sets the selected popup menu item.
-        onSelected: (locale) async {
-          final update = switch (locale) {
-            AppLocale.en => await AppLocale.en.build(),
-            AppLocale.es => await AppLocale.es.build(),
-          };
-          ref.read(translationsPod.notifier).update(
-                (state) => update,
-              );
-        },
+        onSelected: (locale) async => translations.value = await locale.build(),
         itemBuilder: (BuildContext context) => AppLocale.values.map(
               (e) {
                 return PopupMenuItem<AppLocale>(
@@ -52,7 +44,7 @@ class AppLocalePopUp extends ConsumerWidget {
   }
 }
 
-class SelectedLocaleItem extends ConsumerWidget {
+class SelectedLocaleItem extends SignalWidget {
   const SelectedLocaleItem({
     super.key,
     required this.locale,
@@ -60,8 +52,8 @@ class SelectedLocaleItem extends ConsumerWidget {
   final Locale locale;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = ref.watch(translationsPod);
+  Widget build(BuildContext context) {
+    final t = translations.value;
     final localeName = t["locale_${locale.languageCode}"].toString();
     return Row(
       children: [
@@ -75,7 +67,7 @@ class SelectedLocaleItem extends ConsumerWidget {
   }
 }
 
-class UnselectedLocaleItem extends ConsumerWidget {
+class UnselectedLocaleItem extends SignalWidget {
   const UnselectedLocaleItem({
     super.key,
     required this.locale,
@@ -83,8 +75,8 @@ class UnselectedLocaleItem extends ConsumerWidget {
   final Locale locale;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = ref.watch(translationsPod);
+  Widget build(BuildContext context) {
+    final t = translations.value;
     final localeName = t["locale_${locale.languageCode}"].toString();
     return Localizations.override(
       context: context,

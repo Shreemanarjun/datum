@@ -1,19 +1,18 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:example/features/paint/view/paint_canvas.dart';
 import 'package:example/features/paint/view/paint_canvas_list.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 @RoutePage()
-class PaintPage extends ConsumerStatefulWidget {
+class PaintPage extends StatefulWidget {
   const PaintPage({super.key});
 
   @override
-  ConsumerState<PaintPage> createState() => _PaintPageState();
+  State<PaintPage> createState() => _PaintPageState();
 }
 
-class _PaintPageState extends ConsumerState<PaintPage> {
+class _PaintPageState extends State<PaintPage> {
   String? _selectedCanvasId;
 
   @override

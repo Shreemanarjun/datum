@@ -3,10 +3,8 @@ import 'package:datum/source/core/engine/datum_core.dart';
 import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:example/bootstrap.dart';
 import 'package:example/core/router/router.gr.dart';
-import 'package:example/core/router/router_pod.dart';
 import 'package:example/features/auth/presentation/view/supabase_security_dialog.dart';
 import 'package:example/shared/helper/global_helper.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_framework/responsive_framework.dart';
@@ -14,14 +12,14 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 @RoutePage()
-class LoginPage extends ConsumerStatefulWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
   @override
-  ConsumerState<LoginPage> createState() => _LoginPageState();
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends ConsumerState<LoginPage> with GlobalHelper {
+class _LoginPageState extends State<LoginPage> with GlobalHelper {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<ShadFormState>();
@@ -62,9 +60,8 @@ class _LoginPageState extends ConsumerState<LoginPage> with GlobalHelper {
               // Don't throw here - we don't want to crash the app if initial sync fails
             }
           }
-          await ref
-              .read(autorouterProvider)
-              .replaceAll([const DashboardRoute()]);
+          if (!mounted) return;
+          await context.router.replaceAll([const DashboardRoute()]);
         }
       } on AuthException catch (e, s) {
         talker.error(e, s);

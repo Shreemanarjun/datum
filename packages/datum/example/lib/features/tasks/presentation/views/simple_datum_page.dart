@@ -6,147 +6,128 @@ import 'package:example/bootstrap.dart';
 import 'package:example/core/router/router.gr.dart';
 import 'package:example/features/auth/data/adapters/supabase_adapter.dart';
 import 'package:example/features/tasks/data/entities/task.dart';
-import 'package:example/features/tasks/presentation/controllers/last_sync_result_notifier.dart';
-import 'package:example/features/tasks/presentation/controllers/simple_datum_controller.dart';
+import 'package:example/features/tasks/presentation/controllers/sync_streams.dart';
 import 'package:example/features/tasks/presentation/widgets/pull_button.dart';
 import 'package:example/features/tasks/presentation/widgets/sync_button.dart';
 import 'package:example/features/tasks/presentation/widgets/task_dialog.dart';
 import 'package:example/features/tasks/presentation/widgets/task_list.dart';
 import 'package:example/shared/helper/global_helper.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
 @RoutePage()
-class SimpleDatumPage extends ConsumerStatefulWidget {
+class SimpleDatumPage extends SignalStatefulWidget {
   const SimpleDatumPage({super.key});
 
   @override
-  ConsumerState<SimpleDatumPage> createState() => _SimpleDatumPageState();
+  State<SimpleDatumPage> createState() => _SimpleDatumPageState();
 }
 
-class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
-    with GlobalHelper {
+class _SimpleDatumPageState extends State<SimpleDatumPage> with GlobalHelper {
   late final AppLifecycleListener _appLifecycleListener;
-  late ProviderSubscription _syncResultSubscription;
-  late ProviderSubscription _syncStatusSubscription;
-  late StreamSubscription<AuthState> _authSubscription;
-  bool _waitingForInitialSync = false;
+  late final StreamSubscription<AuthState> _authSubscription;
+
+  final _userId = signal(Supabase.instance.client.auth.currentUser?.id);
+  final _waitingForInitialSync = signal(false);
+  late final _tasks = streamSignal<List<Task>>(() {
+    final userId = _userId.value;
+    if (userId == null) return const Stream.empty();
+    return Datum.manager<Task>()
+        .watchAll(userId: userId, includeInitialData: true);
+  });
+  late final _lastSyncTime = streamSignal<DateTime?>(() {
+    final userId = _userId.value;
+    return userId == null ? const Stream.empty() : lastSyncTime(userId);
+  });
 
   @override
   void initState() {
     super.initState();
-    _initializeLifecycleListener();
-    _initializeSyncResultListener();
-    _initializeAuthListener();
-  }
-
-  void _initializeLifecycleListener() {
     _appLifecycleListener = AppLifecycleListener(
-      onStateChange: (value) async {
-        talker.debug("State $value");
-      },
+      onStateChange: (value) => talker.debug("State $value"),
     );
+    _authSubscription =
+        Supabase.instance.client.auth.onAuthStateChange.listen(_onAuthChange);
   }
 
-  void _initializeSyncResultListener() {
-    _syncResultSubscription = ref.listenManual(
-      syncResultEventProvider,
-      (previous, next) {
-        if (next != null) {
-          _handleSyncResult(next);
-        }
-      },
-    );
-    // Initialize sync status subscription as a dummy listener
-    _syncStatusSubscription = ref.listenManual(
-      syncResultEventProvider, // Dummy provider, will be replaced
-      (previous, next) {},
-    );
-  }
+  Future<void> _onAuthChange(AuthState authState) async {
+    _userId.value = authState.session?.user.id;
+    if (!Datum.isInitialized) return;
 
-  void _updateSyncStatusListener(String userId) {
-    _syncStatusSubscription.close();
-    _syncStatusSubscription = ref.listenManual(
-      syncStatusProvider(userId),
-      (previous, next) {
-        if (_waitingForInitialSync &&
-            next != null &&
-            next.hasValue &&
-            next.value != null &&
-            (next.value!.status == DatumSyncStatus.completed ||
-                next.value!.status == DatumSyncStatus.idle ||
-                next.value!.status == DatumSyncStatus.failed)) {
-          setState(() {
-            _waitingForInitialSync = false;
-          });
-        }
-      },
-    );
-  }
+    if (authState.event == AuthChangeEvent.signedOut) {
+      Datum.instance.pauseSync();
+      // Automatically navigate to login screen when user logs out
+      if (mounted) context.router.replaceAll([const LoginRoute()]);
+    } else if (authState.event == AuthChangeEvent.signedIn) {
+      final userId = authState.session?.user.id;
+      if (userId == null) return;
+      _waitingForInitialSync.value = true;
+      unawaited(Datum.instance
+          .statusForUser(userId)
+          .firstWhere((s) =>
+              s?.status == DatumSyncStatus.completed ||
+              s?.status == DatumSyncStatus.idle ||
+              s?.status == DatumSyncStatus.failed)
+          .then((_) {
+        if (mounted) _waitingForInitialSync.value = false;
+      }, onError: (Object e) => talker.error('Initial sync wait failed: $e')));
 
-  void _initializeAuthListener() {
-    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
-      (authState) async {
-        if (!Datum.isInitialized) return;
+      // Resume sync first
+      Datum.instance.resumeSync();
 
-        if (authState.event == AuthChangeEvent.signedOut) {
-          Datum.instance.pauseSync();
-          // Automatically navigate to login screen when user logs out
-          if (mounted) {
-            context.router.replaceAll([const LoginRoute()]);
-          }
-        } else if (authState.event == AuthChangeEvent.signedIn) {
-          final userId = authState.session?.user.id;
-          if (userId != null) {
-            setState(() {
-              _waitingForInitialSync = true;
-            });
-            _updateSyncStatusListener(userId);
+      // Clear sync metadata to force fresh data from server
+      final remoteAdapter = Datum.manager<Task>().remoteAdapter;
+      if (remoteAdapter is SupabaseRemoteAdapter<Task>) {
+        await remoteAdapter.clearSyncMetadata(userId);
+      }
 
-            // Resume sync first
-            Datum.instance.resumeSync();
+      // Cold start sync
+      final coldStartPerformed =
+          await Datum.instance.handleColdStartIfNeeded<Task>(
+        userId,
+        (options) =>
+            Datum.manager<Task>().synchronize(userId, options: options),
+      );
 
-            // Clear sync metadata to force fresh data from server
-            final remoteAdapter = Datum.manager<Task>().remoteAdapter;
-            if (remoteAdapter is SupabaseRemoteAdapter<Task>) {
-              await remoteAdapter.clearSyncMetadata(userId);
-            }
+      if (!coldStartPerformed) {
+        Datum.instance.synchronize(
+          userId,
+          options: const DatumSyncOptions(
+            direction: SyncDirection.pullThenPush,
+            forceFullSync: true,
+          ),
+        );
+      }
 
-            // Cold start sync
-            final coldStartPerformed =
-                await Datum.instance.handleColdStartIfNeeded<Task>(
-              userId,
-              (options) =>
-                  Datum.manager<Task>().synchronize(userId, options: options),
-            );
-
-            if (!coldStartPerformed) {
-              Datum.instance.synchronize(
-                userId,
-                options: const DatumSyncOptions(
-                  direction: SyncDirection.pullThenPush,
-                  forceFullSync: true,
-                ),
-              );
-            }
-
-            // Start auto-sync
-            Datum.instance.startAutoSync(userId);
-          }
-        }
-      },
-    );
+      // Start auto-sync
+      Datum.instance.startAutoSync(userId);
+    }
   }
 
   @override
   void dispose() {
-    _syncResultSubscription.close();
-    _syncStatusSubscription.close();
     _authSubscription.cancel();
     _appLifecycleListener.dispose();
+    _tasks.dispose();
+    _lastSyncTime.dispose();
+    _userId.dispose();
+    _waitingForInitialSync.dispose();
     super.dispose();
+  }
+
+  /// Runs a Datum write and reports its sync result (or error) as a snack.
+  Future<void> _run(
+    String action,
+    Future<(Object?, DatumSyncResult<DatumEntityInterface>)> Function() op,
+  ) async {
+    try {
+      final (_, result) = await op();
+      _handleSyncResult(result);
+    } catch (e) {
+      if (mounted) showErrorSnack(child: Text('Error $action task: $e'));
+    }
   }
 
   Future<void> _createTask() async {
@@ -155,17 +136,16 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
       context: context,
       title: 'Create Task',
       confirmText: 'Create',
-      onConfirm: (title, description) async {
-        try {
-          await ref
-              .read(simpleDatumControllerProvider.notifier)
-              .createTask(title: title, description: description);
-        } catch (e) {
-          if (mounted) showErrorSnack(child: Text('Error creating task: $e'));
-        }
+      onConfirm: (title, description) {
+        final task = Task.create(title: title, description: description);
+        return _run('creating',
+            () => Datum.instance.pushAndSync(item: task, userId: task.userId));
       },
     );
   }
+
+  Future<void> _saveTask(Task task) => _run('updating',
+      () => Datum.instance.updateAndSync(item: task, userId: task.userId));
 
   Future<void> _updateTask(Task task) async {
     if (!mounted) return;
@@ -174,36 +154,23 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
       task: task,
       title: 'Update Task',
       confirmText: 'Update',
-      onConfirm: (title, description) async {
-        final updatedTask = task.copyWith(
-          title: title,
-          description: description,
-          modifiedAt: DateTime.now(),
-        );
-        try {
-          await ref
-              .read(simpleDatumControllerProvider.notifier)
-              .updateTask(updatedTask);
-        } catch (e) {
-          if (mounted) showErrorSnack(child: Text('Error updating task: $e'));
-        }
-      },
+      onConfirm: (title, description) => _saveTask(task.copyWith(
+        title: title,
+        description: description,
+        modifiedAt: DateTime.now(),
+      )),
     );
   }
 
-  Future<void> _deleteTask(Task task) async {
-    try {
-      await ref.read(simpleDatumControllerProvider.notifier).deleteTask(task);
-    } catch (e) {
-      if (mounted) showErrorSnack(child: Text('Error deleting task: $e'));
-    }
-  }
+  Future<void> _deleteTask(Task task) => _run(
+      'deleting',
+      () =>
+          Datum.instance.deleteAndSync<Task>(id: task.id, userId: task.userId));
 
   void _handleSyncResult(
     DatumSyncResult<DatumEntityInterface> result, {
     String operation = 'Sync',
   }) {
-    ref.read(lastSyncResultProvider.notifier).update(result);
     if (!mounted) return;
 
     if (result.wasSkipped) {
@@ -223,13 +190,13 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
 
   @override
   Widget build(BuildContext context) {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId = _userId.value;
 
     if (userId == null) {
       return const Scaffold(body: Center(child: Text("User logged out")));
     }
 
-    if (_waitingForInitialSync) {
+    if (_waitingForInitialSync.value) {
       return const Scaffold(
         body: Center(
           child: Column(
@@ -244,8 +211,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
       );
     }
 
-    final tasksAsync = ref.watch(tasksStreamProvider(userId));
-
+    final tasks = _tasks.value;
     final theme = ShadTheme.of(context);
 
     return Scaffold(
@@ -278,6 +244,7 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
                     showErrorSnack(child: Text('Refresh failed: $e')),
               ),
               SyncButton(
+                key: ValueKey(userId),
                 userId: userId,
                 onSyncStart: () =>
                     showInfoSnack(child: const Text('Syncing...')),
@@ -290,15 +257,15 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
           ),
         ],
         body: RefreshIndicator(
-          onRefresh: () {
-            return ref.refresh(tasksStreamProvider(userId).future);
-          },
+          onRefresh: _tasks.refresh,
           child: Column(
             children: [
-              _buildSummaryCard(tasksAsync),
+              _buildSummaryCard(tasks),
               Expanded(
                 child: TaskList(
-                  tasksAsync: tasksAsync,
+                  tasks: tasks,
+                  lastSyncTime: _lastSyncTime.value,
+                  onToggle: _saveTask,
                   onUpdate: _updateTask,
                   onDelete: _deleteTask,
                 ),
@@ -310,8 +277,8 @@ class _SimpleDatumPageState extends ConsumerState<SimpleDatumPage>
     );
   }
 
-  Widget _buildSummaryCard(AsyncValue<List<Task>> tasksAsync) {
-    return tasksAsync.maybeWhen(
+  Widget _buildSummaryCard(AsyncState<List<Task>> tasks) {
+    return tasks.maybeMap(
       data: (tasks) {
         if (tasks.isEmpty) return const SizedBox.shrink();
         final completed = tasks.where((t) => t.isCompleted).length;

@@ -1,34 +1,26 @@
 import 'package:example/features/tasks/data/entities/task.dart';
-import 'package:example/features/tasks/presentation/controllers/entity_sync_status_provider.dart';
-import 'package:example/features/tasks/presentation/controllers/simple_datum_controller.dart';
-import 'package:example/shared/helper/global_helper.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-class TaskListItem extends ConsumerStatefulWidget {
+class TaskListItem extends StatelessWidget {
   const TaskListItem({
     super.key,
     required this.task,
+    required this.lastSyncTime,
+    required this.onToggle,
     required this.onUpdate,
     required this.onDelete,
   });
 
   final Task task;
+  final AsyncState<DateTime?> lastSyncTime;
+  final void Function(Task) onToggle;
   final void Function(Task) onUpdate;
   final void Function(Task) onDelete;
 
   @override
-  ConsumerState<TaskListItem> createState() => _TaskListItemState();
-}
-
-class _TaskListItemState extends ConsumerState<TaskListItem> with GlobalHelper {
-  @override
   Widget build(BuildContext context) {
-    // Get last sync time
-    final lastSyncTimeAsync =
-        ref.watch(lastSyncTimeProvider(widget.task.userId));
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ShadCard(
@@ -40,26 +32,17 @@ class _TaskListItemState extends ConsumerState<TaskListItem> with GlobalHelper {
             Transform.scale(
               scale: 1.2,
               child: Checkbox(
-                value: widget.task.isCompleted,
+                value: task.isCompleted,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(4),
                 ),
                 activeColor: Colors.black,
-                onChanged: (isCompleted) async {
+                onChanged: (isCompleted) {
                   if (isCompleted == null) return;
-                  final updatedTask = widget.task.copyWith(
+                  onToggle(task.copyWith(
                     isCompleted: isCompleted,
                     modifiedAt: DateTime.now(),
-                  );
-                  try {
-                    await ref
-                        .read(simpleDatumControllerProvider.notifier)
-                        .updateTask(updatedTask);
-                  } catch (e) {
-                    if (context.mounted) {
-                      showErrorSnack(child: Text('Error: $e'));
-                    }
-                  }
+                  ));
                 },
               ),
             ),
@@ -71,26 +54,25 @@ class _TaskListItemState extends ConsumerState<TaskListItem> with GlobalHelper {
                 children: [
                   const SizedBox(height: 8), // Align with checkbox roughly
                   Text(
-                    widget.task.title,
+                    task.title,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
-                      decoration: widget.task.isCompleted
-                          ? TextDecoration.lineThrough
-                          : null,
-                      color: widget.task.isCompleted
+                      decoration:
+                          task.isCompleted ? TextDecoration.lineThrough : null,
+                      color: task.isCompleted
                           ? Colors.grey.shade500
                           : Colors.black87,
                     ),
                   ),
-                  if (widget.task.description?.isNotEmpty == true) ...[
+                  if (task.description?.isNotEmpty == true) ...[
                     const SizedBox(height: 4),
                     Text(
-                      widget.task.description!,
+                      task.description!,
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.grey.shade600,
-                        decoration: widget.task.isCompleted
+                        decoration: task.isCompleted
                             ? TextDecoration.lineThrough
                             : null,
                       ),
@@ -104,7 +86,7 @@ class _TaskListItemState extends ConsumerState<TaskListItem> with GlobalHelper {
             // Actions & Sync Status
             Column(
               children: [
-                _buildSyncStatus(lastSyncTimeAsync),
+                _buildSyncStatus(),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -112,7 +94,7 @@ class _TaskListItemState extends ConsumerState<TaskListItem> with GlobalHelper {
                       width: 32,
                       height: 32,
                       padding: EdgeInsets.zero,
-                      onPressed: () => widget.onUpdate(widget.task),
+                      onPressed: () => onUpdate(task),
                       child: const Icon(Icons.edit, size: 16),
                     ),
                     ShadButton.ghost(
@@ -121,7 +103,7 @@ class _TaskListItemState extends ConsumerState<TaskListItem> with GlobalHelper {
                       padding: EdgeInsets.zero,
                       hoverBackgroundColor: Colors.red.withValues(alpha: 0.1),
                       foregroundColor: Colors.red,
-                      onPressed: () => widget.onDelete(widget.task),
+                      onPressed: () => onDelete(task),
                       child:
                           const Icon(Icons.delete, size: 16, color: Colors.red),
                     ),
@@ -135,11 +117,11 @@ class _TaskListItemState extends ConsumerState<TaskListItem> with GlobalHelper {
     );
   }
 
-  Widget _buildSyncStatus(AsyncValue<DateTime?> lastSyncTimeAsync) {
-    return lastSyncTimeAsync.when(
+  Widget _buildSyncStatus() {
+    return lastSyncTime.map(
       data: (lastSyncTime) {
-        final isPending = lastSyncTime == null ||
-            widget.task.modifiedAt.isAfter(lastSyncTime);
+        final isPending =
+            lastSyncTime == null || task.modifiedAt.isAfter(lastSyncTime);
         if (!isPending) return const SizedBox.shrink();
 
         return Tooltip(
@@ -159,8 +141,7 @@ class _TaskListItemState extends ConsumerState<TaskListItem> with GlobalHelper {
         height: 14,
         child: CircularProgressIndicator(strokeWidth: 2),
       ),
-      error: (_, __) =>
-          const Icon(Icons.error_outline, size: 14, color: Colors.red),
+      error: () => const Icon(Icons.error_outline, size: 14, color: Colors.red),
     );
   }
 }

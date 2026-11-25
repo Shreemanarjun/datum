@@ -1,25 +1,27 @@
 import 'package:example/features/tasks/data/entities/task.dart';
 import 'package:example/features/tasks/presentation/widgets/task_list_item.dart';
-
-import 'package:example/shared/riverpod_ext/asynvalue_easy_when.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 
-class TaskList extends ConsumerWidget {
+class TaskList extends StatelessWidget {
   const TaskList({
     super.key,
-    required this.tasksAsync,
+    required this.tasks,
+    required this.lastSyncTime,
+    required this.onToggle,
     required this.onUpdate,
     required this.onDelete,
   });
 
-  final AsyncValue<List<Task>> tasksAsync;
+  final AsyncState<List<Task>> tasks;
+  final AsyncState<DateTime?> lastSyncTime;
+  final void Function(Task) onToggle;
   final void Function(Task) onUpdate;
   final void Function(Task) onDelete;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return tasksAsync.easyWhen(
+  Widget build(BuildContext context) {
+    return tasks.map(
       data: (tasks) {
         if (tasks.isEmpty) {
           return Center(
@@ -60,13 +62,16 @@ class TaskList extends ConsumerWidget {
             return TaskListItem(
               key: ValueKey(task.id),
               task: task,
+              lastSyncTime: lastSyncTime,
+              onToggle: onToggle,
               onUpdate: onUpdate,
               onDelete: onDelete,
             );
           },
         );
       },
-      loadingWidget: () => const Center(
+      error: (error, _) => Center(child: Text('Error: $error')),
+      loading: () => const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

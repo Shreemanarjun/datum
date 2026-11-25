@@ -56,7 +56,7 @@ class TranslationsEs
   @override
   String get locale_es => 'Spanish';
   @override
-  String get counterAppBarTitle => 'Contador';
+  String get settingsTitle => 'Ajustes';
 }
 
 /// The flat map containing all translations for locale <es>.
@@ -70,7 +70,7 @@ extension on TranslationsEs {
       'locale' => 'es',
       'locale_en' => 'English',
       'locale_es' => 'Spanish',
-      'counterAppBarTitle' => 'Contador',
+      'settingsTitle' => 'Ajustes',
       _ => null,
     };
   }

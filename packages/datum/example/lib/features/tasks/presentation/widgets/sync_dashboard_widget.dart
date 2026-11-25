@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 import 'package:datum/datum.dart';
-import 'package:example/features/tasks/presentation/controllers/entity_sync_status_provider.dart';
+import 'package:example/features/tasks/presentation/controllers/sync_streams.dart';
 
 /// Comprehensive sync dashboard widget showing data transfer, sync status, and health
-class SyncDashboardWidget extends ConsumerWidget {
+class SyncDashboardWidget extends SignalStatefulWidget {
   final String userId;
 
   const SyncDashboardWidget({
@@ -13,21 +13,28 @@ class SyncDashboardWidget extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final allEntitiesStatusAsync =
-        ref.watch(allEntitiesSyncStatusProvider(userId));
-    final lastSyncTimeAsync = ref.watch(lastSyncTimeProvider(userId));
+  State<SyncDashboardWidget> createState() => _SyncDashboardWidgetState();
+}
 
-    return allEntitiesStatusAsync.when(
-      data: (entityStatuses) => lastSyncTimeAsync.when(
-        data: (lastSyncTime) =>
-            _buildDashboard(context, entityStatuses, lastSyncTime),
-        loading: () => _buildDashboard(context, entityStatuses, null),
-        error: (error, stack) => _buildDashboard(context, entityStatuses, null),
-      ),
-      loading: () => _buildLoadingDashboard(context),
-      error: (error, stack) => _buildErrorDashboard(context),
-    );
+class _SyncDashboardWidgetState extends State<SyncDashboardWidget> {
+  late final _statuses = streamSignal(allEntitiesSyncStatus);
+  late final _lastSyncTime = streamSignal(() => lastSyncTime(widget.userId));
+
+  @override
+  void dispose() {
+    _statuses.dispose();
+    _lastSyncTime.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (_statuses.value) {
+      AsyncData(:final value) =>
+        _buildDashboard(context, value, _lastSyncTime.value.value),
+      AsyncError() => _buildErrorDashboard(context),
+      _ => _buildLoadingDashboard(context),
+    };
   }
 
   Widget _buildDashboard(

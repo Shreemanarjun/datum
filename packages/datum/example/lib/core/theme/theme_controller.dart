@@ -1,35 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:example/core/local_storage/app_storage_pod.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:signals_flutter/signals_flutter.dart';
 
-///This provider stores the ThemeModeController
-final themecontrollerProvider =
-    NotifierProvider.autoDispose<ThemeModeController, ThemeMode>(
-  ThemeModeController.new,
-  name: 'themecontrollerProvider',
-);
+const _themeKey = 'theme';
+late Box _themeBox;
 
-///This controller class used change theme and
-///get the intial theme from storage if its available
-class ThemeModeController extends AutoDisposeNotifier<ThemeMode> {
-  final _themeKey = "theme";
+/// Current app theme, persisted in the app's Hive box.
+final themeMode = signal(ThemeMode.system);
 
-  @override
-  ThemeMode build() {
-    final theme = ref.watch(appStorageProvider).get(key: _themeKey);
-    if (theme != null) {
-      if (theme == ThemeMode.light.name) {
-        return ThemeMode.light;
-      } else if (theme == ThemeMode.dark.name) {
-        return ThemeMode.dark;
-      }
-      return ThemeMode.system;
-    }
-    return ThemeMode.system;
-  }
+/// Binds [themeMode] to [box] and loads the stored value. Called during init.
+void bindThemeStorage(Box box) {
+  _themeBox = box;
+  themeMode.value =
+      ThemeMode.values.asNameMap()[box.get(_themeKey)] ?? ThemeMode.system;
+}
 
-  Future<void> changeTheme(ThemeMode theme) async {
-    state = theme;
-    await ref.read(appStorageProvider).put(key: _themeKey, value: theme.name);
-  }
+Future<void> changeTheme(ThemeMode mode) async {
+  themeMode.value = mode;
+  await _themeBox.put(_themeKey, mode.name);
 }

@@ -11,29 +11,12 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:auto_route/auto_route.dart' as _i7;
 import 'package:example/features/auth/presentation/view/login_page.dart' as _i4;
-import 'package:example/features/counter/view/counter_page.dart'
-    deferred as _i1;
 import 'package:example/features/dashboard/dashboard_page.dart' as _i2;
 import 'package:example/features/home/view/home_page.dart' as _i3;
 import 'package:example/features/paint/view/paint_page.dart' as _i5;
+import 'package:example/features/settings/settings_page.dart' as _i1;
 import 'package:example/features/tasks/presentation/views/simple_datum_page.dart'
     as _i6;
-
-/// generated route for
-/// [_i1.CounterPage]
-class CounterRoute extends _i7.PageRouteInfo<void> {
-  const CounterRoute({List<_i7.PageRouteInfo>? children})
-      : super(CounterRoute.name, initialChildren: children);
-
-  static const String name = 'CounterRoute';
-
-  static _i7.PageInfo page = _i7.PageInfo(
-    name,
-    builder: (data) {
-      return _i7.DeferredWidget(_i1.loadLibrary, () => _i1.CounterPage());
-    },
-  );
-}
 
 /// generated route for
 /// [_i2.DashboardPage]
@@ -111,6 +94,22 @@ class SimpleDatumRoute extends _i7.PageRouteInfo<void> {
     name,
     builder: (data) {
       return const _i6.SimpleDatumPage();
+    },
+  );
+}
+
+/// generated route for
+/// [_i1.SettingsPage]
+class SettingsRoute extends _i7.PageRouteInfo<void> {
+  const SettingsRoute({List<_i7.PageRouteInfo>? children})
+      : super(SettingsRoute.name, initialChildren: children);
+
+  static const String name = 'SettingsRoute';
+
+  static _i7.PageInfo page = _i7.PageInfo(
+    name,
+    builder: (data) {
+      return const _i1.SettingsPage();
     },
   );
 }
