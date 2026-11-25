@@ -115,8 +115,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       DatumSyncMetadata? localMetadata;
       DatumSyncMetadata? remoteMetadata;
       try {
-        localMetadata = await localAdapter.getSyncMetadata(userId);
-        remoteMetadata = await remoteAdapter.getSyncMetadata(userId);
+        [localMetadata, remoteMetadata] = await Future.wait([localAdapter.getSyncMetadata(userId), remoteAdapter.getSyncMetadata(userId)]);
       } on Object catch (e) {
         logger.warn('Metadata pre-check failed for user $userId ($e); proceeding with a full sync.');
       }
@@ -1208,8 +1207,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   /// adapters, combines them into a [DatumHealth] object, updates the
   /// status stream, and returns the result.
   Future<DatumHealth> checkHealth() async {
-    final localStatus = await localAdapter.checkHealth();
-    final remoteStatus = await remoteAdapter.checkHealth();
+    final [localStatus, remoteStatus] = await Future.wait([localAdapter.checkHealth(), remoteAdapter.checkHealth()]);
     final isConnected = await connectivityChecker.isConnected;
 
     DatumSyncHealth overallStatus;
