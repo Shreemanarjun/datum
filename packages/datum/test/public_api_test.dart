@@ -20,6 +20,7 @@ const _expectedExports = <String>{
   'source/core/persistence/datum_persistence.dart',
   'source/core/persistence/in_memory_datum_persistence.dart',
   'source/adapter/in_memory_local_adapter.dart',
+  'source/adapter/rereading_watch.dart',
   'source/adapter/local_adapter.dart',
   'source/adapter/remote_adapter.dart',
   'source/config/datum_config.dart',

@@ -177,33 +177,17 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
 
   // --- Reactive ------------------------------------------------------------
 
-  Stream<S> _watch<S>(Future<S> Function() read, {String? userId, bool includeInitialData = true}) {
-    // Stream.multi runs this setup for EVERY listener, so each one gets its
-    // own change subscription and its own initial snapshot — a broadcast
-    // controller's onListen only fires for the first listener, leaving later
-    // concurrent listeners silent until the next write.
-    return Stream<S>.multi((controller) {
-      // Attach the change subscription SYNCHRONOUSLY before the (async)
-      // initial read — a write landing between listen and the first emission
-      // must not be missed. Every emission re-reads current state, so an
-      // out-of-order initial emission is harmless (at worst a duplicate).
-      final sub = _changeController.stream.where((e) => userId == null || e.userId == userId).listen((_) async {
-        if (!controller.isClosed) controller.add(await read());
-      });
-      if (includeInitialData) {
-        unawaited(read().then((initial) {
-          if (!controller.isClosed) controller.add(initial);
-        }));
-      }
-      controller.onCancel = sub.cancel;
-    });
-  }
+  Stream<S> _watch<S>(Future<S> Function() read, {String? userId, String? entityId, bool includeInitialData = true}) => rereadingWatch(
+        _changeController.stream.where((e) => (userId == null || e.userId == userId) && (entityId == null || e.entityId == entityId)),
+        read,
+        includeInitialData: includeInitialData,
+      );
 
   @override
   Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) => _watch(() => readAll(userId: userId), userId: userId, includeInitialData: includeInitialData);
 
   @override
-  Stream<T?>? watchById(String id, {String? userId}) => _watch(() => read(id, userId: userId), userId: userId);
+  Stream<T?>? watchById(String id, {String? userId}) => _watch(() => read(id, userId: userId), userId: userId, entityId: id);
 
   @override
   Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) => _watch(() => this.query(query, userId: userId), userId: userId);

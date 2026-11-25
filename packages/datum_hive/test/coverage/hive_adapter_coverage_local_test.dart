@@ -356,7 +356,7 @@ void main() {
       expect(events.last.data?.id, 't1');
     });
 
-    test('watchAll emits the filtered entity list on every box event', () async {
+    test("watchAll emits the filtered entity list only on its own user's box events", () async {
       final emissions = <List<Task>>[];
       final sub = adapter.watchAll(userId: 'u1')!.listen(emissions.add);
       addTearDown(sub.cancel);
@@ -367,11 +367,13 @@ void main() {
       await _waitUntil(() => emissions.isNotEmpty && emissions.last.isNotEmpty);
       expect(emissions.last.map((t) => t.id), ['t1']);
 
-      // A write for another user still triggers an emission, filtered to u1.
+      // A write for another user does NOT re-read u1's list.
       final seen = emissions.length;
       await adapter.create(_task('t2', user: 'u2'));
-      await _waitUntil(() => emissions.length > seen);
-      expect(emissions.last.map((t) => t.id), ['t1']);
+      await adapter.create(_task('t3'));
+      await _waitUntil(() => emissions.last.length == 2);
+      expect(emissions.last.map((t) => t.id), unorderedEquals(['t1', 't3']));
+      expect(emissions.length, seen + 1, reason: 'only the u1 write emits');
     });
 
     test('watchQuery applies the query to every emission', () async {

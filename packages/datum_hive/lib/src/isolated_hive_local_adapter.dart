@@ -400,40 +400,15 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
   }
 
   @override
-  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) {
-    // Stream.multi: every listener gets its own box subscription AND its own
-    // initial snapshot (the previous single-subscription pipeline broke on a
-    // second listener and starved snapshots).
-    return Stream<List<T>>.multi((controller) {
-      final sub = entityBox.watch().listen((_) async {
-        if (!controller.isClosed) controller.add(await readAll(userId: userId));
-      });
-      if (includeInitialData) {
-        unawaited(
-          readAll(userId: userId).then((initial) {
-            if (!controller.isClosed) controller.add(initial);
-          }),
-        );
-      }
-      controller.onCancel = sub.cancel;
-    });
-  }
+  Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) => rereadingWatch(
+        entityBox.watch().where((e) => userId == null || decodeHiveBoxKey(e.key as String)?.userId == userId),
+        () => readAll(userId: userId),
+        includeInitialData: includeInitialData,
+      );
 
   @override
-  Stream<T?>? watchById(String id, {String? userId}) {
-    return Stream<T?>.multi((controller) {
-      final sub = entityBox.watch().listen((event) async {
-        final decoded = decodeHiveBoxKey(event.key as String);
-        final changedId = decoded?.id ?? event.key as String;
-        if (changedId != id) return;
-        if (!controller.isClosed) controller.add(await read(id, userId: userId));
-      });
-      unawaited(
-        read(id, userId: userId).then((initial) {
-          if (!controller.isClosed) controller.add(initial);
-        }),
+  Stream<T?>? watchById(String id, {String? userId}) => rereadingWatch(
+        entityBox.watch().where((e) => (decodeHiveBoxKey(e.key as String)?.id ?? e.key) == id),
+        () => read(id, userId: userId),
       );
-      controller.onCancel = sub.cancel;
-    });
-  }
 }

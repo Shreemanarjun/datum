@@ -10,12 +10,11 @@ class IsolateHelper {
   /// Spawns a long-lived isolate for complex, two-way communication.
   Future<Isolate> spawn<T>(void Function(T message) entryPoint, T message) => Isolate.spawn<T>(entryPoint, message);
 
-  /// Runs a one-off JSON encoding task in a background isolate.
+  /// Encodes [object] to JSON on the current isolate.
   ///
-  /// This is ideal for preventing UI jank when encoding large objects.
-  Future<String> computeJsonEncode(Object? object) {
-    return Isolate.run(() => jsonEncode(object));
-  }
+  /// Spawning an isolate per call costs more than encoding a single entity
+  /// payload, and copying the map into the isolate is already O(size).
+  Future<String> computeJsonEncode(Object? object) async => jsonEncode(object);
 
   /// Initializes any platform-specific resources. (No-op for native)
   Future<void> initialize() async {}

@@ -6,6 +6,7 @@ export 'source/adapter/local_adapter.dart';
 export 'source/adapter/remote_adapter.dart';
 export 'source/adapter/adapter_capabilities.dart';
 export 'source/adapter/in_memory_local_adapter.dart';
+export 'source/adapter/rereading_watch.dart';
 export 'source/core/query/datum_query_matcher.dart';
 export 'source/core/query/datum_raw_query.dart';
 export 'source/config/config_presets.dart';

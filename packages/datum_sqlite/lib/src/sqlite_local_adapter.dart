@@ -134,6 +134,10 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
         '(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, payload TEXT NOT NULL)',
       )
       ..execute(
+        'CREATE INDEX IF NOT EXISTS ${_q('${_pendingOpsTable}_user')} '
+        'ON ${_q(_pendingOpsTable)} (user_id)',
+      )
+      ..execute(
         'CREATE TABLE IF NOT EXISTS ${_q(_syncStateTable)} '
         '(user_id TEXT PRIMARY KEY, metadata TEXT, last_result TEXT)',
       )
@@ -141,6 +145,11 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
         'CREATE TABLE IF NOT EXISTS ${_q(_metaTable)} (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
       );
     _migrateLegacyPrimaryKey();
+    // The (id, userId) primary key can't serve `WHERE userId = ?`.
+    database.execute(
+      'CREATE INDEX IF NOT EXISTS ${_q('${table}_userId')} '
+      'ON ${_q(table)} (${_q('userId')})',
+    );
   }
 
   /// Tables created before composite keying carry `id TEXT PRIMARY KEY`,
@@ -437,7 +446,7 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   ) async {
     return database
         .select(
-          'SELECT payload FROM ${_q(_pendingOpsTable)} WHERE user_id = ?',
+          'SELECT payload FROM ${_q(_pendingOpsTable)} WHERE user_id = ? ORDER BY rowid',
           [userId],
         )
         .map(
@@ -457,7 +466,10 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
     DatumSyncOperation<T> operation,
   ) async {
     database.execute(
-      'INSERT OR REPLACE INTO ${_q(_pendingOpsTable)} (id, user_id, payload) VALUES (?, ?, ?)',
+      // Upsert keeps the rowid, so a retried op holds its queue position
+      // (INSERT OR REPLACE would re-insert it at the end).
+      'INSERT INTO ${_q(_pendingOpsTable)} (id, user_id, payload) VALUES (?, ?, ?) '
+      'ON CONFLICT(id) DO UPDATE SET user_id = excluded.user_id, payload = excluded.payload',
       [operation.id, userId, jsonEncode(operation.toMap())],
     );
   }
@@ -623,31 +635,18 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   Stream<S> _watch<S>(
     Future<S> Function() read, {
     String? userId,
+    String? entityId,
     bool includeInitialData = true,
-  }) {
-    // Stream.multi runs this setup per LISTENER: each gets its own change
-    // subscription and initial snapshot (a broadcast controller's onListen
-    // fires only for the first listener, starving later concurrent ones).
-    return Stream<S>.multi((controller) {
-      // Subscribe to changes BEFORE the async initial read so no write in
-      // that window is missed; every emission re-reads current state.
-      final sub = _changeController.stream
-          .where(
-            (e) => userId == null || e.userId == userId || e.entityId == '*',
-          )
-          .listen((_) async {
-            if (!controller.isClosed) controller.add(await read());
-          });
-      if (includeInitialData) {
-        unawaited(
-          read().then((initial) {
-            if (!controller.isClosed) controller.add(initial);
-          }),
-        );
-      }
-      controller.onCancel = sub.cancel;
-    });
-  }
+  }) => rereadingWatch(
+    _changeController.stream.where(
+      (e) =>
+          e.entityId == '*' ||
+          ((userId == null || e.userId == userId) &&
+              (entityId == null || e.entityId == entityId)),
+    ),
+    read,
+    includeInitialData: includeInitialData,
+  );
 
   @override
   Stream<List<T>>? watchAll({String? userId, bool includeInitialData = true}) =>
@@ -659,7 +658,7 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
 
   @override
   Stream<T?>? watchById(String id, {String? userId}) =>
-      _watch(() => read(id, userId: userId), userId: userId);
+      _watch(() => read(id, userId: userId), userId: userId, entityId: id);
 
   @override
   Stream<List<T>>? watchQuery(DatumQuery query, {String? userId}) =>
