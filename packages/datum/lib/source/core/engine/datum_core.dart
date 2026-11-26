@@ -472,8 +472,7 @@ class Datum {
     final allUserIds = <String>{};
     for (final manager in _managers.allManagers) {
       try {
-        final userIds = await manager.localAdapter.getAllUserIds();
-        allUserIds.addAll(userIds);
+        allUserIds.addAll(await manager.localAdapter.getAllUserIds());
       } catch (e) {
         logger.warn('Could not get user IDs from ${manager.localAdapter.runtimeType}: $e');
       }
@@ -496,56 +495,58 @@ class Datum {
     logBuffer.writeln('├─ 📊 Sync Status & Pending Operations');
     var totalPending = 0;
     var totalItems = 0;
-
     for (final userId in allUserIds) {
       logBuffer.writeln('│  ├─ 👤 User: ${_cyan(userId)}');
-      DatumSyncMetadata? metadata;
-      if (_managers.isNotEmpty) {
-        metadata = await _managers.allManagers.first.localAdapter.getSyncMetadata(userId);
-      }
-
-      final lastSyncResult = _managers.isNotEmpty ? await _managers.allManagers.first.getLastSyncResult(userId) : null;
-
-      if (metadata?.lastSyncTime != null) {
-        logBuffer.writeln('│  │  ├─ 🕒 Last Sync: ${_cyan(formatDuration(DateTime.now().difference(metadata!.lastSyncTime!)))} ago');
-      } else {
-        logBuffer.writeln('│  │  ├─ 🕒 Last Sync: Never synced');
-      }
-
-      if (lastSyncResult != null) {
-        final totalPushed = (lastSyncResult.totalBytesPushed / 1024).toStringAsFixed(2);
-        final totalPulled = (lastSyncResult.totalBytesPulled / 1024).toStringAsFixed(2);
-        final cyclePushed = (lastSyncResult.bytesPushedInCycle / 1024).toStringAsFixed(2);
-        final cyclePulled = (lastSyncResult.bytesPulledInCycle / 1024).toStringAsFixed(2);
-
-        logBuffer.writeln('│  │  ├─ 💾 Total Data: ${_green('↑$totalPushed KB')} / ${_green('↓$totalPulled KB')}');
-        logBuffer.writeln('│  │  ├─ 📈 Last Sync: ${_green('↑$cyclePushed KB')} / ${_green('↓$cyclePulled KB')}');
-      } else {
-        logBuffer.writeln('│  │  ├─ 💾 Data Transferred: No history');
-      }
-
-      var userHasContent = false;
-      for (final managerEntry in _managers.entries) {
-        final entityType = managerEntry.key;
-        final manager = managerEntry.value as DatumManager<DatumEntityInterface>;
-        final count = await manager.getPendingCount(userId);
-        final itemCount = (await manager.localAdapter.readAll(userId: userId)).length;
-        final storageSize = await manager.localAdapter.getStorageSize(userId: userId);
-        totalItems += itemCount;
-        totalPending += count;
-
-        if (itemCount > 0 || count > 0) {
-          userHasContent = true;
-          logBuffer.writeln('│  │  ├─ ${_cyan(entityType)}:');
-          final sizeInKb = (storageSize / 1024).toStringAsFixed(2);
-          logBuffer.writeln('│  │  │  └─ Items: ${_green(itemCount)}, Pending: ${_yellow(count)}, Size: ${_cyan('$sizeInKb KB')}');
-        }
-      }
-      if (!userHasContent) {
-        logBuffer.writeln('│  │  └─ 📭 No local data or pending operations.');
-      }
+      await _logUserSyncHistory(logBuffer, userId);
+      final (:items, :pending) = await _logUserEntities(logBuffer, userId);
+      totalItems += items;
+      totalPending += pending;
     }
     logBuffer.writeln('│  └─ 📈 Totals: Items: ${_green(totalItems)}, Pending: ${_yellow(totalPending)}');
+  }
+
+  /// Logs [userId]'s last sync time and transferred data volumes.
+  Future<void> _logUserSyncHistory(StringBuffer logBuffer, String userId) async {
+    final firstManager = _managers.isNotEmpty ? _managers.allManagers.first : null;
+    final metadata = await firstManager?.localAdapter.getSyncMetadata(userId);
+    final lastSyncResult = await firstManager?.getLastSyncResult(userId);
+
+    final lastSyncTime = metadata?.lastSyncTime;
+    logBuffer.writeln(lastSyncTime != null ? '│  │  ├─ 🕒 Last Sync: ${_cyan(formatDuration(DateTime.now().difference(lastSyncTime)))} ago' : '│  │  ├─ 🕒 Last Sync: Never synced');
+
+    if (lastSyncResult == null) {
+      logBuffer.writeln('│  │  ├─ 💾 Data Transferred: No history');
+      return;
+    }
+    String kb(int bytes) => (bytes / 1024).toStringAsFixed(2);
+    logBuffer.writeln('│  │  ├─ 💾 Total Data: ${_green('↑${kb(lastSyncResult.totalBytesPushed)} KB')} / ${_green('↓${kb(lastSyncResult.totalBytesPulled)} KB')}');
+    logBuffer.writeln('│  │  ├─ 📈 Last Sync: ${_green('↑${kb(lastSyncResult.bytesPushedInCycle)} KB')} / ${_green('↓${kb(lastSyncResult.bytesPulledInCycle)} KB')}');
+  }
+
+  /// Logs per-entity item/pending/size figures for [userId] and returns the
+  /// user's item and pending totals.
+  Future<({int items, int pending})> _logUserEntities(StringBuffer logBuffer, String userId) async {
+    var items = 0;
+    var pending = 0;
+    var userHasContent = false;
+    for (final MapEntry(key: entityType, value: rawManager) in _managers.entries) {
+      final manager = rawManager as DatumManager<DatumEntityInterface>;
+      final count = await manager.getPendingCount(userId);
+      final itemCount = (await manager.localAdapter.readAll(userId: userId)).length;
+      final storageSize = await manager.localAdapter.getStorageSize(userId: userId);
+      items += itemCount;
+      pending += count;
+      if (itemCount == 0 && count == 0) continue;
+
+      userHasContent = true;
+      logBuffer.writeln('│  │  ├─ ${_cyan(entityType)}:');
+      final sizeInKb = (storageSize / 1024).toStringAsFixed(2);
+      logBuffer.writeln('│  │  │  └─ Items: ${_green(itemCount)}, Pending: ${_yellow(count)}, Size: ${_cyan('$sizeInKb KB')}');
+    }
+    if (!userHasContent) {
+      logBuffer.writeln('│  │  └─ 📭 No local data or pending operations.');
+    }
+    return (items: items, pending: pending);
   }
 
   void _logObservers(StringBuffer logBuffer) {
@@ -580,46 +581,43 @@ class Datum {
       );
     }
 
-    final hasMiddlewares = registration.middlewares?.isNotEmpty ?? false;
-    final hasObservers = registration.observers?.isNotEmpty ?? false;
-    bool isRelational = false;
-
-    // Check if T is a subtype of RelationalDatumEntity
-    if (isSubtype<RelationalDatumEntity, T>()) {
-      isRelational = true;
-    }
-
-    final lastCharForConfig = hasMiddlewares || hasObservers || isRelational ? '├' : '└';
-
-    logBuffer?.writeln('│  └─ 🧩 Entity: ${_cyan(T)}');
-    logBuffer?.writeln('│     ├─ 🏠 Local Adapter: ${_green(registration.localAdapter.runtimeType)}');
-    logBuffer?.writeln('│     ├─ ☁️   Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
-    logBuffer?.writeln('│     ├─ ⚖️  Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
-    logBuffer?.writeln('│     $lastCharForConfig─ 🔧 Custom Config: ${_green(registration.config != null)}');
-
-    if (hasMiddlewares) {
-      final lastCharForMiddleware = hasObservers || isRelational ? '├' : '└';
-      logBuffer?.writeln('│     $lastCharForMiddleware─ 🔗 Middlewares (${_green(registration.middlewares!.length)}):');
-      for (final middleware in registration.middlewares!) {
-        logBuffer?.writeln('│     │  └─ ${_green(middleware.runtimeType)}');
-      }
-    }
-    if (hasObservers) {
-      final lastCharForObserver = isRelational ? '├' : '└';
-      logBuffer?.writeln('│     $lastCharForObserver─ 👀 Observers (${_green(registration.observers!.length)}):');
-      for (final observer in registration.observers!) {
-        logBuffer?.writeln('│     │  └─ ${_green(observer.runtimeType)}');
-      }
-    }
-    if (isRelational) {
-      logBuffer?.writeln('│     └─ 🤝 Relational: ${_green(true)} ');
-    } else {
-      if (!hasMiddlewares && !hasObservers) {
-        logBuffer?.writeln('│     └─ 🤝 Relational: ${_green(false)}');
-      }
-    }
+    if (logBuffer != null) _logRegistration<T>(logBuffer, registration);
 
     _adapterPairs[T] = AdapterPairImpl<T>.fromRegistration(registration);
+  }
+
+  /// Writes the registration tree for entity type [T] to [logBuffer].
+  void _logRegistration<T extends DatumEntityInterface>(StringBuffer logBuffer, DatumRegistration<T> registration) {
+    final middlewares = registration.middlewares ?? const [];
+    final observers = registration.observers ?? const [];
+    final isRelational = isSubtype<RelationalDatumEntity, T>();
+    String branch(bool hasMore) => hasMore ? '├' : '└';
+
+    logBuffer.writeln('│  └─ 🧩 Entity: ${_cyan(T)}');
+    logBuffer.writeln('│     ├─ 🏠 Local Adapter: ${_green(registration.localAdapter.runtimeType)}');
+    logBuffer.writeln('│     ├─ ☁️   Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
+    logBuffer.writeln('│     ├─ ⚖️  Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
+    logBuffer.writeln('│     ${branch(middlewares.isNotEmpty || observers.isNotEmpty || isRelational)}─ 🔧 Custom Config: ${_green(registration.config != null)}');
+
+    if (middlewares.isNotEmpty) {
+      logBuffer.writeln('│     ${branch(observers.isNotEmpty || isRelational)}─ 🔗 Middlewares (${_green(middlewares.length)}):');
+      _logTypeList(logBuffer, middlewares);
+    }
+    if (observers.isNotEmpty) {
+      logBuffer.writeln('│     ${branch(isRelational)}─ 👀 Observers (${_green(observers.length)}):');
+      _logTypeList(logBuffer, observers);
+    }
+    if (isRelational) {
+      logBuffer.writeln('│     └─ 🤝 Relational: ${_green(true)} ');
+    } else if (middlewares.isEmpty && observers.isEmpty) {
+      logBuffer.writeln('│     └─ 🤝 Relational: ${_green(false)}');
+    }
+  }
+
+  void _logTypeList(StringBuffer logBuffer, List<Object> items) {
+    for (final item in items) {
+      logBuffer.writeln('│     │  └─ ${_green(item.runtimeType)}');
+    }
   }
 
   Future<void> _initializeManagers(StringBuffer logBuffer) async {
@@ -743,6 +741,13 @@ class Datum {
     );
   }
 
+  Future<bool> _hasPending(String userId) async {
+    for (final manager in _managers.allManagers) {
+      if (await manager.getPendingCount(userId) > 0) return true;
+    }
+    return false;
+  }
+
   /// Synchronizes all users that have pending operations when connectivity is restored.
   Future<void> _syncOnConnectivityRestoration() async {
     final allUserIds = <String>{};
@@ -756,17 +761,8 @@ class Datum {
     }
 
     for (final userId in allUserIds) {
-      // Check if user has any pending operations
-      var hasPending = false;
-      for (final manager in _managers.allManagers) {
-        final count = await manager.getPendingCount(userId);
-        if (count > 0) {
-          hasPending = true;
-          break;
-        }
-      }
-
-      if (hasPending) {
+      if (_managers.allManagers.any((m) => m.isDisposed)) return; // Datum disposed meanwhile
+      if (await _hasPending(userId)) {
         try {
           logger.info('Triggering automatic sync for user $userId due to connectivity restoration');
           await synchronize(userId);
@@ -1210,20 +1206,28 @@ class Datum {
     if (_managers.isEmpty) return null;
 
     DateTime? mostRecentSync;
-    for (final manager in _managers.allManagers) {
-      try {
-        final metadata = await manager.localAdapter.getSyncMetadata(userId);
-        if (metadata?.lastSyncTime != null) {
-          if (mostRecentSync == null || metadata!.lastSyncTime!.isAfter(mostRecentSync)) {
-            mostRecentSync = metadata!.lastSyncTime!;
-          }
-        }
-      } catch (e) {
-        // Continue with other managers if one fails
-        logger.debug('Failed to get sync metadata from ${manager.runtimeType}: $e');
+    for (final metadata in await _collectSyncMetadata(userId)) {
+      final lastSyncTime = metadata.lastSyncTime;
+      if (lastSyncTime != null && (mostRecentSync == null || lastSyncTime.isAfter(mostRecentSync))) {
+        mostRecentSync = lastSyncTime;
       }
     }
     return mostRecentSync;
+  }
+
+  /// Reads every manager's sync metadata for [userId], skipping managers that
+  /// have none or fail (one failing manager must not hide the others).
+  Future<List<DatumSyncMetadata>> _collectSyncMetadata(String userId) async {
+    final allMetadata = <DatumSyncMetadata>[];
+    for (final manager in _managers.allManagers) {
+      try {
+        final metadata = await manager.localAdapter.getSyncMetadata(userId);
+        if (metadata != null) allMetadata.add(metadata);
+      } catch (e) {
+        logger.debug('Failed to get sync metadata from ${manager.runtimeType}: $e');
+      }
+    }
+    return allMetadata;
   }
 
   /// Gets unified sync metadata across all entities for the specified user.
@@ -1249,19 +1253,7 @@ class Datum {
   Future<DatumSyncMetadata?> getUnifiedSyncMetadata(String userId) async {
     if (_managers.isEmpty) return null;
 
-    // Get metadata from all managers
-    final allMetadata = <DatumSyncMetadata>[];
-    for (final manager in _managers.allManagers) {
-      try {
-        final metadata = await manager.localAdapter.getSyncMetadata(userId);
-        if (metadata != null) {
-          allMetadata.add(metadata);
-        }
-      } catch (e) {
-        logger.debug('Failed to get sync metadata from ${manager.runtimeType}: $e');
-      }
-    }
-
+    final allMetadata = await _collectSyncMetadata(userId);
     if (allMetadata.isEmpty) return null;
 
     // Find the most recent metadata as the base
@@ -1270,67 +1262,35 @@ class Datum {
       final bTime = b.lastSyncTime ?? DateTime.fromMillisecondsSinceEpoch(0);
       return bTime.compareTo(aTime);
     });
-
     final baseMetadata = allMetadata.first;
 
-    // Aggregate entity counts from all metadata
+    // Aggregate entity counts and device information from all metadata
     final aggregatedEntityCounts = <String, DatumEntitySyncDetails>{};
-    for (final metadata in allMetadata) {
-      if (metadata.entityCounts != null) {
-        aggregatedEntityCounts.addAll(metadata.entityCounts!);
-      }
-    }
-
-    // Aggregate device information
     final allDevices = <String, DateTime>{};
     for (final metadata in allMetadata) {
-      if (metadata.devices != null) {
-        allDevices.addAll(metadata.devices!);
-      }
+      aggregatedEntityCounts.addAll(metadata.entityCounts ?? const {});
+      allDevices.addAll(metadata.devices ?? const {});
     }
-
-    // Determine overall sync status
-    final hasAnyFailed = allMetadata.any((m) => m.syncStatus == SyncStatus.failed);
-    final hasAnySyncing = allMetadata.any((m) => m.syncStatus == SyncStatus.syncing);
-    final hasAnyConflicts = allMetadata.any((m) => m.hasConflicts);
-    final hasAnyPending = allMetadata.any((m) => m.totalPendingChanges > 0);
-
-    SyncStatus overallStatus;
-    if (hasAnyFailed) {
-      overallStatus = SyncStatus.failed;
-    } else if (hasAnySyncing) {
-      overallStatus = SyncStatus.syncing;
-    } else if (hasAnyConflicts) {
-      overallStatus = SyncStatus.conflict;
-    } else if (hasAnyPending) {
-      overallStatus = SyncStatus.pending;
-    } else if (baseMetadata.isNeverSynced) {
-      overallStatus = SyncStatus.neverSynced;
-    } else {
-      overallStatus = SyncStatus.synced;
-    }
-
-    // Aggregate conflict count
-    final totalConflicts = allMetadata.fold<int>(0, (sum, m) => sum + m.conflictCount);
 
     return baseMetadata.copyWith(
       entityCounts: aggregatedEntityCounts.isNotEmpty ? aggregatedEntityCounts : null,
       devices: allDevices.isNotEmpty ? allDevices : null,
-      syncStatus: overallStatus,
-      conflictCount: totalConflicts,
+      syncStatus: _overallSyncStatus(allMetadata, baseMetadata),
+      conflictCount: allMetadata.fold<int>(0, (sum, m) => sum + m.conflictCount),
     );
   }
 
   Future<void> dispose() async {
     if (_instance != null) {
       pauseSync();
+      // Stop new connectivity-triggered syncs before managers go away.
+      await _connectivitySubscription?.cancel();
 
       await Future.wait([
         ..._managers.allManagers.map((m) => m.dispose()),
         ..._managerSubscriptions.map((s) => s.cancel()),
       ]);
 
-      await _connectivitySubscription?.cancel();
       await _eventController.close();
       await _userChangeController.close();
       await _metricsSubject.close();
@@ -1430,4 +1390,13 @@ bool sameTypes<S, V>() {
   // Mutual sub-typing via List covariance: List<S> <: List<V> iff S <: V.
   // The spec defines "same type" as mutual sub-typing.
   return <S>[] is List<V> && <V>[] is List<S>;
+}
+
+/// Overall status across per-entity [all] metadata; [base] is the most recent.
+SyncStatus _overallSyncStatus(List<DatumSyncMetadata> all, DatumSyncMetadata base) {
+  if (all.any((m) => m.syncStatus == SyncStatus.failed)) return SyncStatus.failed;
+  if (all.any((m) => m.syncStatus == SyncStatus.syncing)) return SyncStatus.syncing;
+  if (all.any((m) => m.hasConflicts)) return SyncStatus.conflict;
+  if (all.any((m) => m.totalPendingChanges > 0)) return SyncStatus.pending;
+  return base.isNeverSynced ? SyncStatus.neverSynced : SyncStatus.synced;
 }

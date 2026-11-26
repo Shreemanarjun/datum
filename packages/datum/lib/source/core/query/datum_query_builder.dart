@@ -98,66 +98,27 @@ class DatumQueryBuilder<T> {
     String? matches,
     List<dynamic>? between,
   }) {
-    if (isEqualTo != null) {
-      _filters.add(Filter(field, FilterOperator.equals, isEqualTo));
-    }
-    if (isNotEqualTo != null) {
-      _filters.add(Filter(field, FilterOperator.notEquals, isNotEqualTo));
-    }
-    if (isGreaterThan != null) {
-      _filters.add(Filter(field, FilterOperator.greaterThan, isGreaterThan));
-    }
-    if (isGreaterThanOrEqualTo != null) {
-      _filters.add(
-        Filter(
-          field,
-          FilterOperator.greaterThanOrEqual,
-          isGreaterThanOrEqualTo,
-        ),
-      );
-    }
-    if (isLessThan != null) {
-      _filters.add(Filter(field, FilterOperator.lessThan, isLessThan));
-    }
-    if (isLessThanOrEqualTo != null) {
-      _filters.add(
-        Filter(field, FilterOperator.lessThanOrEqual, isLessThanOrEqualTo),
-      );
-    }
-    if (contains != null) {
-      _filters.add(Filter(field, FilterOperator.contains, contains));
-    }
-    if (containsIgnoreCase != null) {
-      _filters.add(
-        Filter(field, FilterOperator.containsIgnoreCase, containsIgnoreCase),
-      );
-    }
-    if (startsWith != null) {
-      _filters.add(Filter(field, FilterOperator.startsWith, startsWith));
-    }
-    if (endsWith != null) {
-      _filters.add(Filter(field, FilterOperator.endsWith, endsWith));
-    }
-    if (isIn != null) {
-      _filters.add(Filter(field, FilterOperator.isIn, isIn));
-    }
-    if (isNotIn != null) {
-      _filters.add(Filter(field, FilterOperator.isNotIn, isNotIn));
-    }
-    if (arrayContains != null) {
-      _filters.add(Filter(field, FilterOperator.arrayContains, arrayContains));
-    }
-    if (arrayContainsAny != null) {
-      _filters.add(
-        Filter(field, FilterOperator.arrayContainsAny, arrayContainsAny),
-      );
-    }
-    if (matches != null) {
-      _filters.add(Filter(field, FilterOperator.matches, matches));
-    }
-    if (between != null) {
-      assert(between.length == 2, 'between requires exactly 2 values');
-      _filters.add(Filter(field, FilterOperator.between, between));
+    assert(between == null || between.length == 2, 'between requires exactly 2 values');
+    final candidates = <(FilterOperator, Object?)>[
+      (FilterOperator.equals, isEqualTo),
+      (FilterOperator.notEquals, isNotEqualTo),
+      (FilterOperator.greaterThan, isGreaterThan),
+      (FilterOperator.greaterThanOrEqual, isGreaterThanOrEqualTo),
+      (FilterOperator.lessThan, isLessThan),
+      (FilterOperator.lessThanOrEqual, isLessThanOrEqualTo),
+      (FilterOperator.contains, contains),
+      (FilterOperator.containsIgnoreCase, containsIgnoreCase),
+      (FilterOperator.startsWith, startsWith),
+      (FilterOperator.endsWith, endsWith),
+      (FilterOperator.isIn, isIn),
+      (FilterOperator.isNotIn, isNotIn),
+      (FilterOperator.arrayContains, arrayContains),
+      (FilterOperator.arrayContainsAny, arrayContainsAny),
+      (FilterOperator.matches, matches),
+      (FilterOperator.between, between),
+    ];
+    for (final (operator, value) in candidates) {
+      if (value != null) _filters.add(Filter(field, operator, value));
     }
     return this;
   }

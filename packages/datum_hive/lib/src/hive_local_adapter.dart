@@ -37,8 +37,14 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
     this.schemaVersion = 0,
   });
 
+  bool _initialized = false;
+
+  /// Opens the boxes. Idempotent: [DatumManager.initialize] initializes its
+  /// adapter even when the caller already did.
   @override
   Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
     entityBox = await Hive.openBox<Map<dynamic, dynamic>>(entityBoxName);
     pendingOpsBox = await Hive.openBox<Map<dynamic, dynamic>>('${entityBoxName}_pending_queue');
     await _migrateLegacyPendingOps();

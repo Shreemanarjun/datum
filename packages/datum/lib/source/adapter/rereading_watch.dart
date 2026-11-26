@@ -14,39 +14,46 @@ Stream<S> rereadingWatch<S>(
   Future<S> Function() read, {
   bool includeInitialData = true,
 }) {
-  return Stream<S>.multi((controller) {
-    var busy = false; // a read is scheduled or in flight
-    var dirty = false;
+  return Stream<S>.multi((controller) => _attachRereader(controller, changes, read, includeInitialData));
+}
 
-    Future<void> run() async {
-      try {
-        do {
-          dirty = false;
-          final value = await read();
-          if (controller.isClosed) return;
-          controller.add(value);
-        } while (dirty);
-      } catch (e, s) {
-        if (!controller.isClosed) controller.addError(e, s);
-      } finally {
-        busy = false;
-      }
-    }
+void _attachRereader<S>(
+  MultiStreamController<S> controller,
+  Stream<Object?> changes,
+  Future<S> Function() read,
+  bool includeInitialData,
+) {
+  var busy = false; // a read is scheduled or in flight
+  var dirty = false;
 
-    void onChange(Object? _) {
-      if (busy) {
-        dirty = true;
-        return;
-      }
-      busy = true;
-      Timer.run(run);
+  Future<void> run() async {
+    try {
+      do {
+        dirty = false;
+        final value = await read();
+        if (controller.isClosed) return;
+        controller.add(value);
+      } while (dirty);
+    } catch (e, s) {
+      if (!controller.isClosed) controller.addError(e, s);
+    } finally {
+      busy = false;
     }
+  }
 
-    final sub = changes.listen(onChange);
-    if (includeInitialData) {
-      busy = true;
-      run();
+  void onChange(Object? _) {
+    if (busy) {
+      dirty = true;
+      return;
     }
-    controller.onCancel = sub.cancel;
-  });
+    busy = true;
+    Timer.run(run);
+  }
+
+  final sub = changes.listen(onChange);
+  if (includeInitialData) {
+    busy = true;
+    run();
+  }
+  controller.onCancel = sub.cancel;
 }

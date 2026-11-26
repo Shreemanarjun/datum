@@ -190,11 +190,10 @@ void runMigrationConformanceTests({
         final result = await executor.execute();
 
         expect(result.success, isTrue, reason: '${result.migrationError}');
-        expect(
-          await storedValues(),
-          [101, 109],
-          reason: 'v0 -> v1 transform applied once to every row',
-        );
+        expect(await storedValues(), [
+          101,
+          109,
+        ], reason: 'v0 -> v1 transform applied once to every row');
         expect(
           await adapter.getStoredSchemaVersion(),
           2,
@@ -222,11 +221,10 @@ void runMigrationConformanceTests({
 
         expect(result.success, isFalse);
         expect(result.migrationError, isA<MigrationException>());
-        expect(
-          await storedValues(),
-          [1, 9],
-          reason: 'an unresolvable plan must not touch the store',
-        );
+        expect(await storedValues(), [
+          1,
+          9,
+        ], reason: 'an unresolvable plan must not touch the store');
         expect(
           await adapter.getStoredSchemaVersion(),
           0,
@@ -242,11 +240,10 @@ void runMigrationConformanceTests({
 
       expect(result.success, isFalse);
       expect(result.migrationError, isNotNull);
-      expect(
-        await storedValues(),
-        [1, 9],
-        reason: 'step 1\'s transform must not survive step 2\'s failure',
-      );
+      expect(await storedValues(), [
+        1,
+        9,
+      ], reason: 'step 1\'s transform must not survive step 2\'s failure');
       expect(
         await adapter.getStoredSchemaVersion(),
         0,
@@ -265,11 +262,10 @@ void runMigrationConformanceTests({
       final result = await executor.execute();
 
       expect(result.success, isTrue, reason: '${result.migrationError}');
-      expect(
-        await storedValues(),
-        [1, 9],
-        reason: 'the v0 -> v1 transform must not run again on a v1 store',
-      );
+      expect(await storedValues(), [
+        1,
+        9,
+      ], reason: 'the v0 -> v1 transform must not run again on a v1 store');
       expect(await adapter.getStoredSchemaVersion(), 2);
       expect(await executor.needsMigration(), isFalse);
       await expectArchivedWhereVisible();
@@ -295,11 +291,10 @@ void runMigrationConformanceTests({
 
         final rerun = await second.execute();
         expect(rerun.success, isTrue);
-        expect(
-          await storedValues(),
-          [101, 109],
-          reason: 'a second launch must be a no-op, not another +100',
-        );
+        expect(await storedValues(), [
+          101,
+          109,
+        ], reason: 'a second launch must be a no-op, not another +100');
         expect(await adapter.getStoredSchemaVersion(), 2);
       });
     }

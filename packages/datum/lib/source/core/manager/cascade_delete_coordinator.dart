@@ -101,9 +101,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
     await _buildDeletePlanRecursive(
       mainStep,
       userId,
-      deleteOrder,
-      restrictedRelations,
-      visitedEntities,
+      (order: deleteOrder, restricted: restrictedRelations, visited: visitedEntities),
     );
 
     // Reverse the order so dependencies are deleted first
@@ -123,85 +121,75 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
   Future<void> _buildDeletePlanRecursive(
     CascadeDeleteStep currentStep,
     String userId,
-    List<CascadeDeleteStep> deleteOrder,
-    Map<String, List<DatumEntityInterface>> restrictedRelations,
-    Set<String> visitedEntities,
+    _PlanState state,
   ) async {
     final entity = currentStep.entity;
-    final entityKey = '${entity.runtimeType}:${entity.id}';
 
     // Prevent infinite loops from circular references
-    if (visitedEntities.contains(entityKey)) {
+    if (!state.visited.add('${entity.runtimeType}:${entity.id}')) {
       return;
     }
-    visitedEntities.add(entityKey);
 
     // Add current entity to delete order
-    deleteOrder.add(currentStep);
+    state.order.add(currentStep);
 
     // If this is not a relational entity, we're done
     if (!entity.isRelational) {
       return;
     }
 
-    final relationalEntity = entity;
-
-    // Process each relationship
-    final relations = (relationalEntity as dynamic).relations as Map<String, Relation>;
+    final relations = (entity as dynamic).relations as Map<String, Relation>;
     for (final entry in relations.entries) {
-      final relationName = entry.key;
-      final relation = entry.value;
+      await _planRelation(entity, entry, userId, state);
+    }
+  }
 
-      if (relation.shouldRestrictDelete) {
-        // Check if related entities exist
-        final relatedEntities = await getRelatedEntities(relationalEntity, relation, userId);
-        if (relatedEntities.isNotEmpty) {
-          restrictedRelations[relationName] = relatedEntities;
-        }
-      } else if (relation.shouldCascadeDelete) {
-        // Add related entities to delete plan
-        final relatedEntities = await getRelatedEntities(relationalEntity, relation, userId);
-        for (final relatedEntity in relatedEntities) {
-          final relatedStep = CascadeDeleteStep(
-            entity: relatedEntity,
-            manager: relation.getRelatedManager(),
-            relationName: relationName,
-          );
+  /// Adds the plan contribution of one relationship of [entity] to [state].
+  Future<void> _planRelation(
+    DatumEntityInterface entity,
+    MapEntry<String, Relation> entry,
+    String userId,
+    _PlanState state,
+  ) async {
+    final MapEntry(key: relationName, value: relation) = entry;
 
-          await _buildDeletePlanRecursive(
-            relatedStep,
-            userId,
-            deleteOrder,
-            restrictedRelations,
-            visitedEntities,
-          );
-        }
-      } else if (relation.shouldSetNullOnDelete) {
-        if (relation is HasMany || relation is HasOne) {
-          final relatedEntities = await getRelatedEntities(relationalEntity, relation, userId);
-          String? foreignKeyName;
-          if (relation is HasMany) {
-            foreignKeyName = relation.foreignKey;
-          } else if (relation is HasOne) {
-            foreignKeyName = relation.foreignKey;
-          }
-
-          if (foreignKeyName != null) {
-            for (final relatedEntity in relatedEntities) {
-              final relatedStep = CascadeDeleteStep(
-                entity: relatedEntity,
-                manager: relation.getRelatedManager(),
-                relationName: relationName,
-                type: CascadeStepType.update,
-                updateData: {foreignKeyName: null},
-              );
-              deleteOrder.add(relatedStep);
-            }
-          }
-        }
-        // For BelongsTo, the foreign key is on current entity being deleted, so no action needed.
+    if (relation.shouldRestrictDelete) {
+      final relatedEntities = await getRelatedEntities(entity, relation, userId);
+      if (relatedEntities.isNotEmpty) {
+        state.restricted[relationName] = relatedEntities;
       }
-      // For none behavior, do nothing during planning
+      return;
+    }
+
+    if (relation.shouldCascadeDelete) {
+      for (final relatedEntity in await getRelatedEntities(entity, relation, userId)) {
+        final relatedStep = CascadeDeleteStep(
+          entity: relatedEntity,
+          manager: relation.getRelatedManager(),
+          relationName: relationName,
+        );
+        await _buildDeletePlanRecursive(relatedStep, userId, state);
+      }
+      return;
+    }
+
+    // For none behavior, do nothing during planning. For BelongsTo setNull the
+    // foreign key is on the entity being deleted, so no action is needed.
+    if (!relation.shouldSetNullOnDelete) return;
+    final foreignKeyName = switch (relation) {
+      HasMany(:final foreignKey) || HasOne(:final foreignKey) => foreignKey,
+      BelongsTo() || ManyToMany() => null,
+    };
+    if (foreignKeyName == null) return;
+
+    for (final relatedEntity in await getRelatedEntities(entity, relation, userId)) {
+      state.order.add(CascadeDeleteStep(
+        entity: relatedEntity,
+        manager: relation.getRelatedManager(),
+        relationName: relationName,
+        type: CascadeStepType.update,
+        updateData: {foreignKeyName: null},
+      ));
     }
   }
 
@@ -348,88 +336,36 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
     var completed = 0;
     final startTime = DateTime.now();
 
+    Future<bool> performDelete(CascadeDeleteStep step) async => await step.manager.performDeleteWithoutEvents(
+          id: step.entity.id,
+          userId: userId,
+          source: source,
+          forceRemoteSync: forceRemoteSync,
+        );
+
     // Execute deletes in the planned order
     for (final step in plan.steps) {
-      // Check for cancellation
-      if (options.cancellationToken?.isCancelled ?? false) {
+      final abortReason = _abortReason(options, startTime);
+      if (abortReason != null) {
         analyticsBuilder.recordError();
-        errors.add('Operation cancelled');
+        errors.add(abortReason);
         break;
       }
 
-      // Check for timeout
-      if (DateTime.now().difference(startTime) > options.timeout) {
-        analyticsBuilder.recordError();
-        errors.add('Operation timed out');
-        break;
+      final failure = await _runProgressStep(step, userId, performDelete, analyticsBuilder);
+      if (failure == null && step.type == CascadeStepType.delete) {
+        deletedEntities.putIfAbsent(step.entity.runtimeType, () => []).add(step.entity);
       }
 
-      try {
-        analyticsBuilder.recordQueryExecuted();
-
-        bool success = true;
-        if (step.type == CascadeStepType.delete) {
-          success = await step.manager.performDeleteWithoutEvents(
-            id: step.entity.id,
-            userId: userId,
-            source: source,
-            forceRemoteSync: forceRemoteSync,
-          );
-        } else if (step.type == CascadeStepType.update && step.updateData != null) {
-          try {
-            await step.manager.localAdapter.patch(
-              id: step.entity.id,
-              delta: step.updateData!,
-              userId: userId,
-            );
-            step.manager.invalidateMetadataHash(userId);
-            analyticsBuilder.recordSetNullOperation();
-            // Manually emit update event? Or assume localAdapter emits it?
-            // performDeleteWithoutEvents suggests we manipulate events manually.
-            // localAdapter.patch likely emits change event if implemented properly.
-            // For consistency with cascade delete which suppresses events during execution
-            // and emits them later (maybe?), we should check.
-            // But existing delete implementation emits main entity delete event at the end.
-            // Cascade steps might not emit events?
-            // Actually currently step.manager.performDeleteWithoutEvents is used.
-            // So we probably want update without events, but we don't have that method easily.
-            // For now using patch is atomic-ish on adapter level.
-            success = true;
-          } catch (e) {
-            success = false;
-            // Log error?
-            _logger.error('Failed to set null for ${step.entity.id}: $e');
-          }
-        }
-
-        if (success) {
-          if (step.type == CascadeStepType.delete) {
-            analyticsBuilder.recordEntityDeleted(step.entity.runtimeType);
-            deletedEntities.putIfAbsent(step.entity.runtimeType, () => []).add(step.entity);
-          }
-        } else {
-          analyticsBuilder.recordError();
-          errors.add('Failed to ${step.type == CascadeStepType.delete ? 'delete' : 'update'} ${step.entity.runtimeType}:${step.entity.id}');
-          if (!options.allowPartialDeletes) {
-            break; // Stop on first failure if partial deletes not allowed
-          }
-        }
-      } catch (e) {
+      if (failure != null) {
         analyticsBuilder.recordError();
-        errors.add('Error deleting ${step.entity.runtimeType}:${step.entity.id}: $e');
-        if (!options.allowPartialDeletes) {
-          break; // Stop on first error if partial deletes not allowed
-        }
+        errors.add(failure);
+        // Stop on first failure if partial deletes not allowed
+        if (!options.allowPartialDeletes) break;
       }
 
       completed++;
-      options.onProgress?.call(CascadeProgress(
-        completed: completed,
-        total: plan.steps.length,
-        currentEntityType: step.entity.runtimeType.toString(),
-        currentEntityId: step.entity.id,
-        message: step.type == CascadeStepType.delete ? 'Deleting ${step.entity.runtimeType.toString()}' : 'Updating ${step.entity.runtimeType.toString()}',
-      ));
+      options.onProgress?.call(_progressFor(step, completed, plan.steps.length));
     }
 
     return CascadeDeleteResult<T>(
@@ -440,4 +376,75 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
       errors: errors,
     );
   }
+
+  /// Runs one cascade step, returning the failure message (null on success).
+  Future<String?> _runProgressStep(
+    CascadeDeleteStep step,
+    String userId,
+    Future<bool> Function(CascadeDeleteStep step) performDelete,
+    CascadeAnalyticsBuilder analyticsBuilder,
+  ) async {
+    try {
+      analyticsBuilder.recordQueryExecuted();
+      final updateData = step.updateData;
+      final success = switch (step.type) {
+        CascadeStepType.delete => await performDelete(step),
+        CascadeStepType.update => updateData == null || await _applySetNull(step, updateData, userId, analyticsBuilder),
+      };
+      if (!success) {
+        return 'Failed to ${step.type == CascadeStepType.delete ? 'delete' : 'update'} ${step.entity.runtimeType}:${step.entity.id}';
+      }
+      if (step.type == CascadeStepType.delete) {
+        analyticsBuilder.recordEntityDeleted(step.entity.runtimeType);
+      }
+      return null;
+    } catch (e) {
+      return 'Error deleting ${step.entity.runtimeType}:${step.entity.id}: $e';
+    }
+  }
+
+  /// Patches [updateData] (a nulled foreign key) onto the step's entity.
+  /// Cascade steps run without events, so this uses the adapter patch
+  /// directly. Returns false (after logging) when the patch fails.
+  Future<bool> _applySetNull(
+    CascadeDeleteStep step,
+    Map<String, dynamic> updateData,
+    String userId,
+    CascadeAnalyticsBuilder analyticsBuilder,
+  ) async {
+    try {
+      await step.manager.localAdapter.patch(id: step.entity.id, delta: updateData, userId: userId);
+      step.manager.invalidateMetadataHash(userId);
+      analyticsBuilder.recordSetNullOperation();
+      return true;
+    } catch (e) {
+      _logger.error('Failed to set null for ${step.entity.id}: $e');
+      return false;
+    }
+  }
+}
+
+/// Accumulators threaded through the recursive delete-plan build.
+typedef _PlanState = ({
+  List<CascadeDeleteStep> order,
+  Map<String, List<DatumEntityInterface>> restricted,
+  Set<String> visited,
+});
+
+/// Why a progress-tracked cascade must stop before the next step, if at all.
+String? _abortReason(CascadeOptions options, DateTime startTime) {
+  if (options.cancellationToken?.isCancelled ?? false) return 'Operation cancelled';
+  if (DateTime.now().difference(startTime) > options.timeout) return 'Operation timed out';
+  return null;
+}
+
+CascadeProgress _progressFor(CascadeDeleteStep step, int completed, int total) {
+  final typeName = step.entity.runtimeType.toString();
+  return CascadeProgress(
+    completed: completed,
+    total: total,
+    currentEntityType: typeName,
+    currentEntityId: step.entity.id,
+    message: step.type == CascadeStepType.delete ? 'Deleting $typeName' : 'Updating $typeName',
+  );
 }

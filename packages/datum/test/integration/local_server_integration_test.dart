@@ -289,7 +289,7 @@ void main() {
     expect((await manager.read('e1', userId: 'u1'))?.name, 'fine');
   });
 
-  test('401 auth failure is non-retryable: op is dropped by design, error surfaces', () async {
+  test('401 auth failure parks the op (never drops it); retry after re-auth pushes it', () async {
     await manager.push(item: TestEntity.create('e1', 'u1', 'unauthorized'), userId: 'u1');
 
     server
@@ -302,12 +302,28 @@ void main() {
       throwsA(isA<NetworkException>().having((e) => e.isRetryable, 'isRetryable', isFalse)),
     );
 
-    // Documented engine behavior: non-retryable failures dequeue the op
-    // (dead-letter semantics) rather than retry-looping against a rejecting
-    // server. The data is NOT silently gone — it still exists locally.
-    expect(await manager.getPendingOperations('u1'), isEmpty);
+    // Parked, not dropped: the edit survives locally and in the queue.
+    final parked = await manager.getParkedOperations('u1');
+    expect(parked.map((op) => op.entityId), ['e1']);
+    expect(parked.single.parkedError, contains('401'));
     expect((await manager.read('e1', userId: 'u1'))?.name, 'unauthorized');
     expect(server.storage['u1']?['e1'], isNull);
+
+    // Later syncs skip the parked op but still push other entities.
+    await manager.push(item: TestEntity.create('e2', 'u1', 'other'), userId: 'u1');
+    await manager.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pushOnly));
+    expect(server.storage['u1']?['e2'], isNotNull);
+    expect(server.storage['u1']?['e1'], isNull);
+    expect(await manager.getPendingCount('u1'), 1);
+
+    // After re-auth the app re-arms it and the next sync delivers it.
+    expect(await manager.retryParkedOperations('u1'), 1);
+    expect(await manager.getParkedOperations('u1'), isEmpty);
+    final result = await manager.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pushOnly));
+    expect(result.failedCount, 0);
+    expect(server.storage['u1']?['e1']?['name'], 'unauthorized');
+    expect(await manager.getPendingCount('u1'), 0);
+    expect(await manager.discardParkedOperations('u1'), 0);
   });
 
   test('concurrent synchronize calls serialize: exactly one POST per operation', () async {

@@ -105,33 +105,54 @@ SchemaDiffResult diffSchema<E extends DatumEntityInterface>({
   required bool sqlPath,
   SqlDialect dialect = SqlDialect.sqlite,
 }) {
+  final (:changes, :operations, :renamedAway) = _diffDeclared(schema, actual, sqlPath, dialect);
+  final warnings = <String>[];
+  final declaredNames = schema.fields.map((f) => f.name).toSet();
+  for (final key in actual.allKeys) {
+    if (declaredNames.contains(key) || kReservedColumnNames.contains(key) || renamedAway.contains(key) || key.startsWith('__')) {
+      continue;
+    }
+    if (dropRemovedColumns) {
+      changes.add(SchemaColumnRemoved(key));
+      operations.add(RemoveColumn(key));
+    } else {
+      warnings.add('Column "$key" is not in the "${schema.name}" schema; '
+          'kept (autoMigrateDropColumns: false).');
+    }
+  }
+
+  return (changes: changes, operations: operations, warnings: warnings);
+}
+
+/// Renames and adds for every declared field missing from the store, in
+/// declaration order (operations: all renames, then all adds). Throws
+/// [MigrationException] listing every non-nullable field that cannot be added.
+({List<SchemaChange> changes, List<ColumnOperation> operations, Set<String> renamedAway}) _diffDeclared(
+  DatumSchema<DatumEntityInterface> schema,
+  SchemaShape actual,
+  bool sqlPath,
+  SqlDialect dialect,
+) {
   final changes = <SchemaChange>[];
   final renames = <ColumnOperation>[];
   final adds = <ColumnOperation>[];
-  final removes = <ColumnOperation>[];
-  final warnings = <String>[];
   final problems = <String>[];
   final renamedAway = <String>{};
 
   for (final field in schema.fields) {
     if (actual.universalKeys.contains(field.name)) continue;
 
-    final from = field.renamedFrom;
-    // On the SQL path a declared column that already exists never reaches
-    // here (universalKeys == allKeys), so this only guards inconsistent
-    // shapes; on the map path a partially-renamed store still renames —
-    // SchemaRenameOperation is row-safe.
-    if (from != null && actual.allKeys.contains(from) && !(sqlPath && actual.allKeys.contains(field.name))) {
+    final from = _renameSource(field, actual, sqlPath);
+    if (from != null) {
       changes.add(SchemaColumnRenamed(from, field));
       renames.add(SchemaRenameOperation(from, to: field.name));
       renamedAway.add(from);
       continue;
     }
 
-    if (actual.allKeys.contains(field.name)) {
-      // Present on some rows only (map path): backfill via AddColumn below.
-      if (sqlPath) continue; // SQL columns exist on every row; nothing to do.
-    }
+    // Present on some rows only (map path): backfill via AddColumn below.
+    // SQL columns exist on every row; nothing to do.
+    if (sqlPath && actual.allKeys.contains(field.name)) continue;
     if (!field.isNullable && field.defaultValue == null) {
       problems.add('Cannot auto-add non-nullable "${field.name}" without a defaultValue — '
           'set defaultValue: on its DatumFieldSpec, or make the type nullable.');
@@ -151,20 +172,16 @@ SchemaDiffResult diffSchema<E extends DatumEntityInterface>({
       message: 'Auto-migration for "${schema.name}" cannot proceed:\n${problems.join('\n')}',
     );
   }
+  return (changes: changes, operations: [...renames, ...adds], renamedAway: renamedAway);
+}
 
-  final declaredNames = schema.fields.map((f) => f.name).toSet();
-  for (final key in actual.allKeys) {
-    if (declaredNames.contains(key) || kReservedColumnNames.contains(key) || renamedAway.contains(key) || key.startsWith('__')) {
-      continue;
-    }
-    if (dropRemovedColumns) {
-      changes.add(SchemaColumnRemoved(key));
-      removes.add(RemoveColumn(key));
-    } else {
-      warnings.add('Column "$key" is not in the "${schema.name}" schema; '
-          'kept (autoMigrateDropColumns: false).');
-    }
-  }
-
-  return (changes: changes, operations: [...renames, ...adds, ...removes], warnings: warnings);
+/// The stored column [field] should be renamed from, if any. On the SQL path
+/// a declared column that already exists never reaches here (universalKeys ==
+/// allKeys), so the `sqlPath` clause only guards inconsistent shapes; on the
+/// map path a partially-renamed store still renames — SchemaRenameOperation
+/// is row-safe.
+String? _renameSource(DatumFieldSpec<dynamic, dynamic> field, SchemaShape actual, bool sqlPath) {
+  final from = field.renamedFrom;
+  if (from == null || !actual.allKeys.contains(from)) return null;
+  return sqlPath && actual.allKeys.contains(field.name) ? null : from;
 }

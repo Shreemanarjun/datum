@@ -113,6 +113,9 @@ void main() {
         () => localAdapter.removePendingOperation(any()),
       ).thenAnswer((_) async {});
       when(
+        () => localAdapter.addPendingOperation(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
         () => localAdapter.readAll(userId: any(named: 'userId')),
       ).thenAnswer((_) async => []);
       when(
@@ -225,11 +228,12 @@ void main() {
       // Verify that processing stopped after the error.
       expect(processedOrder, ['e0', 'e1']);
 
-      // Verify that successful operations AND the failed one were dequeued.
-      // The failed one is removed to prevent it from blocking the queue.
+      // Successful operations are dequeued; the failed one is parked.
       verify(() => localAdapter.removePendingOperation('op0')).called(1);
       verify(() => localAdapter.removePendingOperation('op1')).called(1);
-      verify(() => localAdapter.removePendingOperation('op2')).called(1);
+      verifyNever(() => localAdapter.removePendingOperation('op2'));
+      final parked = verify(() => localAdapter.addPendingOperation(userId, captureAny())).captured.single as DatumSyncOperation;
+      expect((parked.id, parked.isParked), ('op2', true));
     });
 
     group('with ParallelStrategy', () {
@@ -361,10 +365,12 @@ void main() {
           // been processed because failFast is false.
           expect(processedIds, {'e0', 'e2', 'e3'});
 
-          // Verify that the local queue manager removed ALL operations.
-          // Successful ones are dequeued on success, and failed ones are
-          // dequeued to prevent blocking the queue.
-          verify(() => localAdapter.removePendingOperation(any())).called(5);
+          // Successful ops are dequeued; the two failed ones are parked
+          // (kept queued with their error), never dropped.
+          verify(() => localAdapter.removePendingOperation(any())).called(3);
+          final parked = verify(() => localAdapter.addPendingOperation(userId, captureAny())).captured.cast<DatumSyncOperation<TestEntity>>();
+          expect(parked, hasLength(2));
+          expect(parked.every((op) => op.isParked), isTrue);
         },
       );
     });

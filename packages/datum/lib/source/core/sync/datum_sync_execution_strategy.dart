@@ -111,50 +111,17 @@ class ParallelStrategy implements DatumSyncExecutionStrategy {
     for (var i = 0; i < totalOps; i += effectiveBatchSize) {
       if (isCancelled()) break;
 
-      // If we already have errors and failFast is enabled, stop processing
-      if (failFast && errors.isNotEmpty) break;
-
       final end = (i + effectiveBatchSize < totalOps) ? i + effectiveBatchSize : totalOps;
       final batch = operations.sublist(i, end);
 
+      // failFast throws before reporting, so progress is only reported for a
+      // successful batch; otherwise it is reported even when errors occurred.
       if (failFast) {
-        // Use Future.wait with eagerError for fail-fast behavior
-        final futures = batch.map((op) => processOperation(op)).toList();
-        try {
-          await Future.wait(futures, eagerError: true);
-          // Report progress only on successful batch completion
-          onProgress(end, totalOps);
-        } catch (e) {
-          // Fail fast, but QUIESCE first: eagerError rethrows as soon as one
-          // operation fails while its already-dispatched siblings keep running
-          // and mutating the adapters in the background. If we rethrew
-          // immediately, the caller would see the sync as failed (and possibly
-          // start a retry) while those writes were still in flight —
-          // double-processing races. Waiting for every future to settle (their
-          // own errors swallowed; the first error is what propagates)
-          // guarantees no work continues after the failure is reported.
-          await Future.wait<void>(
-            futures.map((f) => f.then<void>((_) {}, onError: (_, __) {})),
-          );
-          rethrow;
-        }
+        await _runFailFast(batch, processOperation);
       } else {
-        // Original behavior: collect all errors
-        final results = await Future.wait(
-          batch.map((op) async {
-            try {
-              await processOperation(op);
-              return null; // Success
-            } catch (e) {
-              return e; // Failure
-            }
-          }),
-        );
-
-        errors.addAll(results.whereType<Object>());
-        // Report progress even if there were errors in the batch, as failFast is false.
-        onProgress(end, totalOps);
+        errors.addAll(await _runCollectingErrors(batch, processOperation));
       }
+      onProgress(end, totalOps);
     }
 
     // After all batches are processed, if we collected any errors (in non-failFast mode),
@@ -167,6 +134,50 @@ class ParallelStrategy implements DatumSyncExecutionStrategy {
               code: DatumExceptionCode.unknown,
             );
     }
+  }
+
+  /// Runs [batch] concurrently, rethrowing the first failure once every
+  /// sibling has settled.
+  static Future<void> _runFailFast<T extends DatumEntityInterface>(
+    List<DatumSyncOperation<T>> batch,
+    Future<void> Function(DatumSyncOperation<T> operation) processOperation,
+  ) async {
+    // Use Future.wait with eagerError for fail-fast behavior
+    final futures = batch.map((op) => processOperation(op)).toList();
+    try {
+      await Future.wait(futures, eagerError: true);
+    } catch (e) {
+      // Fail fast, but QUIESCE first: eagerError rethrows as soon as one
+      // operation fails while its already-dispatched siblings keep running
+      // and mutating the adapters in the background. If we rethrew
+      // immediately, the caller would see the sync as failed (and possibly
+      // start a retry) while those writes were still in flight —
+      // double-processing races. Waiting for every future to settle (their
+      // own errors swallowed; the first error is what propagates)
+      // guarantees no work continues after the failure is reported.
+      await Future.wait<void>(
+        futures.map((f) => f.then<void>((_) {}, onError: (_, __) {})),
+      );
+      rethrow;
+    }
+  }
+
+  /// Runs [batch] concurrently and returns every failure.
+  static Future<Iterable<Object>> _runCollectingErrors<T extends DatumEntityInterface>(
+    List<DatumSyncOperation<T>> batch,
+    Future<void> Function(DatumSyncOperation<T> operation) processOperation,
+  ) async {
+    final results = await Future.wait(
+      batch.map((op) async {
+        try {
+          await processOperation(op);
+          return null; // Success
+        } catch (e) {
+          return e; // Failure
+        }
+      }),
+    );
+    return results.whereType<Object>();
   }
 }
 

@@ -547,11 +547,11 @@ void main() {
         ),
       );
 
-      // The operation should have been removed from the queue to prevent
-      // it from blocking subsequent syncs.
-      final pendingOps = await testManager.getPendingCount('user1');
-      expect(pendingOps, 0);
-      verify(() => localAdapter.removePendingOperation('op-fail')).called(1);
+      // The operation is parked: kept queued with its error, never dropped.
+      verifyNever(() => localAdapter.removePendingOperation('op-fail'));
+      final parked = verify(() => localAdapter.addPendingOperation('user1', captureAny())).captured.single as DatumSyncOperation;
+      expect(parked.id, 'op-fail');
+      expect(parked.isParked, isTrue);
 
       await testManager.dispose();
     });

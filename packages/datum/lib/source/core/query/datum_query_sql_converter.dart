@@ -36,6 +36,15 @@ const _likeEscapeClause = r" ESCAPE '\'";
 
 String _escapeLike(String value) => value.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
 
+/// Per-call conversion state shared by the condition renderers. [next] yields
+/// the next dialect placeholder; renderers append bound values to [params].
+typedef _SqlCtx = ({
+  SqlDialect dialect,
+  List<Object?> params,
+  String Function() next,
+  DatumCustomSqlBuilder? custom,
+});
+
 /// An extension on [DatumQuery] to provide SQL conversion capabilities.
 extension DatumQuerySqlConverter on DatumQuery {
   /// Converts this [DatumQuery] into a parameterized SQL query string.
@@ -57,183 +66,121 @@ extension DatumQuerySqlConverter on DatumQuery {
       );
     }
 
-    final params = <Object?>[];
     var placeholderIndex = 1;
-
-    String getPlaceholder() {
-      if (placeholderBuilder != null) {
-        return placeholderBuilder(placeholderIndex++);
-      }
-      if (dialect == SqlDialect.postgresql) {
-        return '\$${placeholderIndex++}';
-      }
-      return '?';
+    String next() {
+      if (placeholderBuilder != null) return placeholderBuilder(placeholderIndex++);
+      return dialect == SqlDialect.postgresql ? '\$${placeholderIndex++}' : '?';
     }
 
-    String processCondition(FilterCondition condition) {
-      if (condition is Filter) {
-        // Allow custom builder to handle the filter first.
-        final customSql = customBuilder?.call(
-          condition,
-          getPlaceholder,
-          params,
-        );
-        if (customSql != null) {
-          return customSql;
-        }
-
-        // Assuming field names are safe and don't need escaping here.
-        // In a production adapter, you might want to validate field names.
-        final field = '"${condition.field}"';
-        final operator = _getSqlOperator(condition.operator, dialect);
-
-        if (condition.operator == FilterOperator.isNull || condition.operator == FilterOperator.isNotNull) {
-          return '$field $operator';
-        }
-
-        if (condition.operator == FilterOperator.isIn || condition.operator == FilterOperator.isNotIn) {
-          if (condition.value is! List || (condition.value as List).isEmpty) {
-            // An empty IN list is problematic in SQL.
-            // `IN ()` is a syntax error. We can return a condition that is
-            // always false for `IN` and always true for `NOT IN`.
-            return condition.operator == FilterOperator.isIn ? '0=1' : '1=1';
-          }
-          final placeholders = (condition.value as List).map((_) => getPlaceholder()).join(', ');
-          params.addAll(condition.value as List);
-          return '$field $operator ($placeholders)';
-        }
-
-        if (condition.operator == FilterOperator.between) {
-          final placeholder1 = getPlaceholder();
-          final placeholder2 = getPlaceholder();
-          params.addAll(condition.value as List);
-          return '$field $operator $placeholder1 AND $placeholder2';
-        }
-
-        var value = condition.value;
-        var fieldExpression = field;
-        var escapeClause = '';
-
-        // Handle LIKE/ILIKE operators and value wrapping. The user's value
-        // is a LITERAL (the in-memory matcher uses String.contains), so its
-        // `%`/`_` must not act as wildcards — escape them and declare the
-        // escape character.
-        switch (condition.operator) {
-          case FilterOperator.contains:
-            value = '%${_escapeLike('$value')}%';
-            escapeClause = _likeEscapeClause;
-          case FilterOperator.startsWith:
-            value = '${_escapeLike('$value')}%';
-            escapeClause = _likeEscapeClause;
-          case FilterOperator.endsWith:
-            value = '%${_escapeLike('$value')}';
-            escapeClause = _likeEscapeClause;
-          case FilterOperator.containsIgnoreCase:
-            value = '%${_escapeLike('$value')}%';
-            escapeClause = _likeEscapeClause;
-            if (dialect == SqlDialect.sqlite) {
-              // SQLite uses LIKE with LOWER() for case-insensitivity
-              fieldExpression = 'LOWER($field)';
-              value = (value as String).toLowerCase();
-            }
-          default:
-            break;
-        }
-
-        params.add(value);
-        return '$fieldExpression $operator ${getPlaceholder()}$escapeClause';
-      }
-
-      if (condition is CompositeFilter) {
-        if (condition.conditions.isEmpty) {
-          // `()` is a SQL syntax error. Mirror the matcher's vacuous
-          // semantics: an empty AND is true, an empty OR is false.
-          return condition.operator == LogicalOperator.and ? '1=1' : '0=1';
-        }
-        final clauses = condition.conditions.map(processCondition).join(' ${condition.operator.name.toUpperCase()} ');
-        return '($clauses)';
-      }
-
-      throw UnsupportedError('Unsupported filter condition: $condition');
-    }
-
-    final whereClauses = filters.map(processCondition).toList();
-
-    final whereSql = whereClauses.isNotEmpty ? 'WHERE ${whereClauses.join(' ${logicalOperator.name.toUpperCase()} ')}' : '';
-
-    final sortingSql = sorting.isNotEmpty
-        ? 'ORDER BY ${sorting.map((s) {
-            final direction = s.descending ? 'DESC' : 'ASC';
-            final nulls = 'NULLS ${s.nullSortOrder == NullSortOrder.first ? "FIRST" : "LAST"}';
-            return '"${s.field}" $direction $nulls';
-          }).join(', ')}'
-        : '';
+    final _SqlCtx ctx = (dialect: dialect, params: <Object?>[], next: next, custom: customBuilder);
+    final whereClauses = [for (final f in filters) _conditionSql(f, ctx)];
 
     // SQLite (and MySQL) reject OFFSET without LIMIT; -1 means unlimited.
     final effectiveLimit = limit ?? (offset != null && dialect != SqlDialect.postgresql ? -1 : null);
-    final limitSql = effectiveLimit != null ? 'LIMIT $effectiveLimit' : '';
-    final offsetSql = offset != null ? 'OFFSET ${offset!}' : '';
 
     final sql = [
       'SELECT * FROM "$tableName"',
-      whereSql,
-      sortingSql,
-      limitSql,
-      offsetSql,
-    ].where((s) => s.isNotEmpty).join(' ');
+      if (whereClauses.isNotEmpty) 'WHERE ${whereClauses.join(' ${logicalOperator.name.toUpperCase()} ')}',
+      if (sorting.isNotEmpty) 'ORDER BY ${sorting.map(_orderTermSql).join(', ')}',
+      if (effectiveLimit != null) 'LIMIT $effectiveLimit',
+      if (offset != null) 'OFFSET ${offset!}',
+    ].join(' ');
 
-    return (sql: sql, params: params);
-  }
-
-  String _getSqlOperator(FilterOperator operator, SqlDialect dialect) {
-    switch (operator) {
-      case FilterOperator.equals:
-        return '=';
-      case FilterOperator.notEquals:
-        return '!=';
-      case FilterOperator.greaterThan:
-        return '>';
-      case FilterOperator.greaterThanOrEqual:
-        return '>=';
-      case FilterOperator.lessThan:
-        return '<';
-      case FilterOperator.lessThanOrEqual:
-        return '<=';
-      case FilterOperator.contains:
-      case FilterOperator.startsWith:
-      case FilterOperator.endsWith:
-        return 'LIKE';
-      case FilterOperator.containsIgnoreCase:
-        return dialect == SqlDialect.postgresql ? 'ILIKE' : 'LIKE';
-      case FilterOperator.isIn:
-        return 'IN';
-      case FilterOperator.isNotIn:
-        return 'NOT IN';
-      case FilterOperator.isNull:
-        return 'IS NULL';
-      case FilterOperator.isNotNull:
-        return 'IS NOT NULL';
-      case FilterOperator.between:
-        return 'BETWEEN';
-      case FilterOperator.matches:
-        switch (dialect) {
-          case SqlDialect.sqlite:
-            return 'REGEXP';
-          case SqlDialect.postgresql:
-            return '~';
-          case SqlDialect.custom:
-            break; // Fall through to throw
-        }
-      case FilterOperator.arrayContains:
-      case FilterOperator.arrayContainsAny:
-      case FilterOperator.withinDistance:
-        throw UnsupportedError(
-          '$operator is not supported by the generic SQL helper. '
-          'It requires database-specific functions (e.g., JSON or PostGIS).',
-        );
-    }
-    // This line should be unreachable if all cases are handled, but it
-    // satisfies the non-nullable return type requirement.
-    throw UnsupportedError('Unsupported operator $operator for dialect $dialect');
+    return (sql: sql, params: ctx.params);
   }
 }
+
+String _orderTermSql(SortDescriptor s) {
+  final direction = s.descending ? 'DESC' : 'ASC';
+  final nulls = 'NULLS ${s.nullSortOrder == NullSortOrder.first ? "FIRST" : "LAST"}';
+  return '"${s.field}" $direction $nulls';
+}
+
+String _conditionSql(FilterCondition condition, _SqlCtx ctx) => switch (condition) {
+      // Allow the custom builder to handle the filter first.
+      Filter() => ctx.custom?.call(condition, ctx.next, ctx.params) ?? _filterSql(condition, ctx),
+      // `()` is a SQL syntax error. Mirror the matcher's vacuous semantics:
+      // an empty AND is true, an empty OR is false.
+      CompositeFilter(conditions: []) => condition.operator == LogicalOperator.and ? '1=1' : '0=1',
+      CompositeFilter() => '(${condition.conditions.map((c) => _conditionSql(c, ctx)).join(' ${condition.operator.name.toUpperCase()} ')})',
+      _ => throw UnsupportedError('Unsupported filter condition: $condition'),
+    };
+
+String _filterSql(Filter filter, _SqlCtx ctx) {
+  // Assuming field names are safe and don't need escaping here.
+  // In a production adapter, you might want to validate field names.
+  final field = '"${filter.field}"';
+  final operator = _sqlOperator(filter.operator, ctx.dialect);
+
+  switch (filter.operator) {
+    case FilterOperator.isNull || FilterOperator.isNotNull:
+      return '$field $operator';
+    case FilterOperator.isIn || FilterOperator.isNotIn:
+      final values = filter.value;
+      // `IN ()` is a syntax error: an empty list is always false for `IN`
+      // and always true for `NOT IN`.
+      if (values is! List || values.isEmpty) {
+        return filter.operator == FilterOperator.isIn ? '0=1' : '1=1';
+      }
+      final placeholders = values.map((_) => ctx.next()).join(', ');
+      ctx.params.addAll(values);
+      return '$field $operator ($placeholders)';
+    case FilterOperator.between:
+      final placeholder1 = ctx.next();
+      final placeholder2 = ctx.next();
+      ctx.params.addAll(filter.value as List);
+      return '$field $operator $placeholder1 AND $placeholder2';
+    default:
+      final (:expression, :value, :escape) = _scalarOperand(filter, field, ctx.dialect);
+      ctx.params.add(value);
+      return '$expression $operator ${ctx.next()}$escape';
+  }
+}
+
+/// The left-hand expression, bound value and ESCAPE clause for a scalar
+/// filter. LIKE values are LITERALS (the in-memory matcher uses
+/// String.contains), so their `%`/`_` are escaped rather than acting as
+/// wildcards.
+({String expression, Object? value, String escape}) _scalarOperand(
+  Filter filter,
+  String field,
+  SqlDialect dialect,
+) {
+  final raw = filter.value;
+  return switch (filter.operator) {
+    FilterOperator.contains => (expression: field, value: '%${_escapeLike('$raw')}%', escape: _likeEscapeClause),
+    FilterOperator.startsWith => (expression: field, value: '${_escapeLike('$raw')}%', escape: _likeEscapeClause),
+    FilterOperator.endsWith => (expression: field, value: '%${_escapeLike('$raw')}', escape: _likeEscapeClause),
+    // SQLite uses LIKE with LOWER() for case-insensitivity.
+    FilterOperator.containsIgnoreCase when dialect == SqlDialect.sqlite => (
+        expression: 'LOWER($field)',
+        value: '%${_escapeLike('$raw')}%'.toLowerCase(),
+        escape: _likeEscapeClause,
+      ),
+    FilterOperator.containsIgnoreCase => (expression: field, value: '%${_escapeLike('$raw')}%', escape: _likeEscapeClause),
+    _ => (expression: field, value: raw, escape: ''),
+  };
+}
+
+String _sqlOperator(FilterOperator operator, SqlDialect dialect) => switch (operator) {
+      FilterOperator.equals => '=',
+      FilterOperator.notEquals => '!=',
+      FilterOperator.greaterThan => '>',
+      FilterOperator.greaterThanOrEqual => '>=',
+      FilterOperator.lessThan => '<',
+      FilterOperator.lessThanOrEqual => '<=',
+      FilterOperator.contains || FilterOperator.startsWith || FilterOperator.endsWith => 'LIKE',
+      FilterOperator.containsIgnoreCase => dialect == SqlDialect.postgresql ? 'ILIKE' : 'LIKE',
+      FilterOperator.isIn => 'IN',
+      FilterOperator.isNotIn => 'NOT IN',
+      FilterOperator.isNull => 'IS NULL',
+      FilterOperator.isNotNull => 'IS NOT NULL',
+      FilterOperator.between => 'BETWEEN',
+      FilterOperator.matches when dialect == SqlDialect.sqlite => 'REGEXP',
+      FilterOperator.matches when dialect == SqlDialect.postgresql => '~',
+      FilterOperator.matches => throw UnsupportedError('Unsupported operator $operator for dialect $dialect'),
+      FilterOperator.arrayContains || FilterOperator.arrayContainsAny || FilterOperator.withinDistance => throw UnsupportedError(
+          '$operator is not supported by the generic SQL helper. '
+          'It requires database-specific functions (e.g., JSON or PostGIS).',
+        ),
+    };

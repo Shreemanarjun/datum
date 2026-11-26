@@ -1757,6 +1757,7 @@ void main() async {
       when(() => remoteAdapter.create(any())).thenThrow(originalError);
       // Stub dequeue to prevent it from blocking the test
       when(() => localAdapter.removePendingOperation(any())).thenAnswer((_) async {});
+      when(() => localAdapter.addPendingOperation(any(), any())).thenAnswer((_) async {});
 
       // Act & Assert
       final errorEventFuture = expectLater(manager.onSyncError, emits(isA<DatumSyncErrorEvent>().having((e) => e.error, 'error', originalError)));

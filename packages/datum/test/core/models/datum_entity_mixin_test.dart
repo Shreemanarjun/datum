@@ -25,15 +25,16 @@ class TestEntity extends Equatable with DatumEntityMixin {
     this.isDeleted = false,
   });
 
+  // No diff/props overrides: exercises the mixin defaults.
   @override
-  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) {
-    throw UnimplementedError();
-  }
-
-  @override
-  Map<String, dynamic>? diff(DatumEntityInterface oldVersion) {
-    throw UnimplementedError();
-  }
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {
+        'id': id,
+        'userId': userId,
+        'modifiedAt': modifiedAt,
+        'createdAt': createdAt,
+        'version': version,
+        'isDeleted': isDeleted,
+      };
 
   @override
   bool? get stringify => true;
@@ -53,12 +54,7 @@ void main() {
     group('Equality and Props', () {
       test('props are correctly provided', () {
         expect(entity1.props, [
-          '1',
-          'user1',
-          now,
-          now,
-          1,
-          false,
+          {'id': '1', 'userId': 'user1', 'modifiedAt': now, 'createdAt': now, 'version': 1, 'isDeleted': false},
           null, // vectorClock
         ]);
       });
@@ -194,6 +190,20 @@ void main() {
       });
     });
 
+    group('default diff (hand-written entities, no generator)', () {
+      test('null when identical, changed keys only otherwise', () {
+        final later = DateTime(2024);
+        final copy = TestEntity(id: '1', userId: 'user1', modifiedAt: now, createdAt: now, version: 1);
+        final edited = TestEntity(id: '1', userId: 'user1', modifiedAt: later, createdAt: now, version: 2, isDeleted: true);
+        expect(entity1.diff(copy), isNull);
+        expect(edited.diff(entity1), {'modifiedAt': later, 'version': 2, 'isDeleted': true});
+        expect(entity1.diff(edited), {'modifiedAt': now, 'version': 1, 'isDeleted': false});
+        expect(edited, isNot(equals(entity1)));
+        expect(copy, equals(entity1));
+        expect(copy.hashCode, entity1.hashCode);
+      });
+    });
+
     group('isRelational', () {
       test('returns false for non-relational entities', () {
         expect(entity1.isRelational, isFalse);
@@ -218,8 +228,8 @@ void main() {
           version: 0,
         );
 
-        expect(entityWithMaxVersion.props[4], equals(2147483647));
-        expect(entityWithMinVersion.props[4], equals(0));
+        expect((entityWithMaxVersion.props.first! as Map)['version'], equals(2147483647));
+        expect((entityWithMinVersion.props.first! as Map)['version'], equals(0));
         expect(entityWithMaxVersion.hashCode, isNot(equals(entityWithMinVersion.hashCode)));
       });
 
@@ -243,13 +253,13 @@ void main() {
           version: 1,
         );
 
-        expect(entityPast.props[3], equals(pastDate));
-        expect(entityFuture.props[3], equals(futureDate));
+        expect((entityPast.props.first! as Map)['createdAt'], equals(pastDate));
+        expect((entityFuture.props.first! as Map)['createdAt'], equals(futureDate));
         expect(entityPast.hashCode, isNot(equals(entityFuture.hashCode)));
       });
 
       test('vectorClock is null by default in props', () {
-        expect(entity1.props[6], isNull);
+        expect(entity1.props.last, isNull);
       });
 
       test('handles entities with UTC and local timezones', () {
@@ -276,8 +286,8 @@ void main() {
         // DateTime.== distinguishes UTC from local even when they denote the
         // same instant (as they do on a UTC test runner, where the hashCodes —
         // instant-based — would collide), so assert on equality, not hashCode.
-        expect(entityUtc.props[2], equals(utcTime));
-        expect(entityLocal.props[2], equals(localTime));
+        expect((entityUtc.props.first! as Map)['modifiedAt'], equals(utcTime));
+        expect((entityLocal.props.first! as Map)['modifiedAt'], equals(localTime));
         expect(entityUtc, isNot(equals(entityLocal)));
       });
     });
@@ -292,8 +302,8 @@ void main() {
           version: 1,
         );
 
-        expect(simpleEntity.props, hasLength(7));
-        expect(simpleEntity.props[0], equals('simple1'));
+        expect(simpleEntity.props, hasLength(2));
+        expect((simpleEntity.props.first! as Map)['id'], equals('simple1'));
         expect(simpleEntity.isRelational, isFalse);
       });
 

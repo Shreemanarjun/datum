@@ -125,22 +125,22 @@ void runRemoteAdapterConformanceTests({
           return;
         }
         final delta = adapter as DeltaSyncCapable<ConformanceEntity>;
-        final watermark = DateTime.now();
+        // Holds whether the backend compares client `modifiedAt` or (as
+        // recommended) its own received-at time.
         await adapter.create(
-          make('old', modifiedAt: watermark.subtract(const Duration(days: 1))),
+          make('old', modifiedAt: DateTime.now().subtract(const Duration(days: 1))),
         );
-        await adapter.create(make('boundary', modifiedAt: watermark));
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        final watermark = DateTime.now();
         await adapter.create(
           make('fresh', modifiedAt: watermark.add(const Duration(minutes: 1))),
         );
 
         final since = await delta.readSince(watermark, userId: 'u1');
 
-        expect(
-          since.map((e) => e.id).toSet(),
-          {'boundary', 'fresh'},
-          reason: 'watermark is inclusive; older rows excluded',
-        );
+        expect(since.map((e) => e.id).toSet(), {
+          'fresh',
+        }, reason: 'rows written after the watermark are returned; older rows excluded');
       },
     );
   });

@@ -1,4 +1,5 @@
 import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/map_diff.dart';
 import 'package:equatable/equatable.dart';
 
 /// Defines the cascading behavior for delete operations on relationships.
@@ -597,8 +598,11 @@ mixin RelationalDatumEntityMixin implements Equatable, DatumEntityInterface {
 
   /// Computes the **difference** between the current entity state and an
   /// [oldVersion] of the entity.
+  ///
+  /// Defaults to a deep comparison of [toDatumMap] outputs; generated entities
+  /// override it with a field-by-field diff.
   @override
-  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion);
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) => diffDatumMaps(toDatumMap(), oldVersion.toDatumMap());
 
   /// Merges this entity with [other].
   @override
@@ -624,8 +628,11 @@ mixin RelationalDatumEntityMixin implements Equatable, DatumEntityInterface {
 
   /// Provides the list of properties to be used by the [Equatable] mixin
   /// for value equality checks.
+  ///
+  /// Defaults to the full [toDatumMap] so every field takes part; generated
+  /// entities override it with their field list.
   @override
-  List<Object?> get props => [id, userId, modifiedAt, createdAt, version, isDeleted, vectorClock];
+  List<Object?> get props => [toDatumMap(), vectorClock];
 }
 
 /// Memoizes an entity's relations so eager loading (`withRelated`) works

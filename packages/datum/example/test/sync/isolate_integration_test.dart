@@ -274,6 +274,9 @@ void main() {
         () => isolatedLocalAdapter.removePendingOperation(any()),
       ).thenAnswer((_) async {});
       when(
+        () => isolatedLocalAdapter.addPendingOperation(any(), any()),
+      ).thenAnswer((_) async {});
+      when(
         () => isolatedLocalAdapter.readAll(userId: any(named: 'userId')),
       ).thenAnswer((_) async => []);
       when(
@@ -318,7 +321,7 @@ void main() {
       // Verify that operations in the successful batches were processed.
       expect(processedIds, {'e0', 'e1', 'e2'});
 
-      // Verify that successful operations and the failed one were dequeued.
+      // Successful operations are dequeued; the failed one is parked.
       verify(
         () => isolatedLocalAdapter.removePendingOperation('op0'),
       ).called(1);
@@ -328,9 +331,13 @@ void main() {
       verify(
         () => isolatedLocalAdapter.removePendingOperation('op2'),
       ).called(1);
-      verify(
+      verifyNever(
         () => isolatedLocalAdapter.removePendingOperation('op3'),
-      ).called(1);
+      );
+      final parked = verify(
+        () => isolatedLocalAdapter.addPendingOperation(userId, captureAny()),
+      ).captured.single as DatumSyncOperation;
+      expect((parked.id, parked.isParked), ('op3', true));
     });
 
     test(

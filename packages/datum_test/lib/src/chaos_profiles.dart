@@ -192,187 +192,181 @@ void runChaosConformanceTests({
 }) {
   group('$name chaos conformance', () {
     for (final profile in profiles ?? ChaosProfile.defaultProfiles) {
-      test(
-        'converges after ${profile.name}',
-        () async {
-          final server = LocalSyncServer();
-          await server.start();
-          final local = await createLocal();
-          final connectivity = TestConnectivityChecker();
-          final manager = DatumManager<ConformanceEntity>(
-            localAdapter: local,
-            remoteAdapter: HttpRemoteAdapter<ConformanceEntity>(
-              baseUri: server.baseUri,
-              fromMap: ConformanceEntity.fromMap,
+      test('converges after ${profile.name}', () async {
+        final server = LocalSyncServer();
+        await server.start();
+        final local = await createLocal();
+        final connectivity = TestConnectivityChecker();
+        final manager = DatumManager<ConformanceEntity>(
+          localAdapter: local,
+          remoteAdapter: HttpRemoteAdapter<ConformanceEntity>(
+            baseUri: server.baseUri,
+            fromMap: ConformanceEntity.fromMap,
+          ),
+          connectivity: connectivity,
+          datumConfig: DatumConfig<ConformanceEntity>(
+            enableLogging: false,
+            deleteBehavior: DeleteBehavior.softDelete,
+            detectRemoteDeletions: true,
+            errorRecoveryStrategy: const DatumErrorRecoveryStrategy(
+              shouldRetry: _alwaysRetry,
+              maxRetries: 1 << 30,
             ),
-            connectivity: connectivity,
-            datumConfig: DatumConfig<ConformanceEntity>(
-              enableLogging: false,
-              deleteBehavior: DeleteBehavior.softDelete,
-              detectRemoteDeletions: true,
-              errorRecoveryStrategy: const DatumErrorRecoveryStrategy(
-                shouldRetry: _alwaysRetry,
-                maxRetries: 1 << 30,
+          ),
+        );
+
+        try {
+          await manager.initialize();
+
+          // Seed: rows born on the server, and local saves queued as ops.
+          const remoteIds = ['remote-0', 'remote-1', 'remote-2'];
+          for (var i = 0; i < remoteIds.length; i++) {
+            server.seed(
+              'u1',
+              ConformanceEntity.make(
+                remoteIds[i],
+                userId: 'u1',
+                name: 'remote-$i',
+                value: 100 + i,
+              ).toDatumMap(),
+            );
+          }
+          server.pokeMetadata('u1');
+          const localIds = [
+            'local-0',
+            'local-1',
+            'local-2',
+            'local-3',
+            'local-4',
+          ];
+          for (var i = 0; i < localIds.length; i++) {
+            await manager.push(
+              item: ConformanceEntity.make(
+                localIds[i],
+                userId: 'u1',
+                name: 'local-$i',
+                value: i,
               ),
-            ),
+              userId: 'u1',
+            );
+          }
+
+          // Chaos phase: sync under the profile; some cycles WILL throw.
+          final requestsBefore = server.requestLog.length;
+          profile.apply(server);
+          var failedCycles = 0;
+          for (var cycle = 0; cycle < 4; cycle++) {
+            try {
+              await manager.synchronize('u1');
+            } on Object {
+              failedCycles++;
+            }
+          }
+          // If the workload was too small for the Nth-request knob to land,
+          // keep cycling (bounded) until at least one fault has fired.
+          var extraCycles = 0;
+          while (profile.injectsFaults &&
+              profile.estimatedFaults(
+                    requestsBefore,
+                    server.requestLog.length,
+                  ) ==
+                  0 &&
+              extraCycles++ < 10) {
+            server.pokeMetadata('u1');
+            try {
+              await manager.synchronize('u1');
+            } on Object {
+              failedCycles++;
+            }
+          }
+          profile.clear(server);
+          final faults = profile.estimatedFaults(
+            requestsBefore,
+            server.requestLog.length,
+          );
+          onFaultsObserved?.call(profile.name, faults);
+          expect(
+            faults,
+            greaterThan(0),
+            reason:
+                '${profile.name} must inject at least one fault '
+                '(requests before=$requestsBefore, after=${server.requestLog.length}, '
+                'failed cycles=$failedCycles)',
           );
 
-          try {
-            await manager.initialize();
-
-            // Seed: rows born on the server, and local saves queued as ops.
-            const remoteIds = ['remote-0', 'remote-1', 'remote-2'];
-            for (var i = 0; i < remoteIds.length; i++) {
-              server.seed(
-                'u1',
-                ConformanceEntity.make(
-                  remoteIds[i],
-                  userId: 'u1',
-                  name: 'remote-$i',
-                  value: 100 + i,
-                ).toDatumMap(),
-              );
-            }
-            server.pokeMetadata('u1');
-            const localIds = [
-              'local-0',
-              'local-1',
-              'local-2',
-              'local-3',
-              'local-4',
-            ];
-            for (var i = 0; i < localIds.length; i++) {
-              await manager.push(
-                item: ConformanceEntity.make(
-                  localIds[i],
-                  userId: 'u1',
-                  name: 'local-$i',
-                  value: i,
-                ),
-                userId: 'u1',
-              );
-            }
-
-            // Chaos phase: sync under the profile; some cycles WILL throw.
-            final requestsBefore = server.requestLog.length;
-            profile.apply(server);
-            var failedCycles = 0;
-            for (var cycle = 0; cycle < 4; cycle++) {
-              try {
-                await manager.synchronize('u1');
-              } on Object {
-                failedCycles++;
-              }
-            }
-            // If the workload was too small for the Nth-request knob to land,
-            // keep cycling (bounded) until at least one fault has fired.
-            var extraCycles = 0;
-            while (profile.injectsFaults &&
-                profile.estimatedFaults(
-                      requestsBefore,
-                      server.requestLog.length,
-                    ) ==
-                    0 &&
-                extraCycles++ < 10) {
-              server.pokeMetadata('u1');
-              try {
-                await manager.synchronize('u1');
-              } on Object {
-                failedCycles++;
-              }
-            }
-            profile.clear(server);
-            final faults = profile.estimatedFaults(
-              requestsBefore,
-              server.requestLog.length,
+          // Recovery phase: clean cycles until the stack converges.
+          final expectedIds = {...remoteIds, ...localIds};
+          server.pokeMetadata('u1');
+          var converged = false;
+          for (var attempt = 0; attempt < 10 && !converged; attempt++) {
+            await manager.synchronize(
+              'u1',
+              options: const DatumSyncOptions(forceFullSync: true),
             );
-            onFaultsObserved?.call(profile.name, faults);
-            expect(
-              faults,
-              greaterThan(0),
-              reason:
-                  '${profile.name} must inject at least one fault '
-                  '(requests before=$requestsBefore, after=${server.requestLog.length}, '
-                  'failed cycles=$failedCycles)',
-            );
-
-            // Recovery phase: clean cycles until the stack converges.
-            final expectedIds = {...remoteIds, ...localIds};
-            server.pokeMetadata('u1');
-            var converged = false;
-            for (var attempt = 0; attempt < 10 && !converged; attempt++) {
-              await manager.synchronize(
-                'u1',
-                options: const DatumSyncOptions(forceFullSync: true),
-              );
-              final pending = await manager.getPendingOperations('u1');
-              final localRows = await local.readAll(userId: 'u1');
-              final serverRows =
-                  server.storage['u1'] ??
-                  const <String, Map<String, dynamic>>{};
-              converged =
-                  pending.isEmpty &&
-                  localRows.map((e) => e.id).toSet().containsAll(expectedIds) &&
-                  serverRows.keys.toSet().containsAll(expectedIds);
-            }
-
-            // Convergence: same ids on both sides, nothing lost.
-            final localRows = (await local.readAll(
-              userId: 'u1',
-            )).where((e) => !e.isDeleted).toList();
-            final localIdSet = localRows.map((e) => e.id).toSet();
+            final pending = await manager.getPendingOperations('u1');
+            final localRows = await local.readAll(userId: 'u1');
             final serverRows =
                 server.storage['u1'] ?? const <String, Map<String, dynamic>>{};
-            expect(
-              localIdSet,
-              expectedIds,
-              reason: 'local converged with no lost entities (${profile.name})',
-            );
-            expect(
-              serverRows.keys.toSet(),
-              expectedIds,
-              reason:
-                  'server converged with no lost entities (${profile.name})',
-            );
-
-            // No duplicates: every id appears exactly once locally (the server
-            // map is keyed by id and cannot duplicate).
-            expect(
-              localRows.length,
-              localIdSet.length,
-              reason: 'no duplicated local rows (${profile.name})',
-            );
-
-            // Content converged, id for id.
-            for (final row in localRows) {
-              final remoteRaw = serverRows[row.id]!;
-              expect(
-                remoteRaw['name'],
-                row.name,
-                reason: 'name converged for ${row.id} (${profile.name})',
-              );
-              expect(
-                remoteRaw['value'],
-                row.value,
-                reason: 'value converged for ${row.id} (${profile.name})',
-              );
-            }
-
-            // Queue drained.
-            expect(
-              await manager.getPendingOperations('u1'),
-              isEmpty,
-              reason: 'pending queue drained after ${profile.name}',
-            );
-          } finally {
-            await manager.dispose();
-            await destroyLocal?.call(local);
-            await connectivity.dispose();
-            await server.stop();
+            converged =
+                pending.isEmpty &&
+                localRows.map((e) => e.id).toSet().containsAll(expectedIds) &&
+                serverRows.keys.toSet().containsAll(expectedIds);
           }
-        },
-        timeout: const Timeout(Duration(minutes: 2)),
-      );
+
+          // Convergence: same ids on both sides, nothing lost.
+          final localRows = (await local.readAll(
+            userId: 'u1',
+          )).where((e) => !e.isDeleted).toList();
+          final localIdSet = localRows.map((e) => e.id).toSet();
+          final serverRows =
+              server.storage['u1'] ?? const <String, Map<String, dynamic>>{};
+          expect(
+            localIdSet,
+            expectedIds,
+            reason: 'local converged with no lost entities (${profile.name})',
+          );
+          expect(
+            serverRows.keys.toSet(),
+            expectedIds,
+            reason: 'server converged with no lost entities (${profile.name})',
+          );
+
+          // No duplicates: every id appears exactly once locally (the server
+          // map is keyed by id and cannot duplicate).
+          expect(
+            localRows.length,
+            localIdSet.length,
+            reason: 'no duplicated local rows (${profile.name})',
+          );
+
+          // Content converged, id for id.
+          for (final row in localRows) {
+            final remoteRaw = serverRows[row.id]!;
+            expect(
+              remoteRaw['name'],
+              row.name,
+              reason: 'name converged for ${row.id} (${profile.name})',
+            );
+            expect(
+              remoteRaw['value'],
+              row.value,
+              reason: 'value converged for ${row.id} (${profile.name})',
+            );
+          }
+
+          // Queue drained.
+          expect(
+            await manager.getPendingOperations('u1'),
+            isEmpty,
+            reason: 'pending queue drained after ${profile.name}',
+          );
+        } finally {
+          await manager.dispose();
+          await destroyLocal?.call(local);
+          await connectivity.dispose();
+          await server.stop();
+        }
+      }, timeout: const Timeout(Duration(minutes: 2)));
     }
   });
 }

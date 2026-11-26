@@ -82,12 +82,12 @@ class ColdStartManager {
 
     final isColdStart = _isColdStart[userId] ?? true;
 
-    if (!isColdStart || _config.strategy == ColdStartStrategy.disabled) {
-      if (_config.strategy == ColdStartStrategy.disabled) {
-        _logger.debug('Cold start sync disabled by configuration$entityInfo');
-      } else if (!isColdStart) {
-        _logger.debug('Not a cold start, skipping cold start sync$entityInfo');
-      }
+    if (_config.strategy == ColdStartStrategy.disabled) {
+      _logger.debug('Cold start sync disabled by configuration$entityInfo');
+      return false;
+    }
+    if (!isColdStart) {
+      _logger.debug('Not a cold start, skipping cold start sync$entityInfo');
       return false;
     }
 
@@ -117,47 +117,44 @@ class ColdStartManager {
       return false;
     }
 
+    final mode = synchronous ? 'Synchronous' : 'Background';
+    _logger.info('🚀 Starting ${mode.toLowerCase()} cold start sync for user: $userId using strategy: ${_config.strategy}$entityInfo');
     if (synchronous) {
       // For testing: execute synchronously
-      _logger.info('🚀 Starting synchronous cold start sync for user: $userId using strategy: ${_config.strategy}$entityInfo');
-      try {
-        await _performColdStartSync(userId, syncFunction, entityType: entityType);
-        _isColdStart[userId] = false;
-        _lastColdStartTime[userId] = DateTime.now();
-        _logger.info('✅ Synchronous cold start sync completed successfully for user: $userId$entityInfo');
-      } catch (e, stack) {
-        _logger.error('❌ Synchronous cold start sync failed for user: $userId$entityInfo', stack);
-        // On cold start sync failure, don't mark as completed
-        // Allow retry on next app launch
-        rethrow;
-      } finally {
-        // Always clear the in-progress flag when done
-        _isColdStartInProgress[userId] = false;
-      }
+      await _runColdStartSync(userId, syncFunction, entityType, mode);
     } else {
-      // Start cold start sync in background to prevent blocking app initialization
-      // Use Future.delayed with zero duration to make it work with fakeAsync in tests
-      _logger.info('🚀 Starting background cold start sync for user: $userId using strategy: ${_config.strategy}$entityInfo');
-      unawaited(Future.delayed(Duration.zero, () async {
-        try {
-          await _performColdStartSync(userId, syncFunction, entityType: entityType);
-          _isColdStart[userId] = false;
-          _lastColdStartTime[userId] = DateTime.now();
-          _logger.info('✅ Background cold start sync completed successfully for user: $userId$entityInfo');
-        } catch (e, stack) {
-          _logger.error('❌ Background cold start sync failed for user: $userId$entityInfo', stack);
-          // On cold start sync failure, don't mark as completed
-          // Allow retry on next app launch
-        } finally {
-          // Always clear the in-progress flag when done
-          _isColdStartInProgress[userId] = false;
-        }
-      }));
+      // Start cold start sync in background to prevent blocking app initialization.
+      // Future.delayed with zero duration keeps it working with fakeAsync in tests.
+      // Failures are logged by _runColdStartSync and retried on next launch.
+      unawaited(Future.delayed(Duration.zero, () => _runColdStartSync(userId, syncFunction, entityType, mode)).catchError((Object _) {}));
     }
 
     // Return immediately without waiting for sync to complete (for async mode)
     // or after sync completion (for sync mode)
     return true;
+  }
+
+  /// Runs the cold start sync, marking the user as no longer cold on success.
+  /// On failure the user stays cold so the sync is retried on next launch.
+  Future<void> _runColdStartSync(
+    String userId,
+    Future<DatumSyncResult> Function(DatumSyncOptions) syncFunction,
+    String? entityType,
+    String mode,
+  ) async {
+    final entityInfo = entityType != null ? ' for $entityType' : '';
+    try {
+      await _performColdStartSync(userId, syncFunction, entityType: entityType);
+      _isColdStart[userId] = false;
+      _lastColdStartTime[userId] = DateTime.now();
+      _logger.info('✅ $mode cold start sync completed successfully for user: $userId$entityInfo');
+    } catch (e, stack) {
+      _logger.error('❌ $mode cold start sync failed for user: $userId$entityInfo', stack);
+      rethrow;
+    } finally {
+      // Always clear the in-progress flag when done
+      _isColdStartInProgress[userId] = false;
+    }
   }
 
   /// Determines if cold start sync should be performed based on strategy and conditions.

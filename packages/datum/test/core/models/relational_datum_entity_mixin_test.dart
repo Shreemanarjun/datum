@@ -417,13 +417,8 @@ void main() {
       });
 
       test('relational entity has correct props', () {
-        expect(entity.props, hasLength(7));
-        expect(entity.props[0], equals('1'));
-        expect(entity.props[1], equals('user1'));
-        expect(entity.props[2], equals(now));
-        expect(entity.props[3], equals(now));
-        expect(entity.props[4], equals(1));
-        expect(entity.props[5], equals(false));
+        // Default props: the whole toDatumMap, then the vector clock.
+        expect(entity.props, [entity.toDatumMap(), null]);
       });
 
       test('entities with same props are equal', () {

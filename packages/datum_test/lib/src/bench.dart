@@ -7,7 +7,7 @@ const bool isAot = bool.fromEnvironment('dart.vm.product');
 /// Summary statistics over repeated timings of one benchmark case.
 class BenchStats {
   BenchStats(this.name, List<double> samplesMs)
-      : samplesMs = List.unmodifiable([...samplesMs]..sort());
+    : samplesMs = List.unmodifiable([...samplesMs]..sort());
 
   final String name;
 
@@ -26,10 +26,14 @@ class BenchStats {
   double get stdev {
     if (runs < 2) return 0;
     final m = mean;
-    return math.sqrt(samplesMs.map((s) => (s - m) * (s - m)).reduce((a, b) => a + b) / (runs - 1));
+    return math.sqrt(
+      samplesMs.map((s) => (s - m) * (s - m)).reduce((a, b) => a + b) /
+          (runs - 1),
+    );
   }
 
-  static const header = '| case | mode | runs | mean ms | median ms | min ms | stdev ms |\n'
+  static const header =
+      '| case | mode | runs | mean ms | median ms | min ms | stdev ms |\n'
       '|---|---|---:|---:|---:|---:|---:|';
 
   String get row {

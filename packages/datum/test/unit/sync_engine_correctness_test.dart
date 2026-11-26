@@ -121,21 +121,27 @@ void main() {
       when(() => local.update(any())).thenAnswer((_) async {});
     });
 
-    test('delta watermark comes from remote data, not this device\'s clock', () async {
+    test('delta watermark is the pull start, never a writer clock', () async {
       final remote = MockDeltaRemoteAdapter();
-      final remoteStamp = DateTime.utc(2026, 8, 1, 12);
+      // A writer whose clock runs far ahead must not drag the watermark past
+      // rows other devices write later.
+      final aheadStamp = DateTime.utc(2099);
       when(() => remote.getSyncMetadata(any())).thenAnswer((_) async => null);
       when(() => remote.updateSyncMetadata(any(), any())).thenAnswer((_) async {});
       // First sync: no watermark yet → full pull.
-      when(() => remote.readAll(userId: any(named: 'userId'), scope: any(named: 'scope'))).thenAnswer((_) async => [entity('e1', modifiedAt: remoteStamp)]);
+      when(() => remote.readAll(userId: any(named: 'userId'), scope: any(named: 'scope'))).thenAnswer((_) async => [entity('e1', modifiedAt: aheadStamp)]);
 
       final engine = buildEngine(remote);
+      final before = DateTime.now();
       await engine.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pullOnly));
+      final after = DateTime.now();
 
-      expect(storedMetadata?.serverTimestamp, remoteStamp, reason: 'the watermark must be the newest remote modifiedAt, immune to local clock skew');
+      final stamp = storedMetadata!.serverTimestamp!;
+      expect(stamp.isBefore(before), isFalse);
+      expect(stamp.isAfter(after), isFalse, reason: 'taken when the pull started, not from row modifiedAt');
 
-      // Second sync: the delta pull must start from that data-derived
-      // watermark (minus the configured overlap), not from lastSyncTime.
+      // Second sync: the delta pull starts from that watermark minus the
+      // configured overlap, not from lastSyncTime.
       final since = <DateTime>[];
       when(() => remote.readSince(any(), userId: any(named: 'userId'), scope: any(named: 'scope'))).thenAnswer((invocation) async {
         since.add(invocation.positionalArguments[0] as DateTime);
@@ -143,7 +149,7 @@ void main() {
       });
       await engine.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pullOnly));
 
-      expect(since.single, remoteStamp.subtract(const DatumConfig().deltaSyncOverlap));
+      expect(since.single, stamp.subtract(const DatumConfig().deltaSyncOverlap));
     });
 
     test('a retryable failure blocks later ops for the same entity, not others', () async {

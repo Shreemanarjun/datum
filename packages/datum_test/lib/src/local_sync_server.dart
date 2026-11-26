@@ -101,8 +101,14 @@ class LocalSyncServer {
 
   final Map<String, int> _seqByEntity = {};
 
-  void _touch(String userId, String id) =>
-      _seqByEntity['$userId/$id'] = ++changeSeq;
+  /// Server-clock receive time per row: what `modifiedSince` filters on, so
+  /// writers' (possibly skewed) `modifiedAt` clocks never hide a row.
+  final Map<String, DateTime> _receivedAt = {};
+
+  void _touch(String userId, String id) {
+    _seqByEntity['$userId/$id'] = ++changeSeq;
+    _receivedAt['$userId/$id'] = DateTime.now();
+  }
 
   /// Binds to a random loopback port.
   Future<void> start() async {
@@ -150,8 +156,7 @@ class LocalSyncServer {
   }
 
   Future<void> _handle(HttpRequest req) async {
-    final path = req.uri.path;
-    requestLog.add('${req.method} $path');
+    requestLog.add('${req.method} ${req.uri.path}');
     requestUris.add(req.uri);
     _requestCounter++;
 
@@ -161,160 +166,155 @@ class LocalSyncServer {
         Duration(microseconds: _random.nextInt(jitter!.inMicroseconds + 1)),
       );
     }
-
-    if (dropConnections ||
-        (dropEveryNth != null && _requestCounter % dropEveryNth! == 0)) {
-      final socket = await req.response.detachSocket(writeHeaders: false);
-      socket.destroy();
-      return;
-    }
-    if (offline) return _respond(req, 503, {'error': 'offline'});
-    if (failEveryNth != null && _requestCounter % failEveryNth! == 0) {
-      return _respond(req, failStatusCode, {
-        'error': 'periodic injected failure',
-      });
-    }
-    if (remainingFailures > 0 &&
-        (failMatcher?.call(req.method, path) ?? true)) {
-      remainingFailures--;
-      return _respond(req, failStatusCode, {'error': 'injected failure'});
-    }
-    if (corruptEveryNth != null && _requestCounter % corruptEveryNth! == 0) {
-      return _corruptResponse(req, '{{{chaos-corrupted%%%');
-    }
-    if (corruptNextResponses > 0 &&
-        (corruptMatcher?.call(req.method, path) ?? true)) {
-      corruptNextResponses--;
-      return _corruptResponse(req, '{{{this is not json%%%');
-    }
+    if (await _injectFault(req)) return;
 
     try {
-      final segments = req.uri.pathSegments;
-      final userId = req.uri.queryParameters['userId'];
-
-      if (segments.isEmpty) return await _respond(req, 404, {'error': 'not found'});
-
-      switch ((req.method, segments)) {
-        case ('GET', ['health']):
-          return await _respond(req, 200, {'ok': true});
-
-        case ('GET', ['entities']):
-          var items = userId != null
-              ? (storage[userId]?.values.toList() ?? [])
-              : storage.values.expand((m) => m.values).toList();
-          // Incremental pull support: ?modifiedSince=<ISO-8601> returns only
-          // rows whose modifiedAt is at or after the watermark.
-          final modifiedSince = req.uri.queryParameters['modifiedSince'];
-          if (modifiedSince != null) {
-            final since = DateTime.parse(modifiedSince);
-            items = items.where((m) {
-              final modifiedAt = DateTime.tryParse(
-                m['modifiedAt'] as String? ?? '',
-              );
-              return modifiedAt != null && !modifiedAt.isBefore(since);
-            }).toList();
-          }
-          return await _respond(req, 200, items);
-
-        case ('GET', ['entities', final id]):
-          final found = _find(id, userId);
-          return await (found == null
-              ? _respond(req, 404, {'error': 'not found'})
-              : _respond(req, 200, found));
-
-        case ('POST', ['entities']):
-          final body = await _readBody(req);
-          final uid = body['userId'] as String;
-          if (enforceVersions) {
-            final existing = storage[uid]?[body['id'] as String];
-            if (existing != null &&
-                (body['version'] as int? ?? 0) <=
-                    (existing['version'] as int? ?? 0)) {
-              return await _respond(req, 409, {'error': 'stale version'});
-            }
-          }
-          (storage[uid] ??= {})[body['id'] as String] = body;
-          _touch(uid, body['id'] as String);
-          return await _respond(req, 201, body);
-
-        case ('PUT', ['entities', final id]):
-          final body = await _readBody(req);
-          final uid = body['userId'] as String;
-          if (enforceVersions) {
-            final existing = storage[uid]?[id];
-            if (existing != null &&
-                (body['version'] as int? ?? 0) <=
-                    (existing['version'] as int? ?? 0)) {
-              return await _respond(req, 409, {'error': 'stale version'});
-            }
-          }
-          (storage[uid] ??= {})[id] = body;
-          _touch(uid, id);
-          return await _respond(req, 200, body);
-
-        case ('PATCH', ['entities', final id]):
-          final existing = _find(id, userId);
-          if (existing == null) {
-            return await _respond(req, 404, {'error': 'not found'});
-          }
-          final delta = await _readBody(req);
-          if (enforceVersions &&
-              (delta['version'] as int? ?? 1 << 62) <=
-                  (existing['version'] as int? ?? 0)) {
-            return await _respond(req, 409, {'error': 'stale version'});
-          }
-          existing.addAll(delta);
-          _touch(existing['userId'] as String? ?? userId ?? '', id);
-          return await _respond(req, 200, existing);
-
-        case ('DELETE', ['entities', final id]):
-          final uid =
-              userId ??
-              storage.keys.firstWhere(
-                (u) => storage[u]!.containsKey(id),
-                orElse: () => '',
-              );
-          final removed = storage[uid]?.remove(id) != null;
-          // Hard deletes vanish from the change feed (documented limitation
-          // of cursor pulls — use soft deletes).
-          _seqByEntity.remove('$uid/$id');
-          return await _respond(req, 200, {'deleted': removed});
-
-        case ('GET', ['changes']):
-          // Cursor-based change feed: rows written after the cursor, plus
-          // the next cursor. `cursor` absent/invalid = from the beginning.
-          final cursor =
-              int.tryParse(req.uri.queryParameters['cursor'] ?? '') ?? 0;
-          final items = <Map<String, dynamic>>[];
-          for (final MapEntry(key: uid, value: byId) in storage.entries) {
-            if (userId != null && uid != userId) continue;
-            for (final MapEntry(key: id, value: entity) in byId.entries) {
-              if ((_seqByEntity['$uid/$id'] ?? 0) > cursor) items.add(entity);
-            }
-          }
-          return await _respond(req, 200, {
-            'items': items,
-            'nextCursor': '$changeSeq',
-          });
-
-        case ('GET', ['metadata', final uid]):
-          final meta = metadata[uid];
-          return await (meta == null
-              ? _respond(req, 404, {'error': 'not found'})
-              : _respond(req, 200, meta));
-
-        case ('PUT', ['metadata', final uid]):
-          metadata[uid] = await _readBody(req);
-          return await _respond(req, 200, {'ok': true});
-
-        default:
-          return await _respond(req, 404, {
-            'error': 'no route for ${req.method} $path',
-          });
-      }
+      return await _route(req, req.uri.queryParameters['userId']);
     } on Object catch (e) {
       return _respond(req, 500, {'error': e.toString()});
     }
+  }
+
+  bool _isNth(int? n) => n != null && _requestCounter % n == 0;
+
+  /// Applies the configured fault knobs; true when [req] was answered (or its
+  /// socket severed) and must not reach a route.
+  Future<bool> _injectFault(HttpRequest req) async {
+    final path = req.uri.path;
+    if (dropConnections || _isNth(dropEveryNth)) {
+      final socket = await req.response.detachSocket(writeHeaders: false);
+      socket.destroy();
+      return true;
+    }
+    if (offline) {
+      await _respond(req, 503, {'error': 'offline'});
+    } else if (_isNth(failEveryNth)) {
+      await _respond(req, failStatusCode, {
+        'error': 'periodic injected failure',
+      });
+    } else if (remainingFailures > 0 &&
+        (failMatcher?.call(req.method, path) ?? true)) {
+      remainingFailures--;
+      await _respond(req, failStatusCode, {'error': 'injected failure'});
+    } else if (_isNth(corruptEveryNth)) {
+      await _corruptResponse(req, '{{{chaos-corrupted%%%');
+    } else if (corruptNextResponses > 0 &&
+        (corruptMatcher?.call(req.method, path) ?? true)) {
+      corruptNextResponses--;
+      await _corruptResponse(req, '{{{this is not json%%%');
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _route(HttpRequest req, String? userId) => switch ((
+    req.method,
+    req.uri.pathSegments,
+  )) {
+    (_, []) => _respond(req, 404, {'error': 'not found'}),
+    ('GET', ['health']) => _respond(req, 200, {'ok': true}),
+    ('GET', ['entities']) => _listEntities(req, userId),
+    ('GET', ['entities', final id]) => _respondFound(req, _find(id, userId)),
+    ('POST', ['entities']) => _writeEntity(req, null, 201),
+    ('PUT', ['entities', final id]) => _writeEntity(req, id, 200),
+    ('PATCH', ['entities', final id]) => _patchEntity(req, id, userId),
+    ('DELETE', ['entities', final id]) => _deleteEntity(req, id, userId),
+    ('GET', ['changes']) => _changes(req, userId),
+    ('GET', ['metadata', final uid]) => _respondFound(req, metadata[uid]),
+    ('PUT', ['metadata', final uid]) => _putMetadata(req, uid),
+    _ => _respond(req, 404, {
+      'error': 'no route for ${req.method} ${req.uri.path}',
+    }),
+  };
+
+  Future<void> _respondFound(HttpRequest req, Map<String, dynamic>? found) =>
+      found == null
+      ? _respond(req, 404, {'error': 'not found'})
+      : _respond(req, 200, found);
+
+  /// Whether a write carrying [incoming]'s `version` (or [missing] when
+  /// absent) must be rejected against the stored [existing] row.
+  bool _isStale(
+    Map<String, dynamic> incoming,
+    Map<String, dynamic>? existing, {
+    int missing = 0,
+  }) =>
+      enforceVersions &&
+      existing != null &&
+      (incoming['version'] as int? ?? missing) <=
+          (existing['version'] as int? ?? 0);
+
+  Future<void> _listEntities(HttpRequest req, String? userId) async {
+    // Incremental pull support: ?modifiedSince=<ISO-8601> returns only rows
+    // the server RECEIVED at or after the watermark (server clock).
+    final since = DateTime.tryParse(req.uri.queryParameters['modifiedSince'] ?? '');
+    final items = [
+      for (final MapEntry(key: uid, value: byId) in storage.entries)
+        if (userId == null || uid == userId)
+          for (final MapEntry(key: id, value: row) in byId.entries)
+            if (since == null || !(_receivedAt['$uid/$id']?.isBefore(since) ?? true)) row,
+    ];
+    return _respond(req, 200, items);
+  }
+
+  /// POST (create/overwrite, id from the body) and PUT (id from the path).
+  Future<void> _writeEntity(HttpRequest req, String? pathId, int status) async {
+    final body = await _readBody(req);
+    final uid = body['userId'] as String;
+    final id = pathId ?? body['id'] as String;
+    if (_isStale(body, storage[uid]?[id])) {
+      return _respond(req, 409, {'error': 'stale version'});
+    }
+    (storage[uid] ??= {})[id] = body;
+    _touch(uid, id);
+    return _respond(req, status, body);
+  }
+
+  Future<void> _patchEntity(HttpRequest req, String id, String? userId) async {
+    final existing = _find(id, userId);
+    if (existing == null) return _respond(req, 404, {'error': 'not found'});
+    final delta = await _readBody(req);
+    if (_isStale(delta, existing, missing: 1 << 62)) {
+      return _respond(req, 409, {'error': 'stale version'});
+    }
+    existing.addAll(delta);
+    _touch(existing['userId'] as String? ?? userId ?? '', id);
+    return _respond(req, 200, existing);
+  }
+
+  Future<void> _deleteEntity(HttpRequest req, String id, String? userId) {
+    final uid =
+        userId ??
+        storage.keys.firstWhere(
+          (u) => storage[u]!.containsKey(id),
+          orElse: () => '',
+        );
+    final removed = storage[uid]?.remove(id) != null;
+    // Hard deletes vanish from the change feed (documented limitation of
+    // cursor pulls — use soft deletes).
+    _seqByEntity.remove('$uid/$id');
+    _receivedAt.remove('$uid/$id');
+    return _respond(req, 200, {'deleted': removed});
+  }
+
+  /// Cursor-based change feed: rows written after the cursor, plus the next
+  /// cursor. `cursor` absent/invalid = from the beginning.
+  Future<void> _changes(HttpRequest req, String? userId) {
+    final cursor = int.tryParse(req.uri.queryParameters['cursor'] ?? '') ?? 0;
+    final items = <Map<String, dynamic>>[];
+    for (final MapEntry(key: uid, value: byId) in storage.entries) {
+      if (userId != null && uid != userId) continue;
+      for (final MapEntry(key: id, value: entity) in byId.entries) {
+        if ((_seqByEntity['$uid/$id'] ?? 0) > cursor) items.add(entity);
+      }
+    }
+    return _respond(req, 200, {'items': items, 'nextCursor': '$changeSeq'});
+  }
+
+  Future<void> _putMetadata(HttpRequest req, String uid) async {
+    metadata[uid] = await _readBody(req);
+    return _respond(req, 200, {'ok': true});
   }
 
   Future<Map<String, dynamic>> _readBody(HttpRequest req) async {

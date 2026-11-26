@@ -81,3 +81,9 @@ gha-creds-*.json
 !**/test/coverage/
 !**/test/coverage/**
 packages/datum_docs/tool/.snippets_gen/
+
+# Locally installed agent skills (dart run skills add ...)
+.agents/skills/
+.claude/skills/
+.config/dart_skills/
+skills-lock.json

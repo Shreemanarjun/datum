@@ -140,11 +140,11 @@ void runCrashRecoveryConformanceTests({
 
         final serverRows =
             server.storage['u1'] ?? const <String, Map<String, dynamic>>{};
-        expect(
-          serverRows.keys.toSet(),
-          {'q0', 'q1', 'q2'},
-          reason: 'exactly one copy of each entity on the server',
-        );
+        expect(serverRows.keys.toSet(), {
+          'q0',
+          'q1',
+          'q2',
+        }, reason: 'exactly one copy of each entity on the server');
         for (var i = 0; i < 3; i++) {
           expect(serverRows['q$i']!['name'], 'queued-$i');
           expect(serverRows['q$i']!['value'], i);
@@ -223,11 +223,10 @@ void runCrashRecoveryConformanceTests({
 
         final serverRows =
             server.storage['u1'] ?? const <String, Map<String, dynamic>>{};
-        expect(
-          serverRows.keys.toSet(),
-          {'stable', 'fresh'},
-          reason: 'no duplicates, no losses on the server',
-        );
+        expect(serverRows.keys.toSet(), {
+          'stable',
+          'fresh',
+        }, reason: 'no duplicates, no losses on the server');
         expect(
           serverRows['stable']!['name'],
           'v2',

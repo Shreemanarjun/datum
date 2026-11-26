@@ -58,22 +58,8 @@ abstract final class DatumQueryMatcher {
     List<SortDescriptor> sorting,
   ) {
     for (final sort in sorting) {
-      final valA = a[sort.field];
-      final valB = b[sort.field];
-
-      if (valA == null && valB == null) continue;
-      if (valA == null) {
-        return sort.nullSortOrder == NullSortOrder.first ? -1 : 1;
-      }
-      if (valB == null) {
-        return sort.nullSortOrder == NullSortOrder.first ? 1 : -1;
-      }
-      final compA = _asComparable(valA);
-      final compB = _asComparable(valB);
-      if (compA != null && compB != null) {
-        final c = compA.compareTo(compB);
-        if (c != 0) return sort.descending ? -c : c;
-      }
+      final c = _compareKey(a[sort.field], b[sort.field], sort);
+      if (c != 0) return c;
     }
     return 0;
   }
@@ -94,80 +80,73 @@ bool _ordering(dynamic value, dynamic bound, bool Function(int) test) {
   return test(a.compareTo(b));
 }
 
-bool _matches(Map<String, dynamic> json, FilterCondition condition) {
-  if (condition is Filter) {
-    final value = json[condition.field];
-    if (value == null && condition.operator != FilterOperator.isNull && condition.operator != FilterOperator.isNotNull) {
-      return false;
-    }
-
-    switch (condition.operator) {
-      case FilterOperator.equals:
-        return value == condition.value;
-      case FilterOperator.notEquals:
-        return value != condition.value;
-      case FilterOperator.greaterThan:
-        return _ordering(value, condition.value, (c) => c > 0);
-      case FilterOperator.greaterThanOrEqual:
-        return _ordering(value, condition.value, (c) => c >= 0);
-      case FilterOperator.lessThan:
-        return _ordering(value, condition.value, (c) => c < 0);
-      case FilterOperator.lessThanOrEqual:
-        return _ordering(value, condition.value, (c) => c <= 0);
-      case FilterOperator.contains:
-        return value is String && value.contains(condition.value as String);
-      case FilterOperator.isIn:
-        return condition.value is List && (condition.value as List).contains(value);
-      case FilterOperator.isNotIn:
-        return condition.value is List && !(condition.value as List).contains(value);
-      case FilterOperator.isNull:
-        return value == null;
-      case FilterOperator.isNotNull:
-        return value != null;
-      case FilterOperator.containsIgnoreCase:
-        return value is String && condition.value is String && value.toLowerCase().contains((condition.value as String).toLowerCase());
-      case FilterOperator.startsWith:
-        return value is String && condition.value is String && value.startsWith(condition.value as String);
-      case FilterOperator.endsWith:
-        return value is String && condition.value is String && value.endsWith(condition.value as String);
-      case FilterOperator.arrayContains:
-        return value is List && value.contains(condition.value);
-      case FilterOperator.arrayContainsAny:
-        if (value is! List || condition.value is! List) return false;
-        final valueSet = value.toSet();
-        return (condition.value as List).any(valueSet.contains);
-      case FilterOperator.matches:
-        return value is String && condition.value is String && RegExp(condition.value as String).hasMatch(value);
-      case FilterOperator.withinDistance:
-        if (value is! Map || condition.value is! Map) return false;
-        final point = value as Map<String, dynamic>;
-        final params = condition.value as Map<String, dynamic>;
-        final center = params['center'] as Map<String, double>?;
-        final radius = params['radius'] as double?;
-        if (point['latitude'] == null || point['longitude'] == null || center == null || radius == null) {
-          return false;
-        }
-        final distance = _haversineDistance(
-          point['latitude'] as double,
-          point['longitude'] as double,
-          center['latitude']!,
-          center['longitude']!,
-        );
-        return distance <= radius;
-      case FilterOperator.between:
-        if (value is! Comparable || condition.value is! List) return false;
-        final bounds = condition.value as List;
-        if (bounds.length != 2) return false;
-        return value.compareTo(bounds[0]) >= 0 && value.compareTo(bounds[1]) <= 0;
-    }
-  } else if (condition is CompositeFilter) {
-    if (condition.operator == LogicalOperator.and) {
-      return condition.conditions.every((c) => _matches(json, c));
-    }
-    return condition.conditions.any((c) => _matches(json, c));
+/// One sort key's ordering of two values; 0 means "tie, try the next key"
+/// (including values that are not mutually comparable).
+int _compareKey(dynamic valA, dynamic valB, SortDescriptor sort) {
+  if (valA == null || valB == null) {
+    if (valA == valB) return 0;
+    final nullFirst = sort.nullSortOrder == NullSortOrder.first ? -1 : 1;
+    return valA == null ? nullFirst : -nullFirst;
   }
-  return false;
+  final compA = _asComparable(valA);
+  final compB = _asComparable(valB);
+  if (compA == null || compB == null) return 0;
+  final c = compA.compareTo(compB);
+  return sort.descending ? -c : c;
 }
+
+bool _matches(Map<String, dynamic> json, FilterCondition condition) => switch (condition) {
+      Filter() => _matchesFilter(json[condition.field], condition.operator, condition.value),
+      CompositeFilter(operator: LogicalOperator.and) => condition.conditions.every((c) => _matches(json, c)),
+      CompositeFilter() => condition.conditions.any((c) => _matches(json, c)),
+      _ => false,
+    };
+
+/// Per-row filter kernel: whether a row's field [value] satisfies [operator]
+/// against the filter's [operand].
+bool _matchesFilter(dynamic value, FilterOperator operator, dynamic operand) {
+  if (value == null) return operator == FilterOperator.isNull;
+  return switch (operator) {
+    FilterOperator.equals => value == operand,
+    FilterOperator.notEquals => value != operand,
+    FilterOperator.greaterThan => _ordering(value, operand, (c) => c > 0),
+    FilterOperator.greaterThanOrEqual => _ordering(value, operand, (c) => c >= 0),
+    FilterOperator.lessThan => _ordering(value, operand, (c) => c < 0),
+    FilterOperator.lessThanOrEqual => _ordering(value, operand, (c) => c <= 0),
+    FilterOperator.contains => value is String && value.contains(operand as String),
+    FilterOperator.isIn => operand is List && operand.contains(value),
+    FilterOperator.isNotIn => operand is List && !operand.contains(value),
+    FilterOperator.isNull => false,
+    FilterOperator.isNotNull => true,
+    FilterOperator.containsIgnoreCase => value is String && operand is String && value.toLowerCase().contains(operand.toLowerCase()),
+    FilterOperator.startsWith => value is String && operand is String && value.startsWith(operand),
+    FilterOperator.endsWith => value is String && operand is String && value.endsWith(operand),
+    FilterOperator.arrayContains => value is List && value.contains(operand),
+    FilterOperator.arrayContainsAny => value is List && operand is List && operand.any(value.toSet().contains),
+    FilterOperator.matches => value is String && operand is String && RegExp(operand).hasMatch(value),
+    FilterOperator.withinDistance => value is Map && operand is Map && _withinDistance(value, operand),
+    FilterOperator.between => value is Comparable && operand is List && _between(value, operand),
+  };
+}
+
+bool _withinDistance(Map<dynamic, dynamic> value, Map<dynamic, dynamic> operand) {
+  final point = value as Map<String, dynamic>;
+  final params = operand as Map<String, dynamic>;
+  final center = params['center'] as Map<String, double>?;
+  final radius = params['radius'] as double?;
+  if (point['latitude'] == null || point['longitude'] == null || center == null || radius == null) {
+    return false;
+  }
+  final distance = _haversineDistance(
+    point['latitude'] as double,
+    point['longitude'] as double,
+    center['latitude']!,
+    center['longitude']!,
+  );
+  return distance <= radius;
+}
+
+bool _between(Comparable<dynamic> value, List<dynamic> bounds) => bounds.length == 2 && value.compareTo(bounds[0]) >= 0 && value.compareTo(bounds[1]) <= 0;
 
 double _haversineDistance(double lat1, double lon1, double lat2, double lon2) {
   const r = 6371e3; // Earth's radius in metres

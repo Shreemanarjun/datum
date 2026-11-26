@@ -95,8 +95,8 @@ void main() {
       expect(stringRepresentation, contains('op1'));
       expect(stringRepresentation, contains('create'));
       expect(stringRepresentation, contains('e1'));
-      // Check for the value of retryCount, not the key-value pair.
-      expect(stringRepresentation, contains(', 2, 0)'));
+      // retryCount, sizeInBytes, parkedError (positional props).
+      expect(stringRepresentation, contains(', 2, 0, null)'));
     });
 
     test('equality operator and hashCode work correctly', () {

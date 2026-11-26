@@ -304,38 +304,34 @@ void runAdapterPerformanceTests({
   Map<String, double>? minOpsPerSec,
 }) {
   group('$name performance', () {
-    test(
-      'completes every phase over $entityCount entities',
-      () async {
-        final adapter = await createLocal();
-        addTearDown(adapter.dispose);
+    test('completes every phase over $entityCount entities', () async {
+      final adapter = await createLocal();
+      addTearDown(adapter.dispose);
 
-        final report = await measureAdapterPerformance(
-          adapter: adapter,
-          entityCount: entityCount,
-        );
-        report.printTable();
+      final report = await measureAdapterPerformance(
+        adapter: adapter,
+        entityCount: entityCount,
+      );
+      report.printTable();
 
-        expect(report.phase('create').operations, entityCount);
-        expect(report.phase('readAll').operations, 1);
-        expect(report.phase('readById').operations, entityCount);
-        expect(report.phase('query').operations, 1);
-        expect(report.phase('patch').operations, entityCount ~/ 10);
-        expect(report.phase('delete').operations, entityCount ~/ 10);
+      expect(report.phase('create').operations, entityCount);
+      expect(report.phase('readAll').operations, 1);
+      expect(report.phase('readById').operations, entityCount);
+      expect(report.phase('query').operations, 1);
+      expect(report.phase('patch').operations, entityCount ~/ 10);
+      expect(report.phase('delete').operations, entityCount ~/ 10);
 
-        if (minOpsPerSec != null) {
-          for (final MapEntry(key: phaseName, value: minimum)
-              in minOpsPerSec.entries) {
-            expect(
-              report.phase(phaseName).opsPerSec,
-              greaterThanOrEqualTo(minimum),
-              reason:
-                  'phase "$phaseName" fell below the $minimum ops/sec threshold',
-            );
-          }
+      if (minOpsPerSec != null) {
+        for (final MapEntry(key: phaseName, value: minimum)
+            in minOpsPerSec.entries) {
+          expect(
+            report.phase(phaseName).opsPerSec,
+            greaterThanOrEqualTo(minimum),
+            reason:
+                'phase "$phaseName" fell below the $minimum ops/sec threshold',
+          );
         }
-      },
-      timeout: const Timeout(Duration(minutes: 5)),
-    );
+      }
+    }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }

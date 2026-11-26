@@ -2,6 +2,16 @@
 
 - `bench()` / `runBenchSuite()` / `BenchStats`: multi-run benchmark helper
   (mean, median, min, stdev; JIT/AOT aware) printing markdown tables.
+- `runSyncConformanceMatrix`: the sync-stack suite for one local adapter
+  against every bundled remote (`InMemoryRemoteAdapter`, HTTP timestamp delta,
+  HTTP cursor feed), incl. parking, crash/reopen, batching, conflicts, soft
+  deletes, clock skew and user switching.
+- `runResourceConformanceTests` (run by the matrix): a disposed manager is
+  garbage-collectable (VM-service forced GC + `WeakReference`), no timer
+  outlives dispose, heap stays flat across 180 sync cycles, storage doesn't
+  grow with edit history, request budgets (no per-item reads, cheap idle
+  sync) and event-loop stalls during a 2,000-row pull.
+- `LocalSyncServer` filters `modifiedSince` by its own received-at time.
 
 ## 1.1.0
 

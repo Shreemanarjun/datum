@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:equatable/equatable.dart';
 
 /// Base interface for Conflict-free Replicated Data Types (CRDTs).
@@ -427,8 +429,7 @@ class RgaList<T> extends Equatable implements CRDT<List<T>> {
         nodes[node.id] = existing.tombstone(); // deletion wins (monotonic)
       }
     }
-    final counter = _counter > other._counter ? _counter : other._counter;
-    return RgaList._(replicaId, nodes, counter);
+    return RgaList._(replicaId, nodes, math.max(_counter, other._counter));
   }
 
   /// Total order over colliding same-id nodes, identical on every replica.

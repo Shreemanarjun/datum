@@ -14,14 +14,11 @@ jobs:
         working-directory: packages/datum
     steps:
       - uses: actions/checkout@v4
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
+      - uses: dart-lang/setup-dart@v1
 
       - name: Install workspace dependencies
         working-directory: .
-        run: flutter pub get
+        run: dart pub get
 
       - name: Generate code
         # *.g.dart is gitignored (only test fixtures are generated), so CI must
@@ -30,7 +27,7 @@ jobs:
 
       - name: Analyze (fatal on infos & warnings)
         # Scoped to the package sources; the bundled example app is a separate
-        # demo package with its own (looser) lint baseline.
+        # Flutter demo package with its own (looser) lint baseline.
         run: dart analyze --fatal-infos --fatal-warnings lib test benchmark
 
       - name: Format check (hand-written sources only)
@@ -39,10 +36,28 @@ jobs:
           $(find lib test benchmark -name '*.dart' ! -name '*.g.dart')
 
       - name: Test
-        run: flutter test
+        run: dart test
 
       - name: Benchmark smoke run
-        run: dart run benchmark/datum_benchmark.dart --scale=1
+        run: dart run benchmark/sync_benchmark.dart --runs 1
+
+  workspace:
+    name: ${{ matrix.package }} (analyze · test)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [datum_sqlite, datum_test, datum_generator]
+    defaults:
+      run:
+        working-directory: packages/${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - name: Install workspace dependencies
+        working-directory: .
+        run: dart pub get
+      - run: dart analyze --fatal-infos --fatal-warnings
+      - run: dart test
 
   datum_hive:
     name: datum_hive (analyze · test)
@@ -52,28 +67,11 @@ jobs:
         working-directory: packages/datum_hive
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
+      - uses: dart-lang/setup-dart@v1
       - name: Install dependencies
-        # datum_hive is not a workspace member (it needs the Flutter SDK, which
-        # the pure-Dart workspace avoids) — resolve it in its own directory.
-        run: flutter pub get
+        # Not a workspace member: it resolves the published datum constraint
+        # with a local path override.
+        run: dart pub get
       - run: dart analyze --fatal-infos --fatal-warnings
-      - run: flutter test
+      - run: dart test
 
-  datum_generator:
-    name: datum_generator (analyze)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/datum_generator
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-      - name: Install workspace dependencies
-        working-directory: .
-        run: flutter pub get
-      - run: dart analyze

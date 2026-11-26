@@ -99,6 +99,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// A cache to track recently processed external change IDs to prevent echoes
   /// and de-duplicate events. The key is the entity ID.
   final Map<String, DateTime> _recentChangeCache = {};
+  DateTime _lastExpirySweep = DateTime.now();
 
   /// Last cache cleanup time
   DateTime _lastCacheCleanup = DateTime.now();
@@ -577,6 +578,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// non-idempotent transforms — and enqueued duplicate sync operations).
   void _recordLocalEcho(String entityId, T? data) {
     _recentChangeCache[_changeFingerprint(entityId, data)] = DateTime.now();
+    // Adapters without a change stream never reach _handleExternalChange, so
+    // expire here too — at most once per window, keeping writes O(1).
+    if (DateTime.now().difference(_lastExpirySweep) > config.changeCacheDuration) _cleanupChangeCache();
   }
 
   void _processSyncEvents(List<DatumSyncEvent<T>> events) {
@@ -599,6 +603,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     _recentChangeCache.removeWhere((key, timestamp) {
       return timestamp.isBefore(cacheExpiry);
     });
+    _lastExpirySweep = now;
 
     // Periodic full cleanup and size management
     if (now.difference(_lastCacheCleanup) > config.changeCacheCleanupInterval) {
@@ -693,12 +698,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         entityId: transformed.id,
         data: transformed,
       );
-      // Calculate size
-      final payload = operation.delta ?? operation.data?.toDatumMap(target: MapTarget.remote);
-      final encoded = payload != null ? await _isolateHelper.computeJsonEncode(payload) : '';
-      final size = encoded.length;
-
-      await _queueManager.enqueue(operation.copyWith(sizeInBytes: size));
+      await _enqueueSized(operation);
     }
 
     _eventController.add(
@@ -747,10 +747,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         data: transformed,
         delta: delta,
       );
-      final payload = operation.delta ?? operation.data?.toDatumMap(target: MapTarget.remote);
-      final encoded = payload != null ? await _isolateHelper.computeJsonEncode(payload) : '';
-      final size = encoded.length;
-      await _queueManager.enqueue(operation.copyWith(sizeInBytes: size));
+      await _enqueueSized(operation);
     }
 
     _eventController.add(
@@ -1299,68 +1296,29 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       weakObserver.target?.onDeleteStart(id);
     }
     // Use the provided behavior or fall back to the configured delete behavior
-    final effectiveBehavior = behavior ?? config.deleteBehavior;
-    T entityForEvent = existing;
-    if (effectiveBehavior == DeleteBehavior.softDelete) {
-      // Soft delete: mark the entity as deleted. The tombstone bumps the
-      // version like any other write so version-based conflict detection
-      // sees it as newer than the live row it replaces.
-      final delta = <String, dynamic>{
-        'isDeleted': true,
-        'modifiedAt': DateTime.now().toIso8601String(),
-        'version': existing.version + 1,
-      };
-      // Only carry the clock when the entity actually serializes one —
-      // adding it unconditionally wrote a phantom column (which throws on
-      // strict fixed-schema adapters).
-      if (deviceId != null && existing.toDatumMap().containsKey('vectorClock')) {
-        final currentClock = existing.vectorClock ?? const VectorClock();
-        delta['vectorClock'] = currentClock.increment(deviceId!).toMap();
-      }
-      _metadataHashCache.invalidate(userId);
-      entityForEvent = await localAdapter.patch(
-        id: id,
-        delta: delta,
-        userId: userId,
-      );
-      _recordLocalEcho(id, entityForEvent);
+    final T entityForEvent;
+    if ((behavior ?? config.deleteBehavior) == DeleteBehavior.softDelete) {
+      entityForEvent = await _softDeleteLocally(existing, userId);
     } else {
-      // Hard delete: physically remove the entity
-      final deleted = await localAdapter.delete(id, userId: userId);
-      _recordLocalEcho(id, null);
-      _recordLocalEcho(id, existing);
-      _metadataHashCache.invalidate(userId);
-      if (!deleted) {
-        _logger.warn('Local adapter failed to delete entity $id');
-        // Notify observers of the failure before returning.
-        for (final weakObserver in _localObservers) {
-          weakObserver.target?.onDeleteEnd(id, success: false);
-        }
-        for (final weakObserver in _globalObservers) {
-          weakObserver.target?.onDeleteEnd(id, success: false);
-        }
+      if (!await _hardDeleteLocally(existing, userId)) {
+        _notifyDeleteEnd(id, success: false);
         return false;
       }
+      entityForEvent = existing;
     }
 
     _logger.debug('Notifying observers of onDeleteEnd for $id');
-    for (final weakObserver in _localObservers) {
-      weakObserver.target?.onDeleteEnd(id, success: true);
-    }
-    for (final weakObserver in _globalObservers) {
-      weakObserver.target?.onDeleteEnd(id, success: true);
-    }
+    _notifyDeleteEnd(id, success: true);
     if (source == DataSource.local || forceRemoteSync) {
-      final operation = _createOperation(
+      // A soft delete syncs as its tombstone (an update), so other devices
+      // see `isDeleted` instead of the row silently vanishing remotely.
+      final soft = entityForEvent.isDeleted;
+      await _enqueueSized(_createOperation(
         userId: userId,
-        type: DatumOperationType.delete,
+        type: soft ? DatumOperationType.update : DatumOperationType.delete,
         entityId: id,
-      );
-      // Calculate size for delete operation (it's small, just the ID)
-      final payload = {'id': id};
-      final size = (await _isolateHelper.computeJsonEncode(payload)).length;
-
-      await _queueManager.enqueue(operation.copyWith(sizeInBytes: size));
+        data: soft ? entityForEvent : null,
+      ));
     }
 
     _eventController.add(
@@ -1376,6 +1334,57 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     _cacheCoordinator.invalidateCachesForEntity(entityForEvent);
 
     return true;
+  }
+
+  /// Soft delete: marks [existing] as deleted. The tombstone bumps the version
+  /// like any other write so version-based conflict detection sees it as
+  /// newer than the live row it replaces.
+  Future<T> _softDeleteLocally(T existing, String userId) async {
+    final id = existing.id;
+    final delta = <String, dynamic>{
+      'isDeleted': true,
+      'modifiedAt': DateTime.now().toIso8601String(),
+      'version': existing.version + 1,
+    };
+    // Only carry the clock when the entity actually serializes one — adding it
+    // unconditionally wrote a phantom column (which throws on strict
+    // fixed-schema adapters).
+    final device = deviceId;
+    if (device != null && existing.toDatumMap().containsKey('vectorClock')) {
+      delta['vectorClock'] = (existing.vectorClock ?? const VectorClock()).increment(device).toMap();
+    }
+    _metadataHashCache.invalidate(userId);
+    final patched = await localAdapter.patch(id: id, delta: delta, userId: userId);
+    _recordLocalEcho(id, patched);
+    return patched;
+  }
+
+  /// Hard delete: physically removes [existing]. Returns false when the local
+  /// adapter failed to delete it.
+  Future<bool> _hardDeleteLocally(T existing, String userId) async {
+    final id = existing.id;
+    final deleted = await localAdapter.delete(id, userId: userId);
+    _recordLocalEcho(id, null);
+    _recordLocalEcho(id, existing);
+    _metadataHashCache.invalidate(userId);
+    if (!deleted) _logger.warn('Local adapter failed to delete entity $id');
+    return deleted;
+  }
+
+  void _notifyDeleteEnd(String id, {required bool success}) {
+    for (final weakObserver in _localObservers) {
+      weakObserver.target?.onDeleteEnd(id, success: success);
+    }
+    for (final weakObserver in _globalObservers) {
+      weakObserver.target?.onDeleteEnd(id, success: success);
+    }
+  }
+
+  /// Computes the operation's payload size and enqueues it.
+  Future<void> _enqueueSized(DatumSyncOperation<T> operation) async {
+    final payload = operation.delta ?? operation.data?.toDatumMap(target: MapTarget.remote);
+    final encoded = payload != null ? await _isolateHelper.computeJsonEncode(payload) : '';
+    await _queueManager.enqueue(operation.copyWith(sizeInBytes: encoded.length));
   }
 
   /// Deletes an entity locally and immediately triggers a synchronization.
@@ -1723,49 +1732,41 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       final relationName = entry.key;
       final relation = entry.value;
 
-      if (relation.shouldSetNullOnDelete && relation is BelongsTo) {
-        try {
-          // For setNull on BelongsTo, we need to find entities that reference this entity
-          // and set their foreign keys to null
-          final relatedManager = relation.getRelatedManager();
-
-          // Query for entities that have this entity's ID as their foreign key
-          final entitiesToUpdate = await relatedManager.query(
-            DatumQuery(filters: [Filter(relation.foreignKey, FilterOperator.equals, entity.id)]),
-            source: DataSource.local,
-            userId: userId,
-          );
-
-          // Update each related entity to set the foreign key to null
-          for (final relatedEntity in entitiesToUpdate) {
-            // Create a patch operation to set the foreign key to null
-            final patchData = {relation.foreignKey: null};
-            await relatedManager.localAdapter.patch(
-              id: relatedEntity.id,
-              delta: patchData,
-              userId: userId,
+      if (!relation.shouldSetNullOnDelete || relation is! BelongsTo) continue;
+      try {
+        // Entities that reference this entity get their foreign keys nulled.
+        await relation.getRelatedManager()._nullifyForeignKey(
+              relation.foreignKey,
+              entity.id,
+              userId,
+              source == DataSource.local || forceRemoteSync,
             );
-            relatedManager.invalidateMetadataHash(userId);
-
-            // Queue the update for sync if needed
-            if (source == DataSource.local || forceRemoteSync) {
-              final operation = relatedManager._createOperation(
-                userId: userId,
-                type: DatumOperationType.update,
-                entityId: relatedEntity.id,
-                data: relatedEntity,
-                delta: patchData,
-              );
-              final payload = operation.delta ?? operation.data?.toDatumMap(target: MapTarget.remote);
-              final encoded = payload != null ? await relatedManager._isolateHelper.computeJsonEncode(payload) : '';
-              final size = encoded.length;
-              await relatedManager._queueManager.enqueue(operation.copyWith(sizeInBytes: size));
-            }
-          }
-        } catch (e) {
-          errors.add('Error executing setNull operation for relation "$relationName": $e');
-        }
+      } catch (e) {
+        errors.add('Error executing setNull operation for relation "$relationName": $e');
       }
+    }
+  }
+
+  /// Sets [foreignKey] to null on every local entity of this manager whose
+  /// [foreignKey] equals [parentId], queueing the update when [queueForSync].
+  Future<void> _nullifyForeignKey(String foreignKey, String parentId, String userId, bool queueForSync) async {
+    final entitiesToUpdate = await query(
+      DatumQuery(filters: [Filter(foreignKey, FilterOperator.equals, parentId)]),
+      source: DataSource.local,
+      userId: userId,
+    );
+    for (final relatedEntity in entitiesToUpdate) {
+      final patchData = {foreignKey: null};
+      await localAdapter.patch(id: relatedEntity.id, delta: patchData, userId: userId);
+      invalidateMetadataHash(userId);
+      if (!queueForSync) continue;
+      await _enqueueSized(_createOperation(
+        userId: userId,
+        type: DatumOperationType.update,
+        entityId: relatedEntity.id,
+        data: relatedEntity,
+        delta: patchData,
+      ));
     }
   }
 
@@ -1869,6 +1870,16 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
     _logger.info('🔄 [${T.toString()}] Starting sync for user: $userId');
 
+    final cycle = _runSync(userId, options, scope);
+    _inFlightSyncs.add(cycle);
+    return cycle.whenComplete(() => _inFlightSyncs.remove(cycle));
+  }
+
+  /// Syncs started and not yet finished; [dispose] waits for them so no cycle
+  /// touches the network or the (closed) adapters afterwards.
+  final Set<Future<Object?>> _inFlightSyncs = {};
+
+  Future<DatumSyncResult<T>> _runSync(String userId, DatumSyncOptions<DatumEntityInterface>? options, DatumSyncScope? scope) {
     return _syncRequestStrategy.execute(
       () async {
         if (_isSyncPaused) {
@@ -1880,157 +1891,27 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
           );
         }
 
-        // Handle user switching logic before proceeding with synchronization.
-        if (_syncEngineInstance.lastActiveUserId != null && _syncEngineInstance.lastActiveUserId != userId) {
-          if (config.defaultUserSwitchStrategy == UserSwitchStrategy.promptIfUnsyncedData) {
-            final oldUserOps = await _queueManager.getPending(
-              _syncEngineInstance.lastActiveUserId ?? '',
-            );
-            if (oldUserOps.isNotEmpty) {
-              throw UserSwitchException(
-                oldUserId: _syncEngineInstance.lastActiveUserId,
-                newUserId: userId,
-                message: 'Cannot switch user while unsynced data exists for the previous user.',
-              );
-            }
-          }
-          // Other strategies like syncThenSwitch or clearAndFetch would be handled here.
-        }
+        await _guardUserSwitch(userId);
 
         try {
-          // Merge provided options with defaults from config
-          final mergedOptions = _mergeSyncOptions(options);
-
-          // Convert options to the correct type if needed.
-          // This handles cases where options might be passed with a different generic type from Datum.
-          var typedOptions = mergedOptions != null
-              ? DatumSyncOptions<T>(
-                  includeDeletes: mergedOptions.includeDeletes,
-                  resolveConflicts: mergedOptions.resolveConflicts,
-                  forceFullSync: mergedOptions.forceFullSync,
-                  overrideBatchSize: mergedOptions.overrideBatchSize,
-                  timeout: mergedOptions.timeout,
-                  direction: mergedOptions.direction,
-                  conflictResolver: mergedOptions.conflictResolver is DatumConflictResolver<T> ? mergedOptions.conflictResolver as DatumConflictResolver<T> : null,
-                  query: mergedOptions.query,
-                )
-              : null;
-
-          // Allow custom sync direction resolution via callback
           final pendingCount = await getPendingCount(userId);
-          final currentDirection = typedOptions?.direction ?? config.defaultSyncDirection;
-
-          if (config.syncDirectionResolver != null) {
-            final resolvedDirection = config.syncDirectionResolver!(pendingCount, currentDirection);
-            if (resolvedDirection != null && resolvedDirection != currentDirection) {
-              _logger.debug('Custom sync direction resolver changed direction from $currentDirection to $resolvedDirection for user $userId');
-              final optimizedOptions = typedOptions?.copyWith(direction: resolvedDirection) ?? DatumSyncOptions<T>(direction: resolvedDirection);
-              typedOptions = optimizedOptions;
-            }
-          }
+          final typedOptions = _resolveTypedSyncOptions(options, pendingCount, userId);
 
           // If no scope is provided but options contain a query, create a scope from the query
-          DatumSyncScope? effectiveScope = scope;
-          if (effectiveScope == null && typedOptions?.query != null && typedOptions!.query != const DatumQuery()) {
-            effectiveScope = DatumSyncScope(query: typedOptions.query);
-          }
+          final query = typedOptions?.query;
+          final effectiveScope = scope ?? (query != null && query != const DatumQuery() ? DatumSyncScope(query: query) : null);
 
-          // Check if sync should be skipped based on final direction and pending operations
-          // Check if sync should be skipped based on final direction and pending operations
+          // Check if sync should be skipped based on final direction and pending operations.
           final finalDirection = typedOptions?.direction ?? config.defaultSyncDirection;
           if (finalDirection == SyncDirection.pushOnly && pendingCount == 0) {
-            // If the direction is pushOnly and there are no pending operations,
-            // we can skip the sync entirely for this manager.
             _logger.info('Push-only sync for user $userId skipped: no pending operations.');
             return DatumSyncResult.skipped(userId, 0);
           }
 
-          DatumSyncResult<T> result;
-          List<DatumSyncEvent<T>> events;
-
-          if (config.useIsolateSync) {
-            // Capture dependencies into local variables to avoid capturing 'this' in Isolate.run
-            final localAdapterCaptured = localAdapter;
-            final remoteAdapterCaptured = remoteAdapter;
-            final conflictResolverCaptured = _conflictResolver;
-            final queueManagerCaptured = _queueManager;
-            final conflictDetectorCaptured = _conflictDetector;
-            final loggerCaptured = _logger.getWorkerLogger();
-            // Sanitize config to remove unsendable callbacks. Note: copyWith
-            // cannot clear a field (null means "unchanged"), so this must use
-            // the dedicated sanitizer.
-            final configCaptured = config.sanitizedForIsolate<T>();
-            final connectivityCaptured = _connectivity;
-            final isolateHelperCaptured = _isolateHelper;
-            final deviceIdCaptured = deviceId;
-            final optionsCaptured = typedOptions;
-            final scopeCaptured = effectiveScope;
-
-            // Offload the entire sync process to a background isolate.
-            // note: This requires Adapters and other dependencies to be sendable.
-            // Spawned via the top-level trampoline — see [_spawnSyncIsolate]
-            // for why a closure built here would capture `this`.
-            (result, events) = await _spawnSyncIsolate<T>(
-              userId,
-              localAdapterCaptured,
-              remoteAdapterCaptured,
-              conflictResolverCaptured,
-              queueManagerCaptured,
-              conflictDetectorCaptured,
-              loggerCaptured,
-              configCaptured,
-              connectivityCaptured,
-              isolateHelperCaptured,
-              deviceIdCaptured,
-              optionsCaptured,
-              scopeCaptured,
-            );
-          } else {
-            // Enforce the configured sync timeout (config.syncTimeout /
-            // options.timeout) — previously it was configured everywhere but
-            // never applied, so a hung remote call blocked syncs forever (the
-            // "already syncing" guard then rejected all future syncs too).
-            final effectiveTimeout = typedOptions?.timeout ?? config.syncTimeout;
-            final engineFuture = Future.sync(() => _syncEngineInstance.synchronize(
-                  userId,
-                  options: typedOptions,
-                  scope: effectiveScope,
-                ));
-            var timedOut = false;
-            (result, events) = await engineFuture.timeout(
-              effectiveTimeout,
-              onTimeout: () {
-                timedOut = true;
-                return (DatumSyncResult<T>.cancelled(userId, 0), <DatumSyncEvent<T>>[]);
-              },
-            );
-            if (timedOut) {
-              // Silence the still-running engine future (its loops halt once
-              // the status leaves `syncing`) and surface a typed timeout.
-              unawaited(engineFuture.then((_) {}, onError: (_, __) {}));
-              if (!_statusSubject.isClosed) {
-                _statusSubject.add(currentStatus.copyWith(
-                  status: DatumSyncStatus.failed,
-                  health: const DatumHealth(status: DatumSyncHealth.error),
-                ));
-              }
-              throw DatumException(
-                code: DatumExceptionCode.timeout,
-                message: 'Synchronization for user $userId timed out after ${effectiveTimeout.inMilliseconds}ms.',
-              );
-            }
-          }
+          final (result, events) = config.useIsolateSync ? await _runSyncInIsolate(userId, typedOptions, effectiveScope) : await _runSyncWithTimeout(userId, typedOptions, effectiveScope);
 
           _processSyncEvents(events);
-          // Persist the result of the sync operation.
-          if (!result.wasSkipped) {
-            await localAdapter.saveLastSyncResult(userId, result);
-            // Also update sync metadata in persistence
-            final metadata = await localAdapter.getSyncMetadata(userId);
-            if (metadata != null) {
-              await persistence?.saveSyncMetadata(userId, metadata);
-            }
-          }
+          if (!result.wasSkipped) await _persistSyncResult(userId, result);
           return result;
         } on Object catch (e, stack) {
           // Delegate to the shared handler: it processes the events carried
@@ -2050,6 +1931,112 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         );
       },
     );
+  }
+
+  /// Rejects a sync for [userId] when switching away from a previous user who
+  /// still has unsynced data under [UserSwitchStrategy.promptIfUnsyncedData].
+  Future<void> _guardUserSwitch(String userId) async {
+    final lastUserId = _syncEngineInstance.lastActiveUserId;
+    if (lastUserId == null || lastUserId == userId) return;
+    // Other strategies like syncThenSwitch or clearAndFetch would be handled here.
+    if (config.defaultUserSwitchStrategy != UserSwitchStrategy.promptIfUnsyncedData) return;
+    final oldUserOps = await _queueManager.getPending(lastUserId);
+    if (oldUserOps.isEmpty) return;
+    throw UserSwitchException(
+      oldUserId: lastUserId,
+      newUserId: userId,
+      message: 'Cannot switch user while unsynced data exists for the previous user.',
+    );
+  }
+
+  /// Merges [options] with config defaults, re-types them to [T] and applies
+  /// the optional [DatumConfig.syncDirectionResolver].
+  DatumSyncOptions<T>? _resolveTypedSyncOptions(DatumSyncOptions<DatumEntityInterface>? options, int pendingCount, String userId) {
+    final merged = _mergeSyncOptions(options);
+    // Options may arrive with a different generic type from Datum.
+    final typedOptions = merged == null
+        ? null
+        : DatumSyncOptions<T>(
+            includeDeletes: merged.includeDeletes,
+            resolveConflicts: merged.resolveConflicts,
+            forceFullSync: merged.forceFullSync,
+            overrideBatchSize: merged.overrideBatchSize,
+            timeout: merged.timeout,
+            direction: merged.direction,
+            conflictResolver: merged.conflictResolver is DatumConflictResolver<T> ? merged.conflictResolver as DatumConflictResolver<T> : null,
+            query: merged.query,
+          );
+
+    final resolver = config.syncDirectionResolver;
+    if (resolver == null) return typedOptions;
+    final currentDirection = typedOptions?.direction ?? config.defaultSyncDirection;
+    final resolvedDirection = resolver(pendingCount, currentDirection);
+    if (resolvedDirection == null || resolvedDirection == currentDirection) return typedOptions;
+    _logger.debug('Custom sync direction resolver changed direction from $currentDirection to $resolvedDirection for user $userId');
+    return typedOptions?.copyWith(direction: resolvedDirection) ?? DatumSyncOptions<T>(direction: resolvedDirection);
+  }
+
+  /// Offloads the entire sync to a background isolate. Dependencies are
+  /// passed as values to the top-level [_spawnSyncIsolate] trampoline so the
+  /// isolate closure never captures `this`.
+  Future<(DatumSyncResult<T>, List<DatumSyncEvent<T>>)> _runSyncInIsolate(String userId, DatumSyncOptions<T>? options, DatumSyncScope? scope) {
+    return _spawnSyncIsolate<T>(
+      userId,
+      localAdapter,
+      remoteAdapter,
+      _conflictResolver,
+      _queueManager,
+      _conflictDetector,
+      _logger.getWorkerLogger(),
+      // copyWith cannot clear a field, so unsendable callbacks are removed
+      // by the dedicated sanitizer.
+      config.sanitizedForIsolate<T>(),
+      _connectivity,
+      _isolateHelper,
+      deviceId,
+      options,
+      scope,
+    );
+  }
+
+  /// Runs the in-process sync engine, enforcing the configured sync timeout
+  /// (config.syncTimeout / options.timeout) so a hung remote call cannot block
+  /// syncs forever.
+  Future<(DatumSyncResult<T>, List<DatumSyncEvent<T>>)> _runSyncWithTimeout(String userId, DatumSyncOptions<T>? options, DatumSyncScope? scope) async {
+    final effectiveTimeout = options?.timeout ?? config.syncTimeout;
+    final engineFuture = Future.sync(() => _syncEngineInstance.synchronize(userId, options: options, scope: scope));
+    var timedOut = false;
+    final outcome = await engineFuture.timeout(
+      effectiveTimeout,
+      onTimeout: () {
+        timedOut = true;
+        return (DatumSyncResult<T>.cancelled(userId, 0), <DatumSyncEvent<T>>[]);
+      },
+    );
+    if (!timedOut) return outcome;
+
+    // Silence the still-running engine future (its loops halt once the status
+    // leaves `syncing`) and surface a typed timeout.
+    unawaited(engineFuture.then((_) {}, onError: (_, __) {}));
+    if (!_statusSubject.isClosed) {
+      _statusSubject.add(currentStatus.copyWith(
+        status: DatumSyncStatus.failed,
+        health: const DatumHealth(status: DatumSyncHealth.error),
+      ));
+    }
+    throw DatumException(
+      code: DatumExceptionCode.timeout,
+      message: 'Synchronization for user $userId timed out after ${effectiveTimeout.inMilliseconds}ms.',
+    );
+  }
+
+  /// Persists the sync [result] and mirrors the sync metadata to persistence.
+  Future<void> _persistSyncResult(String userId, DatumSyncResult<T> result) async {
+    await localAdapter.saveLastSyncResult(userId, result);
+    final metadata = await localAdapter.getSyncMetadata(userId);
+    if (metadata != null) {
+      await persistence?.saveSyncMetadata(userId, metadata);
+    }
   }
 
   /// Switches the active user with configurable handling of unsynced data.
@@ -2344,13 +2331,17 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   Future<void> dispose() async {
     if (isDisposed) return;
     stopAutoSync();
-    clearCaches(); // Clear caches on dispose
+    // Closing the streams first marks a running cycle cancelled (it stops
+    // before its next operation); wait for it to unwind before the adapters
+    // close, so nothing touches them or the network after dispose returns.
+    await super.dispose();
+    await Future.wait([for (final s in _inFlightSyncs) s.then<void>((_) {}, onError: (_) {})]);
+    clearCaches();
     await _queueManager.dispose();
     _syncRequestStrategy.dispose();
     _isolateHelper.dispose();
     await localAdapter.dispose();
     await remoteAdapter.dispose();
-    await super.dispose(); // Call the mixin's dispose
   }
 
   Future<T> _applyPreSaveTransforms(T entity) async {
@@ -2439,6 +2430,38 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   Future<List<DatumSyncOperation<T>>> getPendingOperations(String userId) async {
     _ensureInitialized();
     return _queueManager.getPending(userId);
+  }
+
+  /// Operations sync gave up on (see [DatumSyncOperation.parkedError]), e.g.
+  /// after an auth failure. They stay queued until retried or discarded.
+  Future<List<DatumSyncOperation<T>>> getParkedOperations(String userId) async => [
+        for (final op in await getPendingOperations(userId))
+          if (op.isParked) op,
+      ];
+
+  Future<List<DatumSyncOperation<T>>> _selectParked(String userId, Set<String>? operationIds) async => [
+        for (final op in await getParkedOperations(userId))
+          if (operationIds == null || operationIds.contains(op.id)) op,
+      ];
+
+  /// Re-arms parked operations (all of [userId]'s, or only [operationIds]) so
+  /// the next sync pushes them again; returns how many were re-armed.
+  Future<int> retryParkedOperations(String userId, {Set<String>? operationIds}) async {
+    final parked = await _selectParked(userId, operationIds);
+    for (final op in parked) {
+      await _queueManager.update(op.unparked());
+    }
+    return parked.length;
+  }
+
+  /// Drops parked operations for good (all of [userId]'s, or only
+  /// [operationIds]); returns how many were dropped.
+  Future<int> discardParkedOperations(String userId, {Set<String>? operationIds}) async {
+    final parked = await _selectParked(userId, operationIds);
+    for (final op in parked) {
+      await _queueManager.dequeue(op.id);
+    }
+    return parked.length;
   }
 
   /// Gets the current storage size in bytes from the local adapter.

@@ -817,7 +817,7 @@ class MockRemoteAdapter<T extends DatumEntityInterface> implements RemoteAdapter
 
     final existing = _remoteStorage[userId ?? '']?[id];
     if (existing == null) {
-      throw Exception('Entity not found for patching in mock remote adapter.');
+      throw const EntityNotFoundException(message: 'Entity not found for patching in mock remote adapter.');
     }
 
     final json = existing.toDatumMap()..addAll(delta);

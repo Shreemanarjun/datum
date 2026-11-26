@@ -31,6 +31,45 @@
   (the running cycle used to reschedule itself forever), and `pauseSync()`
   mid-sync no longer forgets the user or restores a stuck `syncing` status on
   `resumeSync()`; resumed auto-sync keeps its custom interval.
+- Fix (data loss): an operation that fails permanently (non-retryable error
+  such as HTTP 401/403, or out of retries) is now **parked** instead of
+  deleted from the queue. It keeps its `parkedError`; sync skips it and
+  later operations for the same entity, while other entities keep syncing.
+  New `DatumManager.getParkedOperations`, `retryParkedOperations` (e.g.
+  after re-auth) and `discardParkedOperations`.
+- Fixes found by the new local × remote conformance matrix
+  (`runSyncConformanceMatrix` in datum_test; in-memory, SQLite and Hive
+  locals × in-memory, HTTP-delta and HTTP-cursor remotes):
+  - A held-back entity's later op can no longer overtake it inside a batch
+    (a batched delete used to be followed by a replayed update that brought
+    the entity back).
+  - Pulls skip entities whose local ops are still queued: no extra conflict
+    push per pull (the queue used to grow every cycle), and a locally
+    hard-deleted entity is no longer re-created by the pull.
+  - `takeRemote` conflict resolution drops the losing local ops, so they no
+    longer push the local value over the winner.
+  - **Behavior change:** a soft delete syncs as its tombstone (an update with
+    `isDeleted: true`), so other devices see it; hard deletes still send a
+    remote `DELETE`.
+  - The delta-pull watermark is taken when the pull starts, never from rows'
+    `modifiedAt`, so a writer with a fast clock can't hide rows written later.
+    `DeltaSyncCapable` backends should filter on their own received-at time
+    (`LocalSyncServer` now does).
+- `HiveLocalAdapter.initialize()` is idempotent.
+- Fix (memory): the local-write echo cache was only expired when an external
+  change arrived, so with adapters that emit none it grew by one entry per
+  write forever. Writes now sweep it at most once per `changeCacheDuration`.
+- Fix: `DatumManager.dispose()` cancels and waits for an in-flight sync (the
+  push stops before its next operation) before closing the adapters, so no
+  cycle touches the network or a closed database afterwards. `Datum.dispose()`
+  stops connectivity-triggered syncs before disposing its managers.
+- Hand-written entities no longer need `datum_generator`: `diff` defaults to
+  a deep comparison of `toDatumMap()` outputs, and `props` (equality and
+  `hashCode`) to the whole `toDatumMap()`, so every field takes part instead
+  of only the sync metadata. Generated entities keep their own overrides.
+- Internals reworked to cognitive complexity ≤ 15 per function (sync engine,
+  manager, relation loader, cascade delete, query matcher/SQL, generator);
+  run `tool/complexity.sh` locally.
 - `DatumManager.push`: `userId` is optional and defaults to `item.userId`.
 - **Breaking:** `watchById(id, {userId, includeDeleted})` on `DatumManager`
   and `Datum` — `userId` is now named.

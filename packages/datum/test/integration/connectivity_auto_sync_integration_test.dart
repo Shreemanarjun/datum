@@ -135,7 +135,9 @@ void main() {
 
       final pendingOps = await Datum.manager<TestEntity>().getPendingOperations(userId);
       expect(pendingOps.length, 2);
-      expect(pendingOps.any((op) => op.type == DatumOperationType.delete), true);
+      // A soft delete syncs as its tombstone (an update carrying isDeleted).
+      expect(pendingOps.last.type, DatumOperationType.update);
+      expect(pendingOps.last.data?.isDeleted, isTrue);
     });
 
     test('syncs successfully when online - connectivity restoration triggers sync', () async {
@@ -316,18 +318,15 @@ void main() {
       expect(firstLocalItem.name, 'Updated Name');
       expect(firstLocalItem.isDeleted, false);
 
-      // After the remote confirmed the deletion (via its change stream), the
-      // local tombstone is cleaned up too — the entity is gone everywhere.
+      // The soft delete synced as a tombstone, so other devices see it too.
       final withTombstones = await Datum.manager<TestEntity>().readAll(userId: userId, includeDeleted: true);
-      expect(withTombstones.length, 1);
-      expect(withTombstones.single.id, 'mixed-test-entity');
+      expect(withTombstones.map((e) => e.id).toSet(), {'mixed-test-entity', 'mixed-test-entity-2'});
 
-      // Verify remote state matches the intended operations
-      final remoteItems = await remoteAdapter.readAll(userId: userId);
-      expect(remoteItems.length, 1); // Only the first item should be on remote
-      expect(remoteItems.first.id, 'mixed-test-entity');
-      expect(remoteItems.first.name, 'Updated Name');
-      expect(remoteItems.first.isDeleted, false);
+      final remoteItems = {for (final e in await remoteAdapter.readAll(userId: userId)) e.id: e};
+      expect(remoteItems.keys.toSet(), {'mixed-test-entity', 'mixed-test-entity-2'});
+      expect(remoteItems['mixed-test-entity']!.name, 'Updated Name');
+      expect(remoteItems['mixed-test-entity']!.isDeleted, false);
+      expect(remoteItems['mixed-test-entity-2']!.isDeleted, true);
 
       // Verify pending operations are cleared
       final finalPendingCount = await Datum.manager<TestEntity>().getPendingCount(userId);

@@ -49,6 +49,16 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
   /// The size of the data payload in bytes.
   final int sizeInBytes;
 
+  /// Why this operation failed permanently, or `null` while it is live.
+  ///
+  /// A parked operation stays queued (no data loss) but sync skips it, and
+  /// every later operation for the same entity, until the app calls
+  /// `DatumManager.retryParkedOperations` or `discardParkedOperations`.
+  final String? parkedError;
+
+  /// Whether sync has given up on this operation; see [parkedError].
+  bool get isParked => parkedError != null;
+
   /// Creates a [DatumSyncOperation].
   const DatumSyncOperation({
     required this.id,
@@ -61,6 +71,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
     this.delta,
     this.retryCount = 0,
     this.sizeInBytes = 0,
+    this.parkedError,
   }) : assert(retryCount >= 0, 'retryCount cannot be negative');
 
   /// Creates a [DatumSyncOperation] from a map.
@@ -89,6 +100,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
       retryCount: map['retryCount'] as int? ?? 0,
       sizeInBytes: map['sizeInBytes'] as int? ?? 0,
+      parkedError: map['parkedError'] as String?,
     );
   }
 
@@ -104,6 +116,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
     DateTime? timestamp,
     int? retryCount,
     int? sizeInBytes,
+    String? parkedError,
   }) {
     return DatumSyncOperation<T>(
       id: id ?? this.id,
@@ -116,8 +129,22 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       timestamp: timestamp ?? this.timestamp,
       retryCount: retryCount ?? this.retryCount,
       sizeInBytes: sizeInBytes ?? this.sizeInBytes,
+      parkedError: parkedError ?? this.parkedError,
     );
   }
+
+  /// A live copy of this parked operation with its retry budget reset.
+  DatumSyncOperation<T> unparked() => DatumSyncOperation<T>(
+        id: id,
+        userId: userId,
+        entityId: entityId,
+        entityTable: entityTable,
+        type: type,
+        timestamp: timestamp,
+        data: data,
+        delta: delta,
+        sizeInBytes: sizeInBytes,
+      );
 
   /// Converts the operation to a map representation.
   Map<String, dynamic> toMap() {
@@ -132,6 +159,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       'timestamp': timestamp.millisecondsSinceEpoch,
       'retryCount': retryCount,
       'sizeInBytes': sizeInBytes,
+      if (parkedError != null) 'parkedError': parkedError,
     };
   }
 
@@ -150,6 +178,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
         delta,
         retryCount,
         sizeInBytes,
+        parkedError,
       ];
 
   @override

@@ -50,147 +50,28 @@ class RelationLoader<T extends DatumEntityInterface> {
     // A read without an explicit userId still concerns the parents' OWN data:
     // fall back to their userId so stitching never attaches other users' rows
     // whose foreign keys happen to collide.
-    userId ??= entities.first.userId;
+    final ownerId = userId ?? entities.first.userId;
+    Future<List<DatumEntityInterface>> queryIn(DatumManager<DatumEntityInterface> m, String field, List<Object?> values) => m.query(DatumQuery(filters: [Filter(field, FilterOperator.isIn, values)]), source: source, userId: ownerId);
 
-    // Support nested relations via dot notation, e.g. 'posts.comments'. Group
-    // paths by their top-level segment so each relation is fetched once, then
-    // recurse into the remaining sub-paths on the fetched related entities (#22).
-    final nested = <String, List<String>>{};
-    for (final path in relations) {
-      final dot = path.indexOf('.');
-      final head = dot == -1 ? path : path.substring(0, dot);
-      final tail = dot == -1 ? null : path.substring(dot + 1);
-      final subPaths = nested.putIfAbsent(head, () => <String>[]);
-      if (tail != null && tail.isNotEmpty) subPaths.add(tail);
-    }
-
-    for (final entry in nested.entries) {
-      final relationName = entry.key;
-      final subPaths = entry.value;
-      final firstEntity = entities.first as RelationalDatumEntity;
+    final firstEntity = entities.first as RelationalDatumEntity;
+    for (final MapEntry(key: relationName, value: subPaths) in _groupRelationPaths(relations).entries) {
       final relation = firstEntity.relations[relationName];
-
       if (relation == null) {
         _logger.warn('Relation "$relationName" not found on entity ${T.toString()}');
         continue;
       }
 
       final relatedManager = relation.getRelatedManager();
-      var fetchedRelated = const <DatumEntityInterface>[];
-
-      if (relation is BelongsTo) {
-        final foreignKeyName = relation.foreignKey;
-        final foreignKeyValues = entities.map((e) => (e as RelationalDatumEntity).toDatumMap()[foreignKeyName]).nonNulls.toSet().toList();
-
-        if (foreignKeyValues.isNotEmpty) {
-          final relatedEntities = await relatedManager.query(
-            DatumQuery(filters: [Filter(relation.localKey, FilterOperator.isIn, foreignKeyValues)]),
-            source: source,
-            userId: userId,
-          );
-          final relatedEntitiesById = {for (final e in relatedEntities) e.id: e};
-
-          for (final entity in entities) {
-            final relationalEntity = entity as RelationalDatumEntity;
-            final foreignKeyValue = relationalEntity.toDatumMap()[foreignKeyName];
-            final relatedEntity = relatedEntitiesById[foreignKeyValue];
-            relationalEntity.relations[relationName]?.setRaw(relatedEntity);
-          }
-          fetchedRelated = relatedEntities;
-        }
-      } else if (relation is HasMany) {
-        final foreignKeyName = relation.foreignKey;
-        final localKeyValues = entities.map((e) => e.id).toSet().toList();
-
-        if (localKeyValues.isNotEmpty) {
-          final relatedEntities = await relatedManager.query(
-            DatumQuery(filters: [Filter(foreignKeyName, FilterOperator.isIn, localKeyValues)]),
-            source: source,
-            userId: userId,
-          );
-
-          final relatedEntitiesByParentId = <String, List<DatumEntityInterface>>{};
-          for (final relatedEntity in relatedEntities) {
-            // toDatumMap is on the base interface — related entities need not be relational.
-            final parentId = relatedEntity.toDatumMap()[foreignKeyName];
-            (relatedEntitiesByParentId[parentId] ??= []).add(relatedEntity);
-          }
-
-          for (final entity in entities) {
-            final related = relatedEntitiesByParentId[entity.id] ?? [];
-            (entity as RelationalDatumEntity).relations[relationName]?.setRaw(related);
-          }
-          fetchedRelated = relatedEntities;
-        }
-      } else if (relation is HasOne) {
-        // 1:1 where the related entity holds the foreign key.
-        final foreignKeyName = relation.foreignKey;
-        final localKeyName = relation.localKey;
-        final localKeyValues = entities.map((e) => e.toDatumMap()[localKeyName]).nonNulls.toSet().toList();
-
-        if (localKeyValues.isNotEmpty) {
-          final relatedEntities = await relatedManager.query(
-            DatumQuery(filters: [Filter(foreignKeyName, FilterOperator.isIn, localKeyValues)]),
-            source: source,
-            userId: userId,
-          );
-          final byForeignKey = <Object?, DatumEntityInterface>{};
-          for (final r in relatedEntities) {
-            final fk = r.toDatumMap()[foreignKeyName];
-            byForeignKey.putIfAbsent(fk, () => r); // first wins for a 1:1
-          }
-          for (final entity in entities) {
-            final lk = entity.toDatumMap()[localKeyName];
-            (entity as RelationalDatumEntity).relations[relationName]?.setRaw(byForeignKey[lk]);
-          }
-          fetchedRelated = relatedEntities;
-        }
-      } else if (relation is ManyToMany) {
-        // Traverse the pivot entity to resolve the many-to-many targets.
-        final pivotManager = Datum.managerByType(relation.pivotType);
-        final thisLocalKeyName = relation.thisLocalKey;
-        final localKeyValues = entities.map((e) => e.toDatumMap()[thisLocalKeyName]).nonNulls.toSet().toList();
-
-        if (localKeyValues.isNotEmpty) {
-          final pivotEntries = await pivotManager.query(
-            DatumQuery(filters: [Filter(relation.thisForeignKey, FilterOperator.isIn, localKeyValues)]),
-            source: source,
-            userId: userId,
-          );
-
-          final otherIdsByParent = <Object?, List<Object?>>{};
-          final allOtherIds = <Object?>{};
-          for (final pe in pivotEntries) {
-            final m = pe.toDatumMap();
-            final thisFk = m[relation.thisForeignKey];
-            final otherFk = m[relation.otherForeignKey];
-            if (otherFk != null) {
-              (otherIdsByParent[thisFk] ??= []).add(otherFk);
-              allOtherIds.add(otherFk);
-            }
-          }
-
-          var related = const <DatumEntityInterface>[];
-          if (allOtherIds.isNotEmpty) {
-            related = await relatedManager.query(
-              DatumQuery(filters: [Filter(relation.otherLocalKey, FilterOperator.isIn, allOtherIds.toList())]),
-              source: source,
-              userId: userId,
-            );
-          }
-          final relatedByOtherLocalKey = {for (final r in related) r.toDatumMap()[relation.otherLocalKey]: r};
-          for (final entity in entities) {
-            final lk = entity.toDatumMap()[thisLocalKeyName];
-            final ids = otherIdsByParent[lk] ?? const [];
-            (entity as RelationalDatumEntity).relations[relationName]?.setRaw(ids.map((id) => relatedByOtherLocalKey[id]).nonNulls.toList());
-          }
-          fetchedRelated = related;
-        }
-      }
+      final fetchedRelated = await switch (relation) {
+        BelongsTo() => _stitchBelongsTo(relation, entities, relationName, queryIn),
+        HasMany() => _stitchHasMany(relation, entities, relationName, queryIn),
+        HasOne() => _stitchHasOne(relation, entities, relationName, queryIn),
+        ManyToMany() => _stitchManyToMany(relation, entities, relationName, queryIn),
+      };
 
       // Recurse into nested relations on the fetched related entities.
       if (subPaths.isNotEmpty && fetchedRelated.isNotEmpty) {
-        await recurseIntoRelated(relatedManager, fetchedRelated, subPaths, source, userId);
+        await recurseIntoRelated(relatedManager, fetchedRelated, subPaths, source, ownerId);
       }
     }
   }
@@ -260,4 +141,122 @@ class RelationLoader<T extends DatumEntityInterface> {
       relatedManager.localAdapter,
     );
   }
+}
+
+/// Queries [manager] for rows whose [field] is in [values].
+typedef _InQuery = Future<List<DatumEntityInterface>> Function(
+  DatumManager<DatumEntityInterface> manager,
+  String field,
+  List<Object?> values,
+);
+
+/// Groups dot-notation relation paths (e.g. 'posts.comments') by their
+/// top-level segment so each relation is fetched once; the values are the
+/// remaining sub-paths to recurse into (#22).
+Map<String, List<String>> _groupRelationPaths(List<String> relations) {
+  final nested = <String, List<String>>{};
+  for (final path in relations) {
+    final dot = path.indexOf('.');
+    final subPaths = nested.putIfAbsent(dot == -1 ? path : path.substring(0, dot), () => <String>[]);
+    if (dot != -1 && dot + 1 < path.length) subPaths.add(path.substring(dot + 1));
+  }
+  return nested;
+}
+
+void _setRelation(DatumEntityInterface entity, String relationName, Object? value) => (entity as RelationalDatumEntity).relations[relationName]?.setRaw(value);
+
+List<Object?> _distinctValues(List<DatumEntityInterface> entities, String key) => entities.map((e) => e.toDatumMap()[key]).nonNulls.toSet().toList();
+
+Future<List<DatumEntityInterface>> _stitchBelongsTo(
+  BelongsTo relation,
+  List<DatumEntityInterface> entities,
+  String relationName,
+  _InQuery queryIn,
+) async {
+  final foreignKeyName = relation.foreignKey;
+  final foreignKeyValues = _distinctValues(entities, foreignKeyName);
+  if (foreignKeyValues.isEmpty) return const [];
+
+  final related = await queryIn(relation.getRelatedManager(), relation.localKey, foreignKeyValues);
+  final relatedById = {for (final e in related) e.id: e};
+  for (final entity in entities) {
+    _setRelation(entity, relationName, relatedById[entity.toDatumMap()[foreignKeyName]]);
+  }
+  return related;
+}
+
+Future<List<DatumEntityInterface>> _stitchHasMany(
+  HasMany relation,
+  List<DatumEntityInterface> entities,
+  String relationName,
+  _InQuery queryIn,
+) async {
+  final foreignKeyName = relation.foreignKey;
+  final localKeyValues = entities.map((e) => e.id).toSet().toList();
+  if (localKeyValues.isEmpty) return const [];
+
+  final related = await queryIn(relation.getRelatedManager(), foreignKeyName, localKeyValues);
+  final relatedByParentId = <String, List<DatumEntityInterface>>{};
+  for (final r in related) {
+    // toDatumMap is on the base interface — related entities need not be relational.
+    (relatedByParentId[r.toDatumMap()[foreignKeyName]] ??= []).add(r);
+  }
+  for (final entity in entities) {
+    _setRelation(entity, relationName, relatedByParentId[entity.id] ?? <DatumEntityInterface>[]);
+  }
+  return related;
+}
+
+/// 1:1 where the related entity holds the foreign key.
+Future<List<DatumEntityInterface>> _stitchHasOne(
+  HasOne relation,
+  List<DatumEntityInterface> entities,
+  String relationName,
+  _InQuery queryIn,
+) async {
+  final foreignKeyName = relation.foreignKey;
+  final localKeyName = relation.localKey;
+  final localKeyValues = _distinctValues(entities, localKeyName);
+  if (localKeyValues.isEmpty) return const [];
+
+  final related = await queryIn(relation.getRelatedManager(), foreignKeyName, localKeyValues);
+  final byForeignKey = <Object?, DatumEntityInterface>{};
+  for (final r in related) {
+    byForeignKey.putIfAbsent(r.toDatumMap()[foreignKeyName], () => r); // first wins for a 1:1
+  }
+  for (final entity in entities) {
+    _setRelation(entity, relationName, byForeignKey[entity.toDatumMap()[localKeyName]]);
+  }
+  return related;
+}
+
+/// Traverses the pivot entity to resolve the many-to-many targets.
+Future<List<DatumEntityInterface>> _stitchManyToMany(
+  ManyToMany relation,
+  List<DatumEntityInterface> entities,
+  String relationName,
+  _InQuery queryIn,
+) async {
+  final thisLocalKeyName = relation.thisLocalKey;
+  final localKeyValues = _distinctValues(entities, thisLocalKeyName);
+  if (localKeyValues.isEmpty) return const [];
+
+  final pivotEntries = await queryIn(Datum.managerByType(relation.pivotType), relation.thisForeignKey, localKeyValues);
+  final otherIdsByParent = <Object?, List<Object?>>{};
+  final allOtherIds = <Object?>{};
+  for (final pe in pivotEntries) {
+    final m = pe.toDatumMap();
+    final otherFk = m[relation.otherForeignKey];
+    if (otherFk == null) continue;
+    (otherIdsByParent[m[relation.thisForeignKey]] ??= []).add(otherFk);
+    allOtherIds.add(otherFk);
+  }
+
+  final related = allOtherIds.isEmpty ? const <DatumEntityInterface>[] : await queryIn(relation.getRelatedManager(), relation.otherLocalKey, allOtherIds.toList());
+  final relatedByOtherLocalKey = {for (final r in related) r.toDatumMap()[relation.otherLocalKey]: r};
+  for (final entity in entities) {
+    final ids = otherIdsByParent[entity.toDatumMap()[thisLocalKeyName]] ?? const [];
+    _setRelation(entity, relationName, ids.map((id) => relatedByOtherLocalKey[id]).nonNulls.toList());
+  }
+  return related;
 }
