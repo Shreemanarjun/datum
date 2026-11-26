@@ -201,7 +201,7 @@ void main() {
       // modifiedAt field exists, so the metadata stamp block is emitted.
       expect(
         output,
-        containsCode("changes['modified_at'] = modifiedAt.toIso8601String();"),
+        containsCode("changes['modified_at'] = modifiedAt.toUtc().toIso8601String();"),
       );
     });
   });

@@ -99,7 +99,7 @@ class Task extends DatumEntity {
 
     // Only include modification details if there are other changes
     if (diff.isNotEmpty) {
-      diff['modifiedAt'] = modifiedAt.toIso8601String();
+      diff['modifiedAt'] = modifiedAt.toUtc().toIso8601String();
       diff['version'] = version;
     }
 
@@ -119,8 +119,9 @@ class Task extends DatumEntity {
     };
 
     if (target == MapTarget.remote) {
-      map['createdAt'] = createdAt.toIso8601String();
-      map['modifiedAt'] = modifiedAt.toIso8601String();
+      // UTC with offset: a bare local time is read as UTC by Postgres.
+      map['createdAt'] = createdAt.toUtc().toIso8601String();
+      map['modifiedAt'] = modifiedAt.toUtc().toIso8601String();
     } else {
       map['createdAt'] = createdAt.millisecondsSinceEpoch;
       map['modifiedAt'] = modifiedAt.millisecondsSinceEpoch;

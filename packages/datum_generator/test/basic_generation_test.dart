@@ -78,7 +78,7 @@ void main() {
       expect(output, isNot(contains("'created_at': createdAt,")));
       expect(
         output,
-        contains("map['created_at'] = createdAt.toIso8601String();"),
+        contains("map['created_at'] = createdAt.toUtc().toIso8601String();"),
       );
       expect(
         output,
@@ -94,7 +94,7 @@ void main() {
       expect(
         output,
         containsCode(
-          "'custom_date': target == MapTarget.remote ? customDate.toIso8601String() : customDate.millisecondsSinceEpoch,",
+          "'custom_date': target == MapTarget.remote ? customDate.toUtc().toIso8601String() : customDate.millisecondsSinceEpoch,",
         ),
       );
     });
@@ -123,7 +123,7 @@ void main() {
       expect(output, isNot(contains('if (id != old.id)')));
       expect(
         output,
-        contains("changes['modified_at'] = modifiedAt.toIso8601String();"),
+        contains("changes['modified_at'] = modifiedAt.toUtc().toIso8601String();"),
       );
       expect(output, contains("changes['version'] = version;"));
       expect(output, contains('return changes.isEmpty ? null : changes;'));

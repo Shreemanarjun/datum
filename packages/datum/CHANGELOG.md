@@ -56,6 +56,10 @@
     `DeltaSyncCapable` backends should filter on their own received-at time
     (`LocalSyncServer` now does).
 - `HiveLocalAdapter.initialize()` is idempotent.
+- Fix: conflict detection and `LastWriteWinsResolver` compare `modifiedAt`
+  as instants (`isAtSameMomentAs`). With `==`, the same moment as a local and
+  a UTC `DateTime` (e.g. written locally, read back from Postgres) counted as
+  a conflict on every pulled row.
 - Fix (memory): the local-write echo cache was only expired when an external
   change arrived, so with adapters that emit none it grew by one entry per
   write forever. Writes now sweep it at most once per `changeCacheDuration`.

@@ -1,3 +1,13 @@
+## Unreleased
+
+- **Behavior change:** remote-target and diff `DateTime` values serialize as
+  UTC (`toUtc().toIso8601String()`). A bare local time was stored by Postgres
+  as UTC, shifting every timestamp by the device's offset and breaking
+  last-write-wins across time zones.
+- Generator split into cohesive files (`field_info`, `serialization`,
+  `members`, `query_builder`); every function at cognitive complexity <= 15.
+  Output is otherwise byte-for-byte identical.
+
 ## 1.1.0
 
 - **Mixin generation is now the default**: `generateMixin` defaults to `true`, so generated code produces a `_$<Entity>DatumMixin` you mix into your entity instead of requiring manual method wiring. Set `generateMixin: false` to opt out.

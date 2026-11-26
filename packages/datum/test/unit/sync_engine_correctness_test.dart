@@ -299,6 +299,27 @@ void main() {
       expect((await manager.read('e1', userId: 'u1'))?.value, 'external-edit', reason: 'keying the dedupe cache by entity id alone dropped this change');
     });
   });
+  group('timestamps across time zones', () {
+    // The same instant as a local-time and a UTC DateTime (e.g. written
+    // locally, then read back from Postgres) is unequal under ==.
+    final utc = DateTime.utc(2026, 11, 26, 5, 30);
+    final local = utc.toLocal();
+
+    test('the detector sees no conflict for one instant in two zones', () {
+      expect(DatumConflictDetector<_Stamped>().detect(localItem: _Stamped(local), remoteItem: _Stamped(utc), userId: 'u1'), isNull);
+    });
+
+    test('last-write-wins orders by instant, not zone', () async {
+      final later = entity('e1', value: 'later', modifiedAt: utc.add(const Duration(seconds: 1)));
+      final resolution = await LastWriteWinsResolver<TestDatumEntity>().resolve(
+        local: entity('e1', value: 'earlier', modifiedAt: local),
+        remote: later,
+        context: DatumConflictContext(userId: 'u1', entityId: 'e1', type: DatumConflictType.bothModified, detectedAt: utc),
+      );
+      expect(resolution.resolvedData, later);
+    });
+  });
+
 }
 
 class _CountingMiddleware extends DatumMiddleware<TestDatumEntity> {
@@ -311,4 +332,27 @@ class _CountingMiddleware extends DatumMiddleware<TestDatumEntity> {
     onTransform();
     return item;
   }
+}
+
+/// Zone-independent serialization (epoch ms), like generated local maps.
+class _Stamped with DatumEntityMixin {
+  _Stamped(this.modifiedAt);
+
+  @override
+  final DateTime modifiedAt;
+  @override
+  String get id => 'e1';
+  @override
+  String get userId => 'u1';
+  @override
+  DateTime get createdAt => modifiedAt;
+  @override
+  int get version => 1;
+  @override
+  bool get isDeleted => false;
+  @override
+  bool? get stringify => true;
+
+  @override
+  Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {'id': id, 'modifiedAt': modifiedAt.millisecondsSinceEpoch};
 }

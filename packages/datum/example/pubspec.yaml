@@ -46,7 +46,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   auto_route_generator: ^10.2.5
-  build_runner: ^2.7.1
+  build_runner: ^2.15.1
   # End-to-end integration tests (integration_test/) against a local sync
   # server, exercising both SQLite and Hive local adapters.
   datum_sqlite:

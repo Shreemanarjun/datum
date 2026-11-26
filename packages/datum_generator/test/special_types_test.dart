@@ -114,7 +114,7 @@ void main() {
       expect(
         output,
         containsCode(
-          "'maybe_when': target == MapTarget.remote ? maybeWhen?.toIso8601String() : maybeWhen?.millisecondsSinceEpoch,",
+          "'maybe_when': target == MapTarget.remote ? maybeWhen?.toUtc().toIso8601String() : maybeWhen?.millisecondsSinceEpoch,",
         ),
       );
     });
@@ -165,7 +165,7 @@ void main() {
       );
       expect(
         output,
-        containsCode("changes['maybe_when'] = maybeWhen?.toIso8601String();"),
+        containsCode("changes['maybe_when'] = maybeWhen?.toUtc().toIso8601String();"),
       );
     });
 

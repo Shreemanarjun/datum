@@ -39,9 +39,9 @@ String _serializedValue(FieldInfo f, {required bool forDiff}) {
     _SerialKind.enumName => '$n$q.name',
     _SerialKind.duration => '$n$q.inMicroseconds',
     _SerialKind.text => '$n$q.toString()',
-    _SerialKind.dateTime when forDiff => '$n$q.toIso8601String()',
+    _SerialKind.dateTime when forDiff => '$n$q.toUtc().toIso8601String()',
     _SerialKind.dateTime =>
-      'target == MapTarget.remote ? $n$q.toIso8601String() : $n$q.millisecondsSinceEpoch',
+      'target == MapTarget.remote ? $n$q.toUtc().toIso8601String() : $n$q.millisecondsSinceEpoch',
     _SerialKind.plain => n,
   };
 }
@@ -60,8 +60,8 @@ String toDatumMapCode(List<FieldInfo> fields) {
   return (b
         ..writeln('    };')
         ..writeln('    if (target == MapTarget.remote) {')
-        ..writeln("      map['created_at'] = createdAt.toIso8601String();")
-        ..writeln("      map['modified_at'] = modifiedAt.toIso8601String();")
+        ..writeln("      map['created_at'] = createdAt.toUtc().toIso8601String();")
+        ..writeln("      map['modified_at'] = modifiedAt.toUtc().toIso8601String();")
         ..writeln('    } else {')
         ..writeln("      map['created_at'] = createdAt.millisecondsSinceEpoch;")
         ..writeln(
@@ -112,7 +112,7 @@ String diffCode(String className, List<FieldInfo> fields) {
   if (fields.any((f) => f.name == 'modifiedAt')) {
     b
       ..writeln('    if (changes.isNotEmpty) {')
-      ..writeln("      changes['modified_at'] = modifiedAt.toIso8601String();")
+      ..writeln("      changes['modified_at'] = modifiedAt.toUtc().toIso8601String();")
       ..writeln("      changes['version'] = version;")
       ..writeln('    }');
   }

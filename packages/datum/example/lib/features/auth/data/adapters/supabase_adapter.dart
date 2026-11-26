@@ -124,8 +124,12 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
   // Static state registry to keep adapter instances sendable
   static final Map<String, _SupabaseAdapterState> _states = {};
 
+  // Per table AND client: two clients (accounts/devices) on one table must not
+  // share a realtime channel, auth flag or change stream.
+  String get _stateKey => '$tableName#${_clientOverride == null ? 'default' : identityHashCode(_clientOverride)}';
+
   _SupabaseAdapterState<T> get _state {
-    final state = _states[tableName] ??= _SupabaseAdapterState<T>();
+    final state = _states[_stateKey] ??= _SupabaseAdapterState<T>();
     return state as _SupabaseAdapterState<T>;
   }
 
@@ -723,6 +727,10 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
       // Don't attempt subscription if not authenticated - let auth monitoring handle it
       return;
     }
+    // initialize(), the first changeStream listener and auth monitoring all
+    // call this; a second channel on the same topic closes the first one and
+    // triggered a spurious retry + full resync.
+    if (_channel != null) return;
 
     try {
       talker.debug("Creating realtime channel for table: $tableName");
@@ -798,8 +806,11 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
           );
 
       talker.debug("Subscribing to channel for table: $tableName");
-      _channel?.subscribe(
+      final channel = _channel;
+      channel?.subscribe(
         (status, error) {
+          // Ignore late events from a channel that was replaced or removed.
+          if (!identical(channel, _channel)) return;
           talker.info(
               "Channel subscription status for table '$tableName': $status");
           if (error != null) {
@@ -935,6 +946,10 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
 
   // Subscription management
   void _handleSubscriptionError() {
+    // Drop the dead channel so the retry builds a fresh one.
+    final dead = _channel;
+    _channel = null;
+    if (dead != null) unawaited(_client.removeChannel(dead));
     _retryManager.scheduleRetry(
         tableName, _isAuthenticated, _subscribeToChanges);
   }
@@ -993,6 +1008,8 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
     await _streamController?.close();
     await _stopAuthMonitoring();
     await _authStateController.close();
+    // Closed controllers must not be handed to the next adapter for this key.
+    _states.remove(_stateKey);
     return super.dispose();
   }
 

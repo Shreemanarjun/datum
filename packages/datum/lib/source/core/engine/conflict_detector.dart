@@ -86,7 +86,9 @@ class DatumConflictDetector<T extends DatumEntityInterface> {
     // carry no vector clocks. Identical re-delivered rows (the bulk of every
     // full pull) short-circuit on the timestamp comparison; the deep map
     // comparison only runs for same-instant ties.
-    if (localItem.modifiedAt != remoteItem.modifiedAt || !const DeepCollectionEquality().equals(localItem.toDatumMap(), remoteItem.toDatumMap())) {
+    // isAtSameMomentAs, not ==: a local-time and a UTC DateTime for the same
+    // instant are unequal under ==, which flagged every pulled row.
+    if (!localItem.modifiedAt.isAtSameMomentAs(remoteItem.modifiedAt) || !const DeepCollectionEquality().equals(localItem.toDatumMap(), remoteItem.toDatumMap())) {
       return DatumConflictContext(
         userId: userId,
         entityId: localItem.id,

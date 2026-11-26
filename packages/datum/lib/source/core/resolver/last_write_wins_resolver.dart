@@ -31,7 +31,7 @@ class LastWriteWinsResolver<T extends DatumEntityInterface> implements DatumConf
       return local.version > remote.version ? DatumConflictResolution.useLocal(local) : DatumConflictResolution.useRemote(remote);
     }
     // If versions are the same, fall back to the most recent modification time.
-    if (local.modifiedAt != remote.modifiedAt) {
+    if (!local.modifiedAt.isAtSameMomentAs(remote.modifiedAt)) {
       return remote.modifiedAt.isAfter(local.modifiedAt) ? DatumConflictResolution.useRemote(remote) : DatumConflictResolution.useLocal(local);
     }
     // Exact (version, modifiedAt) tie with divergent content. The tie must
