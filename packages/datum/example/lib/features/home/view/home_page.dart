@@ -1,4 +1,10 @@
+import 'package:collection/collection.dart';
+import 'package:datum/datum.dart';
+import 'package:example/data/paint/entity/paint_canvas.dart';
+import 'package:example/features/tasks/data/entities/task.dart';
+import 'package:example/shared/widget/parked_ops_banner.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:rxdart/rxdart.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -40,7 +46,11 @@ class HomePage extends StatelessWidget {
               delegate: SliverChildListDelegate([
                 _buildWelcomeHeader(context, user),
                 const SizedBox(height: 32),
-                _buildStatsGrid(context, isMobile),
+                if (user != null)
+                  _LiveStats(
+                      key: ValueKey(user.id),
+                      userId: user.id,
+                      isMobile: isMobile),
                 const SizedBox(height: 32),
                 _buildSyncStatusSection(context, user?.id),
                 const SizedBox(height: 32),
@@ -66,40 +76,6 @@ class HomePage extends StatelessWidget {
         Text(
           'Here is what is happening with your data sync today.',
           style: theme.textTheme.muted,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatsGrid(BuildContext context, bool isMobile) {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: isMobile ? 1 : 3,
-      childAspectRatio: 2.5,
-      crossAxisSpacing: 16,
-      mainAxisSpacing: 16,
-      children: [
-        _StatCard(
-          title: 'Total Syncs',
-          value: '1,284',
-          icon: LucideIcons.refreshCw,
-          trend: '+12% from last week',
-          trendPositive: true,
-        ),
-        _StatCard(
-          title: 'Active Nodes',
-          value: '8',
-          icon: LucideIcons.network,
-          trend: 'All systems green',
-          trendPositive: true,
-        ),
-        _StatCard(
-          title: 'Storage Used',
-          value: '42.5 MB',
-          icon: LucideIcons.database,
-          trend: '72% of quota',
-          trendPositive: false,
         ),
       ],
     );
@@ -151,6 +127,87 @@ class HomePage extends StatelessWidget {
               color: Colors.purple,
             ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Live numbers from the sync engine for [userId], across every synced type.
+class _LiveStats extends StatefulWidget {
+  const _LiveStats({super.key, required this.userId, required this.isMobile});
+
+  final String userId;
+  final bool isMobile;
+
+  @override
+  State<_LiveStats> createState() => _LiveStatsState();
+}
+
+class _LiveStatsState extends State<_LiveStats> {
+  Stream<int> _total(Stream<int> Function(Type type) each) =>
+      Rx.combineLatestList([for (final type in syncedEntityTypes) each(type)])
+          .map((values) => values.sum);
+
+  late final _pending = _total(
+      (type) => Datum.managerByType(type).watchPendingCount(widget.userId));
+  late final _bytes = _total((type) =>
+      Datum.managerByType(type).watchStorageSize(userId: widget.userId));
+  late final _items = Rx.combineLatest2(
+    Datum.manager<Task>().watchAll(userId: widget.userId),
+    Datum.manager<PaintCanvas>().watchAll(userId: widget.userId),
+    (List<Task> tasks, List<PaintCanvas> canvases) =>
+        (tasks: tasks.length, paintings: canvases.length),
+  );
+
+  static String _size(int bytes) => bytes < 1024 * 1024
+      ? '${(bytes / 1024).toStringAsFixed(1)} KB'
+      : '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: widget.isMobile ? 1 : 3,
+      childAspectRatio: 2.5,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      children: [
+        StreamBuilder(
+          stream: _pending,
+          builder: (context, snapshot) {
+            final waiting = snapshot.data ?? 0;
+            return _StatCard(
+              title: 'Waiting to upload',
+              value: '$waiting',
+              icon: LucideIcons.cloudUpload,
+              trend: waiting == 0
+                  ? 'Everything is uploaded'
+                  : 'Sent on the next sync',
+              trendPositive: waiting == 0,
+            );
+          },
+        ),
+        StreamBuilder(
+          stream: _items,
+          builder: (context, snapshot) => _StatCard(
+            title: 'Your data',
+            value: '${snapshot.data?.tasks ?? 0} tasks',
+            icon: LucideIcons.layers,
+            trend: '${snapshot.data?.paintings ?? 0} paintings',
+            trendPositive: true,
+          ),
+        ),
+        StreamBuilder(
+          stream: _bytes,
+          builder: (context, snapshot) => _StatCard(
+            title: 'Stored on this device',
+            value: _size(snapshot.data ?? 0),
+            icon: LucideIcons.database,
+            trend: 'Local copy of your synced data',
+            trendPositive: true,
+          ),
         ),
       ],
     );

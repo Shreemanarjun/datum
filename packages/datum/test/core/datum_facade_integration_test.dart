@@ -692,9 +692,14 @@ void main() {
       // Act
       await Datum.instance.synchronize('u1');
 
-      // Assert
-      verify(() => remoteAdapter1.create(any(that: isA<TestEntity>()))).called(1);
-      verify(() => remoteAdapter2.create(any(that: isA<TestEntity2>()))).called(1);
+      // Assert: every manager synced, in registration order — that order is
+      // the sync priority (register parents / the most important type first).
+      verifyInOrder([
+        () => remoteAdapter1.create(any(that: isA<TestEntity>())),
+        () => remoteAdapter2.create(any(that: isA<TestEntity2>())),
+      ]);
+      verifyNever(() => remoteAdapter1.create(any()));
+      verifyNever(() => remoteAdapter2.create(any()));
     });
 
     group('Global synchronize with different directions', () {

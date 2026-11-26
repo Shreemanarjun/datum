@@ -109,6 +109,7 @@ void runSyncStackConformanceTests({
     _authPauseTests(s);
     _syncOptionTests(s);
     _queueAndCompactionApiTests(s);
+    _writeGuardTests(s);
     _crashAndReplayTests(s);
     _conflictTests(s);
     _deleteAndWatchTests(s);
@@ -847,6 +848,102 @@ void _syncOptionTests(_Stack s) {
   });
 }
 
+void _writeGuardTests(_Stack s) {
+  test('push(expectedVersion:) refuses a stale edit after a pull changed the row', () async {
+    final a = await s.device();
+    final b = await s.device();
+    await _seedSynced(a, ['x']);
+    await b.$1.synchronize(_u1);
+    final opened = (await b.$1.read('x', userId: _u1))!; // B opens an editor at v1
+
+    await _edit(a, 'x', name: 'A-saved');
+    await a.$1.synchronize(_u1);
+    await b.$1.synchronize(_u1); // the row under B's editor is now A's
+
+    await expectLater(
+      b.$1.push(item: opened.copyWith(name: 'B-stale'), userId: _u1, expectedVersion: opened.version),
+      throwsA(isA<ConflictException>()),
+    );
+    expect((await b.$1.read('x', userId: _u1))?.name, 'A-saved');
+    expect(await b.$1.getPendingCount(_u1), 0, reason: 'nothing queued for the refused write');
+
+    // Re-reading and saving against the current version goes through.
+    final current = (await b.$1.read('x', userId: _u1))!;
+    await b.$1.push(item: current.copyWith(name: 'B-rebased'), userId: _u1, expectedVersion: current.version);
+    await b.$1.synchronize(_u1);
+    await a.$1.synchronize(_u1);
+    expect(await _converge([a, b], 'x'), 'B-rebased');
+  });
+
+  test('an edit made after seeing another one wins whatever the clocks say', () async {
+    final ahead = await s.device();
+    final behind = await s.device();
+    await _seedSynced(ahead, ['x']);
+    await behind.$1.synchronize(_u1);
+
+    final now = DateTime.now();
+    await _edit(ahead, 'x', name: 'stamped-in-the-future', modifiedAt: now.add(const Duration(minutes: 10)));
+    await ahead.$1.synchronize(_u1);
+    // This device sees that edit first, then makes its own: a later version,
+    // although its clock reads ten minutes earlier.
+    await behind.$1.synchronize(_u1);
+    await _edit(behind, 'x', name: 'made-after-seeing-it', modifiedAt: now);
+    await behind.$1.synchronize(_u1);
+    await ahead.$1.synchronize(_u1);
+
+    expect(await _converge([ahead, behind], 'x'), 'made-after-seeing-it');
+    expect((await s.remoteRow('x'))?.name, 'made-after-seeing-it');
+    expect((await s.remoteRow('x'))?.version, 3);
+  });
+
+  test('RemotePriorityResolver decides concurrent edits without device '
+      'clocks: last push wins by default, first push wins when pulling first', () async {
+    // (sync direction of the second device, expected winner)
+    for (final (direction, winner) in [
+      (SyncDirection.pushThenPull, 'second'),
+      (SyncDirection.pullThenPush, 'first'),
+    ]) {
+      final id = 'k-${direction.name}';
+      final resolver = RemotePriorityResolver<ConformanceEntity>();
+      final first = await s.device(resolver: resolver);
+      final second = await s.device(resolver: resolver);
+      await _seedSynced(first, [id]);
+      await second.$1.synchronize(_u1);
+
+      // The side that must lose gets a clock 10 minutes fast: under
+      // last-write-wins it would win.
+      final now = DateTime.now(), fast = now.add(const Duration(minutes: 10));
+      await _edit(first, id, name: 'first', modifiedAt: winner == 'first' ? now : fast);
+      await _edit(second, id, name: 'second', modifiedAt: winner == 'second' ? now : fast);
+      await first.$1.synchronize(_u1);
+      await second.$1.synchronize(_u1, options: DatumSyncOptions(direction: direction));
+      await first.$1.synchronize(_u1);
+
+      expect(await _converge([first, second], id), winner, reason: direction.name);
+      expect((await s.remoteRow(id))?.name, winner);
+      expect(await second.$1.getPendingOperations(_u1), isEmpty, reason: 'a losing edit is dropped, not left queued');
+    }
+  });
+
+  test('a rate-limited write (429) is retried, not parked', () async {
+    final d = await s.device(
+      recovery: DatumErrorRecoveryStrategy(
+        shouldRetry: (e) async => e is NetworkException && e.isRetryable,
+        backoffStrategy: const FixedBackoff(delay: Duration(milliseconds: 50)),
+      ),
+    );
+    await _seedSynced(d, ['t']);
+    await _edit(d, 't', name: 't-v2');
+    s.failEntityWrites!('t', status: 429, times: 1);
+
+    final retried = d.$1.onSyncCompleted.skip(1).first;
+    await _syncCatching(d.$1);
+    expect(await d.$1.getParkedOperations(_u1), isEmpty);
+    await retried.timeout(const Duration(seconds: 5));
+    expect((await s.remoteRow('t'))?.name, 't-v2');
+  }, skip: s.noFaults);
+}
+
 void _queueAndCompactionApiTests(_Stack s) {
   test('watchPendingCount / isPending / waitUntilSynced follow the queue live', () async {
     final d = await s.device();
@@ -859,7 +956,7 @@ void _queueAndCompactionApiTests(_Stack s) {
     expect(await d.$1.isPending('w', userId: _u1), isTrue);
     await expectLater(
       d.$1.waitUntilSynced(_u1, timeout: const Duration(milliseconds: 100)),
-      throwsA(isA<TimeoutException>()),
+      throwsA(isA<DatumTimeoutException>()),
       reason: 'nothing syncs on its own here',
     );
 

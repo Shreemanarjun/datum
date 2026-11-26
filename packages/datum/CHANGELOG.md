@@ -1,5 +1,29 @@
 # Unreleased
 
+- **Breaking:** `TimeoutException` is now `DatumTimeoutException` (it
+  shadowed `dart:async`'s). A sync timeout throws it.
+- **Breaking:** `Relation.getRelatedManager()` returns `RelatedSource<T>`
+  (the manager's read side; the object is still the `DatumManager`). Entity
+  models no longer import the manager layer.
+- `push(expectedVersion:)`: throws `ConflictException` instead of
+  overwriting a row that changed since it was read.
+- `NetworkException.retryAfter` (HTTP `Retry-After`): failed operations and
+  failed cycles are retried no sooner than the server asked;
+  `DatumSyncResult.retryAfter` reports it.
+- `ResyncRequiredException`: thrown by an adapter's `readSince` /
+  `readChanges` when its watermark or cursor is no longer served; the engine
+  reads everything again (a cursor adapter restarts its feed).
+- `DatumSyncOptions.reason`, reported in `DatumSyncStartedEvent.reason`.
+  Syncs the engine starts itself use `auto`, `after-write`, `retry`,
+  `retry-after` and `sign-in`. `DatumSyncOptions.retype<E>()`.
+- A store whose schema version is newer than the app is refused when the app
+  versions its schema (`schemaVersion > 0` or any migration).
+- **Behavior change:** the `adaptive` cold-start strategy (the default) runs
+  a normal sync cycle instead of forcing a full re-read on every app start.
+- Local and remote maps may use different key names: the local store is
+  patched with its own diff, the remote gets the entity's `diff`.
+
+
 - **New manager APIs:** `watchPendingOperations` / `watchPendingCount`,
   `isPending`, `waitUntilSynced`, `cancelSync`, `restore` (undo a soft
   delete), `purgeTombstones`, `clearUserData`, `getMigrationHistory`.

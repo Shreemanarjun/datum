@@ -62,7 +62,27 @@ class DatumSyncOptions<T extends DatumEntityInterface> {
     this.direction,
     this.conflictResolver,
     this.query = const DatumQuery(),
+    this.reason,
   });
+
+  /// Why this sync runs — a free-form tag for logs and telemetry, reported in
+  /// `DatumSyncStartedEvent.reason`. Syncs the engine starts itself use
+  /// `auto`, `after-write`, `retry`, `retry-after` and `sign-in`.
+  final String? reason;
+
+  /// These options for entity type [E]. The per-sync resolver is kept only
+  /// when it can resolve [E].
+  DatumSyncOptions<E> retype<E extends DatumEntityInterface>() => DatumSyncOptions<E>(
+        includeDeletes: includeDeletes,
+        resolveConflicts: resolveConflicts,
+        forceFullSync: forceFullSync,
+        overrideBatchSize: overrideBatchSize,
+        timeout: timeout,
+        direction: direction,
+        conflictResolver: switch (conflictResolver) { final DatumConflictResolver<E> resolver => resolver, _ => null },
+        query: query,
+        reason: reason,
+      );
 
   /// Creates a new instance with the specified values, allowing for a change
   /// in the generic type.
@@ -75,6 +95,7 @@ class DatumSyncOptions<T extends DatumEntityInterface> {
     SyncDirection? direction,
     DatumConflictResolver<T>? conflictResolver,
     DatumQuery? query,
+    String? reason,
   }) {
     return DatumSyncOptions<T>(
       includeDeletes: includeDeletes ?? this.includeDeletes,
@@ -85,6 +106,7 @@ class DatumSyncOptions<T extends DatumEntityInterface> {
       direction: direction ?? this.direction,
       conflictResolver: conflictResolver ?? this.conflictResolver,
       query: query ?? this.query,
+      reason: reason ?? this.reason,
     );
   }
 
@@ -100,7 +122,8 @@ class DatumSyncOptions<T extends DatumEntityInterface> {
         other.timeout == timeout &&
         other.direction == direction &&
         other.conflictResolver == conflictResolver &&
-        other.query == query;
+        other.query == query &&
+        other.reason == reason;
   }
 
   @override
@@ -114,6 +137,7 @@ class DatumSyncOptions<T extends DatumEntityInterface> {
       direction,
       conflictResolver,
       query,
+      reason,
     );
   }
 }

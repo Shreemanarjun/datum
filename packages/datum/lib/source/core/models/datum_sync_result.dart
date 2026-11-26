@@ -64,7 +64,12 @@ class DatumSyncResult<T extends DatumEntityInterface> {
     this.wasCancelled = false,
     this.error,
     this.skipReason,
+    this.retryAfter,
   });
+
+  /// The longest wait a server asked for (`NetworkException.retryAfter`) on
+  /// operations that failed retryably in this cycle. Not persisted.
+  final Duration? retryAfter;
 
   /// Creates a result for a sync cycle that was skipped.
   factory DatumSyncResult.skipped(
@@ -97,7 +102,8 @@ class DatumSyncResult<T extends DatumEntityInterface> {
         wasSkipped = false,
         wasCancelled = true,
         error = null,
-        skipReason = null;
+        skipReason = null,
+        retryAfter = null;
 
   /// Creates a result for a sync cycle that failed with an error.
   const DatumSyncResult.fromError(this.userId, this.error)
@@ -112,7 +118,8 @@ class DatumSyncResult<T extends DatumEntityInterface> {
         bytesPulledInCycle = 0,
         wasSkipped = false,
         wasCancelled = false,
-        skipReason = null;
+        skipReason = null,
+        retryAfter = null;
 
   /// Whether the sync completed successfully without any failures.
   bool get isSuccess => !wasSkipped && !wasCancelled && failedCount == 0 && error == null;

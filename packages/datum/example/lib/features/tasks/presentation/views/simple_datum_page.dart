@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:datum/datum.dart';
 import 'package:example/bootstrap.dart';
-import 'package:example/features/auth/data/adapters/supabase_adapter.dart';
 import 'package:example/features/tasks/data/entities/task.dart';
 import 'package:example/features/tasks/presentation/controllers/sync_streams.dart';
 import 'package:example/features/tasks/presentation/widgets/pull_button.dart';
@@ -49,56 +48,24 @@ class _SimpleDatumPageState extends State<SimpleDatumPage> with GlobalHelper {
         Supabase.instance.client.auth.onAuthStateChange.listen(_onAuthChange);
   }
 
-  Future<void> _onAuthChange(AuthState authState) async {
-    _userId.value = authState.session?.user.id;
-    if (!Datum.isInitialized) return;
-
-    if (authState.event == AuthChangeEvent.signedOut) {
-      Datum.instance.pauseSync();
-    } else if (authState.event == AuthChangeEvent.signedIn) {
-      final userId = authState.session?.user.id;
-      if (userId == null) return;
-      _waitingForInitialSync.value = true;
-      unawaited(Datum.instance
-          .statusForUser(userId)
-          .firstWhere((s) =>
-              s?.status == DatumSyncStatus.completed ||
-              s?.status == DatumSyncStatus.idle ||
-              s?.status == DatumSyncStatus.failed)
-          .then((_) {
-        if (mounted) _waitingForInitialSync.value = false;
-      }, onError: (Object e) => talker.error('Initial sync wait failed: $e')));
-
-      // Resume sync first
-      Datum.instance.resumeSync();
-
-      // Clear sync metadata to force fresh data from server
-      final remoteAdapter = Datum.manager<Task>().remoteAdapter;
-      if (remoteAdapter is SupabaseRemoteAdapter<Task>) {
-        await remoteAdapter.clearSyncMetadata(userId);
-      }
-
-      // Cold start sync
-      final coldStartPerformed =
-          await Datum.instance.handleColdStartIfNeeded<Task>(
-        userId,
-        (options) =>
-            Datum.manager<Task>().synchronize(userId, options: options),
-      );
-
-      if (!coldStartPerformed) {
-        Datum.instance.synchronize(
-          userId,
-          options: const DatumSyncOptions(
-            direction: SyncDirection.pullThenPush,
-            forceFullSync: true,
-          ),
-        );
-      }
-
-      // Start auto-sync
-      Datum.instance.startAutoSync(userId);
+  /// Follows the signed-in user and shows a loader until their first sync
+  /// settles. Sync itself is driven by the app-level session handler.
+  void _onAuthChange(AuthState authState) {
+    final userId = authState.session?.user.id;
+    _userId.value = userId;
+    final signedIn = authState.event == AuthChangeEvent.signedIn;
+    if (userId == null || !signedIn || !Datum.isInitialized) {
+      return;
     }
+    _waitingForInitialSync.value = true;
+    unawaited(Datum.instance
+        .statusForUser(userId)
+        .firstWhere((s) => s?.status != DatumSyncStatus.syncing)
+        .timeout(const Duration(seconds: 10))
+        .then<void>((_) {}, onError: (Object _) {})
+        .whenComplete(() {
+      if (mounted) _waitingForInitialSync.value = false;
+    }));
   }
 
   @override
@@ -219,8 +186,8 @@ class _SimpleDatumPageState extends State<SimpleDatumPage> with GlobalHelper {
       backgroundColor: theme.colorScheme.background,
       floatingActionButton: FloatingActionButton(
         onPressed: _createTask,
-        backgroundColor: Colors.black,
-        child: const Icon(Icons.add, color: Colors.white),
+        backgroundColor: theme.colorScheme.primary,
+        child: Icon(Icons.add, color: theme.colorScheme.primaryForeground),
       ),
       body: NestedScrollView(
         headerSliverBuilder: (context, innerBoxIsScrolled) => [

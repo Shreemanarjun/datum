@@ -55,6 +55,14 @@ class LocalSyncServer {
   /// e.g. 401 to simulate auth failures, which are non-retryable).
   int failStatusCode = 500;
 
+  /// When set, injected failures carry a `Retry-After: <seconds>` header.
+  int? failRetryAfterSeconds;
+
+  /// Answer the next incremental read (a `/changes` request with a cursor,
+  /// or `/entities?modifiedSince=`) with 410 Gone, as a server does once it
+  /// has compacted its change log past the client's position.
+  bool expireFeedsOnce = false;
+
   /// Number of upcoming matching responses to corrupt (non-JSON garbage body
   /// with a 200 status — simulates proxy mangling / truncated payloads).
   int corruptNextResponses = 0;
@@ -195,6 +203,8 @@ class LocalSyncServer {
     } else if (remainingFailures > 0 &&
         (failMatcher?.call(req.method, path) ?? true)) {
       remainingFailures--;
+      final retryAfter = failRetryAfterSeconds;
+      if (retryAfter != null) req.response.headers.set(HttpHeaders.retryAfterHeader, retryAfter);
       await _respond(req, failStatusCode, {'error': 'injected failure'});
     } else if (_isNth(corruptEveryNth)) {
       await _corruptResponse(req, '{{{chaos-corrupted%%%');
@@ -249,6 +259,7 @@ class LocalSyncServer {
     // Incremental pull support: ?modifiedSince=<ISO-8601> returns only rows
     // the server RECEIVED at or after the watermark (server clock).
     final since = DateTime.tryParse(req.uri.queryParameters['modifiedSince'] ?? '');
+    if (since != null && _feedExpired()) return _respond(req, 410, {'error': 'change log compacted'});
     final items = [
       for (final MapEntry(key: uid, value: byId) in storage.entries)
         if (userId == null || uid == userId)
@@ -300,8 +311,16 @@ class LocalSyncServer {
 
   /// Cursor-based change feed: rows written after the cursor, plus the next
   /// cursor. `cursor` absent/invalid = from the beginning.
+  /// Consumes [expireFeedsOnce].
+  bool _feedExpired() {
+    final expired = expireFeedsOnce;
+    expireFeedsOnce = false;
+    return expired;
+  }
+
   Future<void> _changes(HttpRequest req, String? userId) {
     final cursor = int.tryParse(req.uri.queryParameters['cursor'] ?? '') ?? 0;
+    if (cursor > 0 && _feedExpired()) return _respond(req, 410, {'error': 'cursor expired'});
     final items = <Map<String, dynamic>>[];
     for (final MapEntry(key: uid, value: byId) in storage.entries) {
       if (userId != null && uid != userId) continue;

@@ -156,6 +156,27 @@ void main() {
     expect(deltaPulls(), isEmpty);
   });
 
+  test('a server that can no longer serve the watermark (410) gets a full pull instead of a failed sync', () async {
+    await setUpManager();
+    await manager.synchronize('u1'); // full; sets the watermark
+    server.seed('u1', _entity('late', name: 'arrived').toDatumMap(target: MapTarget.remote));
+    server.pokeMetadata('u1');
+    final fullBefore = fullPulls().length;
+    server.expireFeedsOnce = true;
+
+    final result = await manager.synchronize('u1');
+
+    expect(result.failedCount, 0);
+    expect(deltaPulls(), hasLength(1), reason: 'the delta read was attempted and refused');
+    expect(fullPulls().length, fullBefore + 1, reason: 'then everything was read again');
+    expect((await local.read('late', userId: 'u1'))?.name, 'arrived');
+
+    // The next cycle is incremental again.
+    server.pokeMetadata('u1');
+    await manager.synchronize('u1');
+    expect(deltaPulls(), hasLength(2));
+  });
+
   test('detectRemoteDeletions forces full pulls (needs the complete remote id set)', () async {
     await setUpManager(
       config: const DatumConfig<TestEntity>(detectRemoteDeletions: true),

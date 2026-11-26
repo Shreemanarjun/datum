@@ -81,6 +81,7 @@ const _expectedExports = <String>{
   'source/core/models/datum_sync_status_snapshot.dart',
   'source/core/models/error_strategy.dart',
   'source/core/models/excludable_entity.dart',
+  'source/core/models/related_source.dart',
   'source/core/models/relational_datum_entity.dart',
   'source/core/models/relation_schema.dart',
   'source/core/models/user_switch_models.dart',

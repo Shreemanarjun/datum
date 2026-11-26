@@ -128,3 +128,20 @@ jank on a device.
   the upload failed. Checked live with a temporary `CHECK` constraint: the
   write parked, the banner showed the reason, and Retry delivered it once
   the constraint was dropped.
+
+## Example app changes from the engine audit
+
+- **One place ties sync to the session.** Signing in used to start three or
+  four forced full syncs from the login page and the tasks page. One handler
+  in the initializer now resumes sync, starts auto-sync and syncs once;
+  signing out pauses. App start no longer re-reads every table either (the
+  default cold-start strategy runs a normal, incremental cycle).
+- **Live numbers.** The dashboard shows real values from the engine (changes
+  waiting to upload, item counts, local storage size) instead of fixed
+  sample numbers, and a strip above the tab bar shows how long the last sync
+  of each entity type took.
+- **Undo and redo in the paint screen work on every device,** because they
+  are derived from the synced strokes rather than from a list in memory.
+- **Login:** Enter moves from email to password and submits. **Dark theme:**
+  task titles, the empty state and the add button use theme colors.
+

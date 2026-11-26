@@ -27,7 +27,7 @@ Future<void> waitForMetric(
   timer = Timer(timeout, () {
     if (!completer.isCompleted) {
       subscription?.cancel();
-      completer.completeError(TimeoutException(message: 'Metric condition not met within $timeout'));
+      completer.completeError(DatumTimeoutException(message: 'Metric condition not met within $timeout'));
     }
   });
 

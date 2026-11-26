@@ -48,7 +48,7 @@ class InMemoryRemoteBackend {
       409 => ConflictException(message: 'Injected conflict on $entityId'),
       final s => NetworkException(
         message: 'Injected status $s on $entityId',
-        isRetryable: s >= 500,
+        isRetryable: s >= 500 || s == 408 || s == 429,
       ),
     };
   }

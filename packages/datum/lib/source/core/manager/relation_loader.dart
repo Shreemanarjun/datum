@@ -68,7 +68,7 @@ class RelationLoader<T extends DatumEntityInterface> {
         continue;
       }
 
-      final relatedManager = relation.getRelatedManager();
+      final relatedManager = relation.relatedManager;
       final fetchedRelated = await switch (relation) {
         BelongsTo() => _stitchBelongsTo(relation, entities, relationName, queryIn),
         HasMany() => _stitchHasMany(relation, entities, relationName, queryIn),
@@ -184,7 +184,7 @@ Future<List<DatumEntityInterface>> _stitchBelongsTo(
   final foreignKeyValues = _distinctValues(entities, foreignKeyName);
   if (foreignKeyValues.isEmpty) return const [];
 
-  final related = await queryIn(relation.getRelatedManager(), relation.localKey, foreignKeyValues);
+  final related = await queryIn(relation.relatedManager, relation.localKey, foreignKeyValues);
   final relatedById = {for (final e in related) e.id: e};
   for (final entity in entities) {
     _setRelation(entity, relationName, relatedById[entity.toDatumMap()[foreignKeyName]]);
@@ -202,7 +202,7 @@ Future<List<DatumEntityInterface>> _stitchHasMany(
   final localKeyValues = entities.map((e) => e.id).toSet().toList();
   if (localKeyValues.isEmpty) return const [];
 
-  final related = await queryIn(relation.getRelatedManager(), foreignKeyName, localKeyValues);
+  final related = await queryIn(relation.relatedManager, foreignKeyName, localKeyValues);
   final relatedByParentId = <String, List<DatumEntityInterface>>{};
   for (final r in related) {
     // toDatumMap is on the base interface — related entities need not be relational.
@@ -226,7 +226,7 @@ Future<List<DatumEntityInterface>> _stitchHasOne(
   final localKeyValues = _distinctValues(entities, localKeyName);
   if (localKeyValues.isEmpty) return const [];
 
-  final related = await queryIn(relation.getRelatedManager(), foreignKeyName, localKeyValues);
+  final related = await queryIn(relation.relatedManager, foreignKeyName, localKeyValues);
   final byForeignKey = <Object?, DatumEntityInterface>{};
   for (final r in related) {
     byForeignKey.putIfAbsent(r.toDatumMap()[foreignKeyName], () => r); // first wins for a 1:1
@@ -259,7 +259,7 @@ Future<List<DatumEntityInterface>> _stitchManyToMany(
     allOtherIds.add(otherFk);
   }
 
-  final related = allOtherIds.isEmpty ? const <DatumEntityInterface>[] : await queryIn(relation.getRelatedManager(), relation.otherLocalKey, allOtherIds.toList());
+  final related = allOtherIds.isEmpty ? const <DatumEntityInterface>[] : await queryIn(relation.relatedManager, relation.otherLocalKey, allOtherIds.toList());
   final relatedByOtherLocalKey = {for (final r in related) r.toDatumMap()[relation.otherLocalKey]: r};
   for (final entity in entities) {
     final ids = otherIdsByParent[entity.toDatumMap()[thisLocalKeyName]] ?? const [];

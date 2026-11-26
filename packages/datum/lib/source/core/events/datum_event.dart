@@ -24,14 +24,18 @@ class DatumSyncStartedEvent<T extends DatumEntityInterface> extends DatumSyncEve
   DatumSyncStartedEvent({
     required super.userId,
     this.pendingOperations = 0,
+    this.reason,
     super.timestamp,
   });
 
   /// The number of pending operations to be synced.
   final int pendingOperations;
 
+  /// Why the sync runs (`DatumSyncOptions.reason`), when given.
+  final String? reason;
+
   @override
-  String toString() => '${super.toString()}: DatumSyncStartedEvent(pendingOperations: $pendingOperations)';
+  String toString() => '${super.toString()}: DatumSyncStartedEvent(pendingOperations: $pendingOperations${reason == null ? '' : ', reason: $reason'})';
 }
 
 /// Event fired to report synchronization progress.

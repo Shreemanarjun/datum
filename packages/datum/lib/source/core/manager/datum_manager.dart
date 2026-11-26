@@ -61,6 +61,8 @@ import 'cold_start_manager.dart';
 import 'manager_cache_coordinator.dart';
 import 'relation_loader.dart';
 import 'package:datum/source/core/manager/manager_locator.dart';
+import 'package:datum/source/core/models/map_diff.dart';
+import 'package:datum/source/core/models/related_source.dart';
 
 /// Represents a preview of the cascade delete operation.
 class CascadeDeletePreview {
@@ -103,7 +105,7 @@ class _WeakObserver<U extends Object> {
   U? get target => _ref.target;
 }
 
-class DatumManager<T extends DatumEntityInterface> with Disposable {
+class DatumManager<T extends DatumEntityInterface> with Disposable implements RelatedSource<T> {
   final LocalAdapter<T> localAdapter;
   final RemoteAdapter<T> remoteAdapter;
 
@@ -388,12 +390,15 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     try {
       final stored = await localAdapter.getStoredSchemaVersion();
       if (stored > config.schemaVersion) {
-        // A store written by a newer app version (or a schemaVersion that was
-        // lowered): older code may misread rows it does not understand.
-        // ponytail: warning only — many setups version the adapter but leave
-        // DatumConfig.schemaVersion at 0; make it an error behind a flag if a
-        // hard downgrade guard is wanted.
-        _logger.warn('The local store is at schema v$stored, newer than DatumConfig.schemaVersion (${config.schemaVersion}).');
+        // A store written by a newer app version: older code may misread and
+        // then rewrite rows it does not understand. Refused when this app
+        // versions its schema through Datum; an app that never set a version
+        // (0, no migrations) only gets the warning.
+        final message = 'The local store is at schema v$stored, newer than this app (v${config.schemaVersion}). Update the app.';
+        if (config.schemaVersion > 0 || config.migrations.isNotEmpty) {
+          throw MigrationException(message: message, code: DatumExceptionCode.schemaMismatch);
+        }
+        _logger.warn(message);
       }
       if (await executor.needsMigration()) {
         final result = await executor.execute();
@@ -708,6 +713,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     String? userId,
     DataSource source = DataSource.local,
     bool forceRemoteSync = false,
+    int? expectedVersion,
   }) async {
     userId ??= item.userId;
     _ensureInitialized();
@@ -725,9 +731,16 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       transformed = transformed.incrementClock(deviceId!) as T;
     }
     final existing = await localAdapter.read(item.id, userId: userId);
+    if (expectedVersion != null && existing?.version != expectedVersion) {
+      // The row changed (e.g. a pull applied another device's edit) since the
+      // caller read it: refuse instead of silently overwriting that change.
+      throw ConflictException(
+        message: 'Entity ${item.id} is at version ${existing?.version}, expected $expectedVersion.',
+      );
+    }
 
     if (existing != null) {
-      // This is an update. Calculate the diff.
+      // This is an update. The entity's diff says what changed.
       final delta = transformed.diff(existing);
       if (delta == null) {
         _logger.debug(
@@ -736,7 +749,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         return transformed;
       }
       // If we are here, it's a valid update with changes.
-      final result = await _performUpdate(transformed, delta, source, forceRemoteSync);
+      final result = await _performUpdate(transformed, existing, delta, source, forceRemoteSync);
 
       // Invalidate caches that might be affected by this update
       _cacheCoordinator.invalidateCachesForEntity(result);
@@ -805,7 +818,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     return transformed;
   }
 
-  Future<T> _performUpdate(T transformed, Map<String, dynamic> delta, DataSource source, bool forceRemoteSync) async {
+  Future<T> _performUpdate(T transformed, T existing, Map<String, dynamic> delta, DataSource source, bool forceRemoteSync) async {
     final userId = transformed.userId;
 
     _logger.debug('Notifying observers of onUpdateStart for ${transformed.id}');
@@ -816,11 +829,15 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       weakObserver.target?.onUpdateStart(transformed);
     }
 
-    // The delta is in remote format (it is sent upstream); the local store
-    // gets each changed key in its own local format.
-    final local = transformed.toDatumMap();
-    final localDelta = {for (final key in delta.keys) key: local.containsKey(key) ? local[key] : delta[key]};
-    final patched = await localAdapter.patch(id: transformed.id, delta: localDelta, userId: userId);
+    // [delta] is the entity's diff, in remote keys and formats, and goes
+    // upstream. The local store gets the same change in its own keys and
+    // formats: the diff of the local maps, without fields the remote also
+    // has but the entity did not report (e.g. `createdAt`). Saving those
+    // would leave the local row different from the remote one, which the
+    // next pull reports as a conflict.
+    final remoteKeys = transformed.toDatumMap(target: MapTarget.remote).keys.toSet();
+    final localDelta = diffDatumMaps(transformed.toDatumMap(), existing.toDatumMap())?..removeWhere((key, _) => remoteKeys.contains(key) && !delta.containsKey(key));
+    final patched = localDelta == null || localDelta.isEmpty ? existing : await localAdapter.patch(id: transformed.id, delta: localDelta, userId: userId);
     _recordLocalEcho(transformed.id, patched);
     _recordLocalEcho(transformed.id, transformed);
     _metadataHashCache.invalidate(userId);
@@ -921,6 +938,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// app's perspective while the tombstone still syncs underneath.
   ///
   /// The [withRelated] parameter allows eager loading of related entities.
+  @override
   Future<T?> read(String id, {String? userId, List<String> withRelated = const [], bool includeDeleted = false}) async {
     _ensureInitialized();
 
@@ -1150,6 +1168,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     );
   }
 
+  @override
   Future<List<T>> query(
     DatumQuery query, {
     DataSource source = DataSource.local,
@@ -1509,7 +1528,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// Debounced sync after a local write ([DatumConfig.syncAfterWriteDelay]).
   void _scheduleSyncAfterWrite(String userId) {
     final delay = config.syncAfterWriteDelay;
-    if (delay != null) _deferSync(_syncAfterWriteTimers, userId, delay, 'after write');
+    if (delay != null) _deferSync(_syncAfterWriteTimers, userId, delay, 'after-write');
   }
 
   /// Operations that failed retryably stay queued; re-sync after the
@@ -1522,10 +1541,17 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         if (!op.isParked && op.retryCount > 0) op.retryCount
     ];
     if (attempts.isEmpty) return;
-    final delay = await config.errorRecoveryStrategy.backoffStrategy.getDelay(attempts.reduce((a, b) => a > b ? a : b));
+    var delay = await config.errorRecoveryStrategy.backoffStrategy.getDelay(attempts.reduce((a, b) => a > b ? a : b));
+    // A server that named its own wait (`Retry-After`) is not asked sooner.
+    final asked = result.retryAfter;
+    if (asked != null && asked > delay) delay = asked;
     _logger.info('Retrying ${attempts.length} failed operation(s) for $userId in $delay.');
     _deferSync(_backoffRetryTimers, userId, delay, 'retry');
   }
+
+  /// The default sync options tagged with [reason], for syncs the manager
+  /// starts itself.
+  DatumSyncOptions<T> _because(String reason) => (config.defaultSyncOptions ?? DatumSyncOptions<T>()).copyWith(reason: reason);
 
   /// (Re)arms [timers]' one-shot sync for [userId] after [delay].
   void _deferSync(Map<String, Timer> timers, String userId, Duration delay, String why) {
@@ -1533,7 +1559,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     timers.remove(userId)?.cancel();
     timers[userId] = Timer(delay, () {
       timers.remove(userId);
-      unawaited(synchronize(userId).then<void>((_) {}, onError: (Object e) => _logger.warn('Sync ($why) failed for $userId: $e')));
+      unawaited(synchronize(userId, options: _because(why)).then<void>((_) {}, onError: (Object e) => _logger.warn('Sync ($why) failed for $userId: $e')));
     });
   }
 
@@ -1885,7 +1911,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       if (!relation.shouldSetNullOnDelete || relation is! BelongsTo) continue;
       try {
         // Entities that reference this entity get their foreign keys nulled.
-        await relation.getRelatedManager()._nullifyForeignKey(
+        await relation.relatedManager._nullifyForeignKey(
               relation.foreignKey,
               entity.id,
               userId,
@@ -2069,6 +2095,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
           return result;
         } on Object catch (e, stack) {
           _pauseIfSessionExpired(userId, e);
+          _retryWhenServerAsks(userId, e);
           // Delegate to the shared handler: it processes the events carried
           // inside a SyncExceptionWithEvents and rethrows the original error
           // WITH its original stack trace (the previous inline duplicate of
@@ -2098,13 +2125,20 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     if (!_isSyncPaused) pauseSync();
   }
 
+  /// A failed cycle whose error names a server-requested wait (HTTP
+  /// `Retry-After`) is retried once that wait is over.
+  void _retryWhenServerAsks(String userId, Object error) {
+    final cause = error is SyncExceptionWithEvents ? error.originalError : error;
+    if (cause is NetworkException && cause.retryAfter != null) _deferSync(_backoffRetryTimers, userId, cause.retryAfter!, 'retry-after');
+  }
+
   /// Resumes an auth pause and re-syncs the affected users.
   void _resumeAfterSignIn() {
     if (_authPausedUserIds.isEmpty || isDisposed) return;
     final userIds = {..._authPausedUserIds};
     resumeSync();
     for (final userId in userIds) {
-      unawaited(synchronize(userId).then<void>((_) {}, onError: (Object e) => _logger.warn('Re-sync after sign-in failed for $userId: $e')));
+      unawaited(synchronize(userId, options: _because('sign-in')).then<void>((_) {}, onError: (Object e) => _logger.warn('Re-sync after sign-in failed for $userId: $e')));
     }
   }
 
@@ -2129,18 +2163,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   DatumSyncOptions<T>? _resolveTypedSyncOptions(DatumSyncOptions<DatumEntityInterface>? options, int pendingCount, String userId) {
     final merged = _mergeSyncOptions(options);
     // Options may arrive with a different generic type from Datum.
-    final typedOptions = merged == null
-        ? null
-        : DatumSyncOptions<T>(
-            includeDeletes: merged.includeDeletes,
-            resolveConflicts: merged.resolveConflicts,
-            forceFullSync: merged.forceFullSync,
-            overrideBatchSize: merged.overrideBatchSize,
-            timeout: merged.timeout,
-            direction: merged.direction,
-            conflictResolver: merged.conflictResolver is DatumConflictResolver<T> ? merged.conflictResolver as DatumConflictResolver<T> : null,
-            query: merged.query,
-          );
+    final typedOptions = merged?.retype<T>();
 
     final resolver = config.syncDirectionResolver;
     if (resolver == null) return typedOptions;
@@ -2199,8 +2222,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         health: const DatumHealth(status: DatumSyncHealth.error),
       ));
     }
-    throw DatumException(
-      code: DatumExceptionCode.timeout,
+    throw DatumTimeoutException(
       message: 'Synchronization for user $userId timed out after ${effectiveTimeout.inMilliseconds}ms.',
     );
   }
@@ -2357,7 +2379,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       _autoSyncTimers.remove(userId);
 
       try {
-        await synchronize(userId);
+        await synchronize(userId, options: _because('auto'));
         // After successful sync, schedule the next one
         _scheduleNextAutoSync(userId, token);
       } catch (e, stack) {
@@ -2646,13 +2668,13 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// Completes once [userId] has nothing left to upload. It only waits —
   /// call [synchronize] or rely on auto-sync to make progress. Parked
   /// operations keep it waiting; with [timeout] it then throws Datum's
-  /// [TimeoutException].
+  /// [DatumTimeoutException].
   Future<void> waitUntilSynced(String userId, {Duration? timeout}) {
     final synced = watchPendingCount(userId).firstWhere((count) => count == 0);
     if (timeout == null) return synced;
     return synced.timeout(
       timeout,
-      onTimeout: () => throw TimeoutException(message: 'Operations for $userId were still waiting to upload after $timeout.'),
+      onTimeout: () => throw DatumTimeoutException(message: 'Operations for $userId were still waiting to upload after $timeout.'),
     );
   }
 
@@ -2723,16 +2745,12 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     if (defaults == null) return provided;
     if (provided == null) return defaults;
 
-    // Merge provided options with defaults, preferring provided values
-    return DatumSyncOptions<DatumEntityInterface>(
-      includeDeletes: provided.includeDeletes,
-      resolveConflicts: provided.resolveConflicts,
-      forceFullSync: provided.forceFullSync,
+    // Provided values win; unset ones fall back to the defaults.
+    return provided.copyWith(
       overrideBatchSize: provided.overrideBatchSize ?? defaults.overrideBatchSize,
       timeout: provided.timeout ?? defaults.timeout,
       direction: provided.direction ?? defaults.direction,
       conflictResolver: provided.conflictResolver ?? defaults.conflictResolver,
-      query: provided.query,
     );
   }
 

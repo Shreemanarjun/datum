@@ -1,6 +1,7 @@
 import 'package:example/features/tasks/data/entities/task.dart';
 import 'package:example/features/tasks/presentation/widgets/task_list_item.dart';
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 
 class TaskList extends StatelessWidget {
@@ -21,6 +22,7 @@ class TaskList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     return tasks.map(
       data: (tasks) {
         if (tasks.isEmpty) {
@@ -31,7 +33,7 @@ class TaskList extends StatelessWidget {
                 Icon(
                   Icons.task_alt,
                   size: 64,
-                  color: Colors.grey.shade300,
+                  color: colors.mutedForeground,
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -39,7 +41,7 @@ class TaskList extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade800,
+                    color: colors.foreground,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -47,7 +49,7 @@ class TaskList extends StatelessWidget {
                   'Create a task to get started!',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.grey.shade500,
+                    color: colors.mutedForeground,
                   ),
                 ),
               ],

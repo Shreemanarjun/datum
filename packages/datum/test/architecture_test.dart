@@ -37,14 +37,7 @@ const _rank = {
 };
 
 /// Known violations of the dependency rule. This list may only shrink.
-///
-/// Relation objects (`user.posts.fetch()`) live on the entity and return
-/// through a manager, so the relational entity model reaches up to the
-/// manager layer. Removing it means moving relation loading off the entity.
-const _baseline = {
-  'core/models/relational_datum_entity.dart -> core/manager/datum_manager.dart',
-  'core/models/relational_datum_entity.dart -> core/manager/manager_locator.dart',
-};
+const _baseline = <String>{};
 
 String _layer(String relative) {
   final parts = relative.split('/');

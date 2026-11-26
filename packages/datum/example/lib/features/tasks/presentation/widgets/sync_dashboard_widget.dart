@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 import 'package:datum/datum.dart';
 import 'package:example/features/tasks/presentation/controllers/sync_streams.dart';
@@ -169,10 +170,10 @@ class _SyncDashboardWidgetState extends State<SyncDashboardWidget> {
   Widget _buildSectionHeader(String title) {
     return Text(
       title,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w600,
-        color: Colors.black87,
+        color: ShadTheme.of(context).colorScheme.foreground,
       ),
     );
   }

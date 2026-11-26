@@ -177,7 +177,9 @@ void main() {
         final result = await manager.coldStartManager.handleColdStartIfNeeded(
           'user1',
           (options) async {
-            syncCalled.add(true);
+            // A normal cycle (skippable, incremental) — never a forced
+            // full re-read of the remote on every app start.
+            syncCalled.add(options.forceFullSync);
             return const DatumSyncResult<TestEntity>(
               userId: 'user1',
               duration: Duration.zero,
@@ -191,7 +193,7 @@ void main() {
         );
 
         expect(result, isTrue);
-        expect(syncCalled.length, 1);
+        expect(syncCalled, [false]);
       });
 
       test('should skip sync when within threshold', () async {

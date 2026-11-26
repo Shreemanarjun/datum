@@ -116,14 +116,31 @@ class DatumException extends Equatable implements Exception {
 /// Exception thrown when a network-related error occurs.
 class NetworkException extends DatumException {
   final bool isRetryable;
+
+  /// How long the server asked clients to wait before trying again (HTTP
+  /// `Retry-After`), when it said. The engine waits at least this long.
+  final Duration? retryAfter;
+
   const NetworkException({
     required super.message,
     super.details,
     this.isRetryable = true,
+    this.retryAfter,
   }) : super(code: DatumExceptionCode.networkError);
 
   @override
-  List<Object?> get props => [...super.props, isRetryable];
+  List<Object?> get props => [...super.props, isRetryable, retryAfter];
+}
+
+/// Thrown by a remote adapter's incremental read (`readSince` /
+/// `readChanges`) when the server can no longer serve changes from the given
+/// watermark or cursor — a compacted change log, an expired cursor, HTTP 410.
+/// The engine answers by reading everything again.
+class ResyncRequiredException extends DatumException {
+  const ResyncRequiredException({
+    required super.message,
+    super.details,
+  }) : super(code: DatumExceptionCode.preconditionFailed);
 }
 
 /// Exception thrown when a conflict is detected during synchronization.
@@ -210,9 +227,10 @@ class ValidationException extends DatumException {
   List<Object?> get props => [...super.props];
 }
 
-/// Exception thrown when an operation times out.
-class TimeoutException extends DatumException {
-  const TimeoutException({
+/// Exception thrown when an operation times out. (Named apart from
+/// `dart:async`'s `TimeoutException`, which `Future.timeout` throws.)
+class DatumTimeoutException extends DatumException {
+  const DatumTimeoutException({
     required super.message,
     super.details,
   }) : super(code: DatumExceptionCode.timeout);

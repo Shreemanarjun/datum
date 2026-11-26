@@ -232,18 +232,18 @@ void main() {
     });
   });
 
-  group('TimeoutException', () {
+  group('DatumTimeoutException', () {
     test('should have correct equality', () {
-      const exception1 = TimeoutException(message: 'Operation timed out');
-      const exception2 = TimeoutException(message: 'Operation timed out');
-      const exception3 = TimeoutException(message: 'Connection timed out');
+      const exception1 = DatumTimeoutException(message: 'Operation timed out');
+      const exception2 = DatumTimeoutException(message: 'Operation timed out');
+      const exception3 = DatumTimeoutException(message: 'Connection timed out');
 
       expect(exception1, equals(exception2));
       expect(exception1, isNot(equals(exception3)));
     });
 
     test('should have correct string representation', () {
-      const exception = TimeoutException(message: 'Operation timed out');
+      const exception = DatumTimeoutException(message: 'Operation timed out');
       expect(exception.toString(), 'DatumException(timeout): Operation timed out');
     });
   });

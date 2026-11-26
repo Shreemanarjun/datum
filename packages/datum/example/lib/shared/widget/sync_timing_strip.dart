@@ -60,7 +60,7 @@ class _SyncTimingStripState extends State<SyncTimingStrip> {
         scrollDirection: Axis.horizontal,
         child: Text(
           _last.isEmpty
-              ? 'Last sync: waiting for the first cycle'
+              ? 'No sync has run yet in this session'
               : [
                   for (final MapEntry(key: type, value: t) in _last.entries)
                     '$type ${t.took.inMilliseconds} ms'

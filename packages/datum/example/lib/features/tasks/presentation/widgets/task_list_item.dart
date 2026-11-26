@@ -21,6 +21,8 @@ class TaskListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Theme colors, so titles stay readable in dark mode.
+    final colors = ShadTheme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ShadCard(
@@ -36,7 +38,8 @@ class TaskListItem extends StatelessWidget {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(4),
                 ),
-                activeColor: Colors.black,
+                activeColor: colors.primary,
+                checkColor: colors.primaryForeground,
                 onChanged: (isCompleted) {
                   if (isCompleted == null) return;
                   onToggle(task.copyWith(
@@ -61,8 +64,8 @@ class TaskListItem extends StatelessWidget {
                       decoration:
                           task.isCompleted ? TextDecoration.lineThrough : null,
                       color: task.isCompleted
-                          ? Colors.grey.shade500
-                          : Colors.black87,
+                          ? colors.mutedForeground
+                          : colors.foreground,
                     ),
                   ),
                   if (task.description?.isNotEmpty == true) ...[
@@ -71,7 +74,7 @@ class TaskListItem extends StatelessWidget {
                       task.description!,
                       style: TextStyle(
                         fontSize: 14,
-                        color: Colors.grey.shade600,
+                        color: colors.mutedForeground,
                         decoration: task.isCompleted
                             ? TextDecoration.lineThrough
                             : null,

@@ -337,6 +337,62 @@ void main() {
     expect(server.storage['u1']?['idle'], isNull);
   });
 
+  test('429 with Retry-After: the op is retried by itself, no sooner than the server asked', () async {
+    final device = await newDevice(
+      config: DatumConfig<TestEntity>(
+        errorRecoveryStrategy: DatumErrorRecoveryStrategy(
+          shouldRetry: (e) async => e is NetworkException && e.isRetryable,
+          backoffStrategy: const FixedBackoff(delay: Duration(milliseconds: 10)),
+        ),
+      ),
+    );
+    addTearDown(device.dispose);
+    await device.push(item: TestEntity.create('e1', 'u1', 'throttled'), userId: 'u1');
+    server
+      ..failStatusCode = 429
+      ..failRetryAfterSeconds = 1
+      ..failMatcher = ((method, path) => method == 'POST')
+      ..remainingFailures = 1;
+    final reasons = <String?>[];
+    final sub = device.onSyncStarted.listen((e) => reasons.add(e.reason));
+    addTearDown(sub.cancel);
+
+    final retried = device.onSyncCompleted.skip(1).first;
+    final watch = Stopwatch()..start();
+    final first = await device.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pushOnly, reason: 'manual'));
+
+    expect(first.retryAfter, const Duration(seconds: 1));
+    expect((await device.getPendingOperations('u1')).single.retryCount, 1);
+    expect(server.storage['u1']?['e1'], isNull);
+
+    await retried.timeout(const Duration(seconds: 5));
+    expect(watch.elapsed, greaterThanOrEqualTo(const Duration(milliseconds: 950)), reason: 'the 10 ms backoff must not undercut Retry-After');
+    expect(server.storage['u1']?['e1']?['name'], 'throttled');
+    expect(await device.getPendingCount('u1'), 0);
+    expect(reasons, ['manual', 'retry']);
+  });
+
+  test('a throttled pull (429 + Retry-After) fails the cycle and is retried once the wait is over', () async {
+    final device = await newDevice();
+    addTearDown(device.dispose);
+    server.seed('u1', TestEntity.create('r1', 'u1', 'remote').toDatumMap(target: MapTarget.remote));
+    server
+      ..failStatusCode = 429
+      ..failRetryAfterSeconds = 1
+      ..failMatcher = ((method, path) => method == 'GET' && path == '/entities')
+      ..remainingFailures = 1;
+
+    final retried = device.onSyncCompleted.first;
+    await expectLater(
+      device.synchronize('u1'),
+      throwsA(isA<NetworkException>().having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 1))),
+    );
+    expect(await device.read('r1', userId: 'u1'), isNull);
+
+    await retried.timeout(const Duration(seconds: 5));
+    expect((await device.read('r1', userId: 'u1'))?.name, 'remote');
+  });
+
   test('403 parks the op (never drops it); retry re-arms it', () async {
     await manager.push(item: TestEntity.create('e1', 'u1', 'forbidden'), userId: 'u1');
 

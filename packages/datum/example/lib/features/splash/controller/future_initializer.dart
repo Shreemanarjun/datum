@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:datum/datum.dart' hide IsolateStrategy;
 
 import 'package:example/const/secrets.dart';
@@ -168,6 +169,24 @@ Future<void> initializeApp() async {
           Error.throwWithStackTrace(error, stackTrace ?? StackTrace.current),
       (_) {});
   syncThemeWithAccount();
+  _syncWithSession();
+}
+
+/// Ties sync to the Supabase session: signing in resumes sync, starts
+/// auto-sync and syncs once; signing out pauses it. (At app start the
+/// persisted session is covered by `autoStartSync` and the cold-start sync.)
+void _syncWithSession() {
+  Supabase.instance.client.auth.onAuthStateChange.listen((state) {
+    final userId = state.session?.user.id;
+    if (state.event == AuthChangeEvent.signedOut) {
+      Datum.instance.pauseSync();
+    } else if (state.event == AuthChangeEvent.signedIn && userId != null) {
+      Datum.instance.resumeSync();
+      Datum.instance.startAutoSync(userId);
+      unawaited(Datum.instance.synchronize(userId).then<void>((_) {},
+          onError: (Object e) => talker.warning('Sign-in sync failed: $e')));
+    }
+  });
 }
 
 /// App startup. Read by the splash screen; errors surface there.

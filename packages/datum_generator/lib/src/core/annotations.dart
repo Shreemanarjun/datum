@@ -83,9 +83,13 @@ class DatumField {
   ///
   /// `null` (default) keeps the built-in rule: every serialized field is
   /// compared except the identity and bookkeeping ones (`id`, `userId`,
-  /// `createdAt`, `modifiedAt`, `version`). Set `false` to keep a field out
-  /// of update deltas (e.g. a local-only counter that should never trigger
-  /// an upload on its own), or `true` to force a bookkeeping field in.
+  /// `createdAt`, `modifiedAt`, `version`).
+  ///
+  /// `false` treats the field like `id` or `createdAt`: it is written when
+  /// the row is created and ignored by later updates — a change to it is
+  /// neither saved locally nor uploaded. Use it for set-once values
+  /// (`createdBy`, `kind`). `true` makes a bookkeeping field count as a
+  /// change (e.g. to sync an edited `createdAt`).
   final bool? diff;
 
   const DatumField({this.name, this.fromGenerator, this.toGenerator, this.diff});

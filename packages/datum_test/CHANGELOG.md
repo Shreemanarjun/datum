@@ -1,5 +1,13 @@
 ## Unreleased
 
+- `LocalSyncServer`: `failRetryAfterSeconds` (adds `Retry-After` to injected
+  failures) and `expireFeedsOnce` (410 on the next incremental read).
+  `HttpRemoteAdapter` maps `Retry-After`, 410 → `ResyncRequiredException`,
+  and treats 408/429 as retryable (so does the in-memory remote).
+- Sync-stack suite: `push(expectedVersion:)`, `RemotePriorityResolver` under
+  clock skew in both sync directions, and a rate-limited write (429).
+
+
 - Migration conformance: the migration history lists applied steps in
   order, records a failing step as failed, and survives a relaunch.
 - Sync-stack suite: backoff retry, `includeDeletes: false`,

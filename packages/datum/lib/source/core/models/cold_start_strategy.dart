@@ -3,10 +3,12 @@ enum ColdStartStrategy {
   /// No automatic sync on cold start
   disabled,
 
-  /// Always perform full sync on cold start (current behavior)
+  /// Re-read everything from the remote on cold start (`forceFullSync`).
   fullSync,
 
-  /// Smart sync based on time since last sync, network, and battery conditions
+  /// Sync on cold start when the last cold-start sync is older than
+  /// `syncThreshold`. The cycle is a normal one: skipped when nothing
+  /// changed, incremental when the remote adapter supports it.
   adaptive,
 
   /// Only sync changes since last successful sync

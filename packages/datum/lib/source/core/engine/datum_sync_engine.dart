@@ -151,7 +151,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       generatedEvents,
       // Use the freshly fetched count — `snapshot` was captured before this
       // cycle and reported a stale (often zero) pending count in the event.
-      DatumSyncStartedEvent<T>(userId: userId, pendingOperations: pendingAtStart),
+      DatumSyncStartedEvent<T>(userId: userId, pendingOperations: pendingAtStart, reason: options?.reason),
     );
 
     try {
@@ -292,6 +292,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       totalBytesPushed: (totals.previous?.totalBytesPushed ?? 0) + totals.pushed,
       totalBytesPulled: (totals.previous?.totalBytesPulled ?? 0) + totals.pulled,
       wasCancelled: wasCancelled,
+      retryAfter: _retryAfter,
     );
   }
 
@@ -355,6 +356,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     int cumulativeBytesPushed = 0;
     int bytesPushed = 0;
     _blockedEntityIds.clear();
+    _retryAfter = null;
     final pending = await queueManager.getPending(userId);
     // Parked ops stay queued, and nothing later for the same entity may
     // overtake them. Deletes held back by `includeDeletes: false` hold their
@@ -500,6 +502,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       await queueManager.update(updatedOp);
       // Later ops for this entity must not overtake the failed one.
       _blockedEntityIds.add(operation.entityId);
+      if (e is NetworkException) _retryAfter = _longer(_retryAfter, e.retryAfter);
       logger.warn(
         'Operation ${operation.id} failed. Will retry on next sync.',
       );
@@ -530,6 +533,11 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     // receives the correctly typed exception, not just the raw `e`.
     throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
   }
+
+  /// The longest server-requested wait seen on this cycle's retryable failures.
+  Duration? _retryAfter;
+
+  static Duration? _longer(Duration? a, Duration? b) => a == null || (b != null && b > a) ? b : a;
 
   /// Sends a single (non-batched) operation to the remote adapter.
   Future<void> _sendToRemote(DatumSyncOperation<T> operation) async {
@@ -786,37 +794,54 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   /// Reads this cycle's remote items: a cursor feed or delta read when the
   /// adapter supports it and [allowDelta] holds, otherwise a full read.
   Future<List<T>> _fetchRemoteItems(String userId, DatumSyncScope? scope, {required bool allowDelta}) async {
+    if (allowDelta && config.enableDeltaSync) {
+      try {
+        final incremental = await _fetchIncremental(userId, scope);
+        if (incremental != null) return incremental;
+      } on ResyncRequiredException catch (e) {
+        // The server cannot serve changes from our position any more (a
+        // compacted log, an expired cursor): read everything again.
+        logger.warn('Remote requires a full resync for user $userId: ${e.message}');
+        final remote = remoteAdapter;
+        // No promotion: CursorSyncCapable is not a RemoteAdapter subtype.
+        if (remote is CursorSyncCapable<T>) return _readFeed(remote as CursorSyncCapable<T>, null, userId, scope);
+      }
+    }
+    return await remoteAdapter.readAll(userId: userId, scope: scope);
+  }
+
+  /// A cursor or delta read, when the adapter supports one and this device
+  /// has a position to read from; otherwise null (do a full read).
+  Future<List<T>?> _fetchIncremental(String userId, DatumSyncScope? scope) async {
     final remote = remoteAdapter;
-    final deltaAllowed = allowDelta && config.enableDeltaSync;
-    if (deltaAllowed && remote is CursorSyncCapable<T>) {
+    if (remote is CursorSyncCapable<T>) {
       // Cursor-based incremental pull — the generalized (v2) path. A null
       // cursor means "from the beginning", so even the first sync goes
       // through the feed; the returned cursor persists via sync metadata.
       final metadata = await localAdapter.getSyncMetadata(userId);
       final cursor = metadata?.customMetadata?[syncCursorKey] as String?;
       logger.info('Cursor pull for user $userId (cursor: ${cursor ?? '<start>'}).');
-      // No promotion: CursorSyncCapable is not a RemoteAdapter subtype.
-      final page = await (remote as CursorSyncCapable<T>).readChanges(cursor, userId: userId, scope: scope);
-      _pendingCursors[userId] = page.nextCursor;
-      return page.items;
+      return _readFeed(remote as CursorSyncCapable<T>, cursor, userId, scope);
     }
-    if (deltaAllowed && remote is DeltaSyncCapable<T>) {
-      final metadata = await localAdapter.getSyncMetadata(userId);
-      // Prefer the server's own clock when the adapter recorded one; fall
-      // back to the local sync stamp.
-      final watermark = metadata?.serverTimestamp ?? metadata?.lastSyncTime;
-      if (watermark != null) {
-        // Incremental pull: only rows modified since the watermark, widened
-        // by the configured overlap to tolerate clock skew. Re-delivered
-        // rows are dropped by the strictly-newer check, so the overlap is
-        // idempotent.
-        final since = watermark.subtract(config.deltaSyncOverlap);
-        logger.info('Delta pull for user $userId: entities modified since $since.');
-        // No promotion: DeltaSyncCapable is not a RemoteAdapter subtype.
-        return await (remote as DeltaSyncCapable<T>).readSince(since, userId: userId, scope: scope);
-      }
-    }
-    return await remoteAdapter.readAll(userId: userId, scope: scope);
+    if (remote is! DeltaSyncCapable<T>) return null;
+    final metadata = await localAdapter.getSyncMetadata(userId);
+    // Prefer the server's own clock when the adapter recorded one; fall
+    // back to the local sync stamp.
+    final watermark = metadata?.serverTimestamp ?? metadata?.lastSyncTime;
+    if (watermark == null) return null;
+    // Incremental pull: only rows modified since the watermark, widened by
+    // the configured overlap to tolerate clock skew. Re-delivered rows are
+    // dropped by the strictly-newer check, so the overlap is idempotent.
+    final since = watermark.subtract(config.deltaSyncOverlap);
+    logger.info('Delta pull for user $userId: entities modified since $since.');
+    return (remote as DeltaSyncCapable<T>).readSince(since, userId: userId, scope: scope);
+  }
+
+  /// Reads the change feed from [cursor] and stages the cursor it returns.
+  Future<List<T>> _readFeed(CursorSyncCapable<T> feed, String? cursor, String userId, DatumSyncScope? scope) async {
+    final page = await feed.readChanges(cursor, userId: userId, scope: scope);
+    _pendingCursors[userId] = page.nextCursor;
+    return page.items;
   }
 
   /// Where a pulled, non-conflicting [remoteItem] goes: [toCreate] when new,

@@ -1,8 +1,8 @@
 ## Unreleased
 
-- `@DatumField(diff: false)` keeps a serialized field out of the generated
-  `diff` (it never triggers an update on its own); `diff: true` forces a
-  bookkeeping field in. Default rule unchanged otherwise.
+- `@DatumField(diff: false)` makes a field set-once, like `id` or
+  `createdAt`: written at creation, ignored by later updates. `diff: true`
+  makes a bookkeeping field count as a change. Default rule unchanged.
 
 
 - **Fix:** generated `datumDiff` ignored `isDeleted`, so pushing

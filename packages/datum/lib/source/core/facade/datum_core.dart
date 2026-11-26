@@ -26,7 +26,6 @@ import 'package:datum/source/core/models/user_switch_models.dart';
 import 'package:datum/source/core/persistence/datum_persistence.dart';
 import 'package:datum/source/core/persistence/in_memory_datum_persistence.dart';
 import 'package:datum/source/core/query/datum_query.dart';
-import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart';
 import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
 import 'package:datum/source/utils/connectivity_checker.dart';
@@ -1205,17 +1204,7 @@ class Datum {
     return Datum.manager<T>().coldStartManager.handleColdStartIfNeeded(
       userId,
       (options) async {
-        // Convert the generic DatumSyncOptions to the specific type expected
-        final typedOptions = DatumSyncOptions<T>(
-          forceFullSync: options.forceFullSync,
-          timeout: options.timeout,
-          direction: options.direction,
-          includeDeletes: options.includeDeletes,
-          resolveConflicts: options.resolveConflicts,
-          overrideBatchSize: options.overrideBatchSize,
-          conflictResolver: options.conflictResolver != null ? (options.conflictResolver is DatumConflictResolver<T> ? options.conflictResolver as DatumConflictResolver<T> : null) : null,
-          query: options.query,
-        );
+        final typedOptions = options.retype<T>();
         return await syncFunction(typedOptions);
       },
       entityType: T.toString(),

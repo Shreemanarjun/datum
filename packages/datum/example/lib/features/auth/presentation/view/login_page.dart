@@ -1,5 +1,3 @@
-import 'package:datum/source/core/facade/datum_core.dart';
-import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:example/bootstrap.dart';
 import 'package:example/features/auth/presentation/view/supabase_security_dialog.dart';
 import 'package:example/shared/helper/global_helper.dart';
@@ -29,34 +27,9 @@ class _LoginPageState extends State<LoginPage> with GlobalHelper {
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
-        if (authResponse.user != null && authResponse.session != null) {
-          talker.debug(authResponse.user);
-          talker.debug(authResponse.session);
-          // If there's a current user, perform an initial sync to fetch remote data
-          final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-          if (currentUserId != null) {
-            try {
-              talker.info(
-                  'Performing initial remote data fetch on login for user: $currentUserId');
-              await Datum.instance.synchronize(
-                currentUserId,
-                options: const DatumSyncOptions(
-                  direction: SyncDirection.pullThenPush,
-                  forceFullSync: true,
-                ),
-              );
-              talker.info('Initial remote data fetch completed successfully');
-
-              // Start auto-sync for the logged-in user
-              Datum.instance.synchronize(currentUserId);
-              talker.info('Auto-sync started for user: $currentUserId');
-            } catch (e) {
-              talker.warning(
-                  'Initial remote data fetch failed, but app will continue: $e');
-              // Don't throw here - we don't want to crash the app if initial sync fails
-            }
-          }
-        }
+        // Nothing else to do: the router and the sync session both follow the
+        // Supabase auth state.
+        talker.debug('Signed in: ${authResponse.user?.id}');
       } on AuthException catch (e, s) {
         talker.error(e, s);
         final message = switch (e) {
@@ -150,6 +123,9 @@ class _LoginPageState extends State<LoginPage> with GlobalHelper {
                       controller: _emailController,
                       leading: const Text('Email'),
                       placeholder: const Text('name@example.com'),
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.email],
                     ),
                     const SizedBox(height: 16),
                     ShadInput(
@@ -157,6 +133,9 @@ class _LoginPageState extends State<LoginPage> with GlobalHelper {
                       leading: const Text('Password'),
                       placeholder: const Text('Enter your password'),
                       obscureText: true,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.password],
+                      onSubmitted: (_) => _login(),
                     ),
                   ],
                 ),

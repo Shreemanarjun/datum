@@ -172,7 +172,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
       for (final relatedEntity in await getRelatedEntities(entity, relation, userId)) {
         final relatedStep = CascadeDeleteStep(
           entity: relatedEntity,
-          manager: relation.getRelatedManager(),
+          manager: relation.relatedManager,
           relationName: relationName,
         );
         await _buildDeletePlanRecursive(relatedStep, userId, state);
@@ -192,7 +192,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
     for (final relatedEntity in await getRelatedEntities(entity, relation, userId)) {
       state.order.add(CascadeDeleteStep(
         entity: relatedEntity,
-        manager: relation.getRelatedManager(),
+        manager: relation.relatedManager,
         relationName: relationName,
         type: CascadeStepType.update,
         updateData: {foreignKeyName: null},
@@ -225,7 +225,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
         final localKeyValue = parent.toDatumMap()[localKey];
         if (localKeyValue == null) return [];
 
-        results = await relation.getRelatedManager().query(
+        results = await relation.relatedManager.query(
               DatumQuery(filters: [Filter(foreignKey, FilterOperator.equals, localKeyValue)]),
               source: DataSource.local,
               // Scope to the requesting user: another user's rows can share
@@ -254,7 +254,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
         if (otherForeignKeys.isEmpty) return [];
 
         // Get the manager for the target entity type
-        final relatedManager = relation.getRelatedManager();
+        final relatedManager = relation.relatedManager;
 
         // Query the target entity manager to get the related entities
         results = await relatedManager.query(
@@ -266,7 +266,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
         final foreignKeyValue = parent.toDatumMap()[relation.foreignKey];
         if (foreignKeyValue == null) return [];
 
-        final manager = relation.getRelatedManager();
+        final manager = relation.relatedManager;
         final entity = await manager.read(foreignKeyValue, userId: userId);
         results = entity != null ? [entity] : [];
     }

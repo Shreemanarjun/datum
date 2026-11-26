@@ -84,6 +84,25 @@ void main() {
     expect(int.parse(secondCursor), greaterThan(int.parse(firstCursor)), reason: 'cursor advances');
   });
 
+  test('an expired cursor (410) restarts the feed from the beginning and stores the new cursor', () async {
+    server.seed('u1', _entity('a').toDatumMap(target: MapTarget.remote));
+    await manager.synchronize('u1');
+    server.seed('u1', _entity('b', name: 'after expiry').toDatumMap(target: MapTarget.remote));
+    server.pokeMetadata('u1');
+    server.expireFeedsOnce = true;
+
+    final result = await manager.synchronize('u1');
+
+    expect(result.failedCount, 0);
+    final pulls = changeFeedPulls();
+    expect(pulls, hasLength(3));
+    expect(pulls[1].queryParameters.containsKey('cursor'), isTrue, reason: 'the stored cursor was tried');
+    expect(pulls[2].queryParameters.containsKey('cursor'), isFalse, reason: 'then the feed was read from the start');
+    expect(fullEntityPulls(), isEmpty, reason: 'a cursor adapter restarts its feed, it does not fall back to /entities');
+    expect((await local.read('b', userId: 'u1'))?.name, 'after expiry');
+    expect((await local.getSyncMetadata('u1'))!.customMetadata!['__sync_cursor__'], '${server.changeSeq}');
+  });
+
   test('the cursor survives an app restart (new manager, same local store)', () async {
     server.seed('u1', _entity('a').toDatumMap(target: MapTarget.remote));
     await manager.synchronize('u1');

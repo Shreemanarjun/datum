@@ -26,7 +26,7 @@ void main() {
           DatumExceptionCode.validationError,
         ),
         (
-          TimeoutException(message: 'took too long', details: details),
+          DatumTimeoutException(message: 'took too long', details: details),
           DatumExceptionCode.timeout,
         ),
         (

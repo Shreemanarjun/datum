@@ -53,6 +53,14 @@ class HttpRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapter<T>
       }
       final response = await request.close();
       final text = await utf8.decodeStream(response);
+      final retryAfter = int.tryParse(response.headers.value(HttpHeaders.retryAfterHeader) ?? '');
+      if (retryAfter != null && response.statusCode >= 400) {
+        // The server named its own wait: surface it so the engine honors it.
+        throw NetworkException(
+          message: 'Server responded ${response.statusCode}: $text',
+          retryAfter: Duration(seconds: retryAfter),
+        );
+      }
       return (response.statusCode, text);
     } on SocketException catch (e) {
       throw NetworkException(
@@ -94,9 +102,13 @@ class HttpRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapter<T>
     if (status == 401) {
       throw AuthenticationException(message: 'Server responded 401: $body');
     }
+    if (status == 410) {
+      throw ResyncRequiredException(message: 'Server responded 410: $body');
+    }
     throw NetworkException(
       message: 'Server responded $status: $body',
-      isRetryable: status >= 500,
+      // 408 (timeout) and 429 (rate limit) are worth another try, like 5xx.
+      isRetryable: status >= 500 || status == 408 || status == 429,
     );
   }
 

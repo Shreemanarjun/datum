@@ -304,12 +304,10 @@ class ColdStartManager {
   }
 
   /// Determines if full sync should be forced based on strategy.
-  bool _shouldForceFullSync() => switch (_config.strategy) {
-        // `disabled` never reaches this switch (handleColdStartIfNeeded
-        // returns early), but exhaustiveness requires it; it shares the arm.
-        ColdStartStrategy.fullSync || ColdStartStrategy.adaptive => true,
-        ColdStartStrategy.incremental || ColdStartStrategy.priorityBased || ColdStartStrategy.disabled => false,
-      };
+  /// Only the `fullSync` strategy re-reads everything. The others run a
+  /// normal cycle: skipped when nothing changed, incremental when the remote
+  /// adapter supports it.
+  bool _shouldForceFullSync() => _config.strategy == ColdStartStrategy.fullSync;
 
   /// Resets cold start state for a specific user (useful for testing).
   void resetForUser(String userId) {

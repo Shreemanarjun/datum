@@ -6,7 +6,8 @@ and what is still open. Compared against the Rust/C/C++ engines listed under
 
 ## 1. Capability comparison
 
-"Had" = already in Datum. "Added" = added in this pass. "Open" = not available.
+"Had" = already in Datum. "Added" / "Fixed" = done in this pass. Anything
+else says why.
 
 ### Sync control
 
@@ -23,8 +24,8 @@ and what is still open. Compared against the Rust/C/C++ engines listed under
 | Per-item permanent failures | LiteCore, Mozilla, Realm | Had: parked operations, `retryParkedOperations`, `discardParkedOperations` |
 | Backoff between retries | Realm, LiteCore, Mozilla | Fixed: the configured backoff was never applied (see §2) |
 | Pause on expired login, resume on sign-in | PowerSync, Realm (token refresh) | Added: `AuthErrorPolicy.pauseSync` + `DatumConfig.authState` |
-| Server-requested backoff (`Retry-After`) | Mozilla | Open |
-| Sync reason tag | Mozilla | Open |
+| Server-requested backoff (`Retry-After`) | Mozilla | Added: `NetworkException.retryAfter`; the engine never retries sooner |
+| Sync reason tag | Mozilla | Added: `DatumSyncOptions.reason` → `DatumSyncStartedEvent.reason` |
 
 ### Change tracking and upload
 
@@ -34,7 +35,7 @@ and what is still open. Compared against the Rust/C/C++ engines listed under
 | Batching and coalescing | Mozilla, LiteCore, Graft | Had: `remoteSyncBatchSize`. Fixed: per-sync `overrideBatchSize` was ignored |
 | Idempotent re-send after a lost ack | PowerSync, LiteCore | Had (create is an upsert; covered by crash/replay conformance tests) |
 | Discard a poison write | PowerSync | Had: `discardParkedOperations` |
-| A local transaction uploaded as one unit | PowerSync, Realm, sqlite-sync | Open: operations upload per entity |
+| A local transaction uploaded as one unit | PowerSync, Realm, sqlite-sync | By design: see §3 |
 
 ### Download
 
@@ -46,8 +47,8 @@ and what is still open. Compared against the Rust/C/C++ engines listed under
 | Tombstones with purge | LiteCore | Added: `restore`, `purgeTombstones`; a fresh device no longer stores tombstones of rows it never had |
 | Logout wipe | sqlite-sync, PowerSync, Mozilla | Added: `clearUserData(userId)` |
 | Checksums per bucket | PowerSync, Graft | Partial: one content hash per user and entity type |
-| Sync priorities | PowerSync | Open |
-| Server-forced refetch | Electric, Realm | Open |
+| Sync priorities | PowerSync | Had: managers sync in registration order (now tested) |
+| Server-forced refetch | Electric, Realm | Added: `ResyncRequiredException` → the engine reads everything again |
 
 ### Conflicts
 
@@ -57,7 +58,8 @@ and what is still open. Compared against the Rust/C/C++ engines listed under
 | Custom resolver hook | LiteCore | Had: `DatumConflictResolver`, per-sync override |
 | CRDT / vector clocks | cr-sqlite, Automerge, Yrs | Had: `crdt.dart`, `VectorClock` |
 | Report without resolving | — | Fixed: `resolveConflicts: false` was ignored |
-| Fail-on-conflict save | LiteCore | Open |
+| Fail-on-conflict save | LiteCore | Added: `push(expectedVersion:)` throws `ConflictException` |
+| Clock-free conflict policy | Turso (last push wins) | Had: `RemotePriorityResolver` (now tested under clock skew, see §3) |
 
 ### Schema migrations
 
@@ -67,7 +69,7 @@ and what is still open. Compared against the Rust/C/C++ engines listed under
 | All steps in one transaction, rolled back on failure | Mozilla, cr-sqlite | Had |
 | Additive auto-migration | Realm | Had: `autoMigrate` |
 | **Migration history** (what ran, when, rows, failures) | none verified | Added: `getMigrationHistory()`; persisted by every adapter (SQLite: a `<table>__migrations` table) |
-| Newer-store detection | Mozilla | Added as a warning (see §3) |
+| Newer-store detection | Mozilla | Added: refused when the app versions its schema, warned otherwise |
 
 ### Operations
 
@@ -76,7 +78,7 @@ and what is still open. Compared against the Rust/C/C++ engines listed under
 | Storage size, compaction | LiteCore, Realm, Turso | Had: `getStorageSize`. Added: `purgeTombstones` |
 | Background isolate | — | Had: `useIsolateSync` |
 | Metrics, logging, observers | Turso, Mozilla, PowerSync | Had |
-| Attachments / blobs | LiteCore | Open |
+| Attachments / blobs | LiteCore | Not a goal: see §3 |
 
 ## 2. Conventions that were wrong (fixed)
 
@@ -105,29 +107,63 @@ and what is still open. Compared against the Rust/C/C++ engines listed under
    without an offset. Fixed earlier in this branch.
 7. **One sync-metadata row per user shared by all entity types** in the
    example's Supabase schema; each manager overwrote the others.
-8. **The `Datum` facade lived inside the engine layer,** so engine, manager
+8. **Cold start re-read everything.** The default (`adaptive`) cold-start
+   strategy forced a full sync on every app start. It now runs a normal
+   cycle; only the `fullSync` strategy re-reads the remote.
+9. **Sync options were copied field by field in three places,** so a new
+   option had to be added three times (and the facade copy had already
+   drifted). `DatumSyncOptions.retype` replaces them.
+10. **The `Datum` facade lived inside the engine layer,** so engine, manager
    and models imported each other, and 25 files imported the whole package
    barrel. See §4.
 
-## 3. Still open
+## 3. Earlier open items: how each was closed
 
-- **Local and remote maps share one `diff`.** `toDatumMap(target:)` may use
-  different key names per target, but `diff` returns a single map used for
-  both the local patch and the remote delta. It works when keys match across
-  targets. A clean fix makes the engine compute the two deltas itself.
-- **Two places declare the schema version** (adapter constructor and
-  `DatumConfig.schemaVersion`). Because many setups version only one, opening
-  a store newer than the config logs a warning instead of failing.
-- **Last-write-wins trusts device clocks,** and compares `version` before
-  time. A device with a fast clock, or one that edited more often, wins.
-  Server-assigned time (or a hybrid logical clock) would remove that.
-- **Datum's `TimeoutException` shadows `dart:async`'s** for anyone importing
-  both.
-- **Relation objects live on the entity** and return through a manager, so
-  the relational entity model reaches up to the manager layer (the one
-  remaining exception to the layer rule).
-- Not available: atomic multi-entity upload, sync priorities, server-forced
-  refetch, `Retry-After`, fail-on-conflict save, attachments.
+- **One `diff` for both the local patch and the remote delta.** Fixed. The
+  entity's `diff` goes upstream; the local store is patched with the diff of
+  the local maps, so key names and formats may differ per target. Fields the
+  remote also has but the entity did not report (`createdAt`, or a generated
+  field marked `@DatumField(diff: false)`) are left alone on both sides, so
+  the local row always equals what the remote holds.
+- **Two places declare the schema version.** A store newer than the app is
+  now refused when the app versions its schema through Datum
+  (`schemaVersion > 0` or any migration); an app that never versioned it only
+  gets the warning.
+- **Datum's `TimeoutException` shadowed `dart:async`'s.** Renamed to
+  `DatumTimeoutException` (breaking). A sync timeout now throws it.
+- **Relation objects reached up to the manager layer.** Fixed with a small
+  port in the model layer (`RelatedSource`, implemented by `DatumManager`).
+  The dependency rule now holds with no exceptions.
+- **Last-write-wins and device clocks.** Kept, and documented, because the
+  version check already orders edits made one after the other: an edit made
+  after seeing another always has the higher version and wins whatever the
+  clocks say (the same rule as Couchbase Lite's revision generation). Clocks
+  only decide edits made at the same time from the same version. Apps that
+  must not depend on device clocks at all use `RemotePriorityResolver`: with
+  the default direction the last push wins, with `pullThenPush` the first
+  push wins. Both are covered by a conformance test that gives the losing
+  device a clock 10 minutes fast. `LocalPriorityResolver` on every device
+  never converges and is only for a single authoritative device.
+- **Server-requested backoff, forced refetch, fail-on-conflict save, sync
+  reason, sync priorities.** Added or confirmed; see §1.
+
+Not goals, with the reason:
+
+- **One atomic upload across entity types.** Each entity type has its own
+  remote adapter and queue, so the engine cannot offer it. Within one type,
+  consecutive creates, updates or deletes already go out as one bulk call
+  (`createAll` / `updateAll` / `deleteAll`), which is atomic when the backend
+  makes that call atomic (a Supabase upsert of a list is one statement). Data
+  that must change together belongs in one entity, or behind one server-side
+  function.
+- **Attachments.** Files belong in object storage. Sync the reference (URL,
+  digest) as a normal field.
+- **Device-only fields.** A field must exist in both maps. A value that
+  should never leave the device belongs in the app's own storage: a pulled
+  remote update replaces the whole local row.
+
+Still worth doing later: checksums per sync scope (today: one content hash
+per user and entity type).
 
 ## 4. Layers
 
@@ -145,12 +181,12 @@ the ones above it in this list, never one below.
 | 6 | manager | `core/manager` |
 | 7 | facade | `core/facade` (`Datum`) |
 
-`test/architecture_test.dart` enforces it. It also forbids importing the
-package barrel from inside `lib`, and holds a baseline of known exceptions
-that may only shrink (currently the relational entity, above).
+`test/architecture_test.dart` enforces it, and forbids importing the package
+barrel from inside `lib`. There are no exceptions.
 
-Code below the facade reaches sibling managers through
-`ManagerLocator` (manager layer), which the facade installs when it starts.
+Code below the facade reaches sibling managers through `ManagerLocator`
+(manager layer) and relation objects through `RelatedSources` (model
+layer); the facade installs both when it starts.
 
 ## Sources
 
