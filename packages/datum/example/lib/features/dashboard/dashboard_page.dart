@@ -3,6 +3,7 @@ import 'package:example/features/paint/view/paint_page.dart';
 import 'package:example/features/settings/settings_page.dart';
 import 'package:example/features/tasks/presentation/views/simple_datum_page.dart';
 import 'package:example/shared/widget/parked_ops_banner.dart';
+import 'package:example/shared/widget/sync_timing_strip.dart';
 import 'package:flutter/material.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:responsive_framework/responsive_framework.dart';
@@ -62,6 +63,7 @@ class DashboardPage extends StatelessWidget {
                     if (Supabase.instance.client.auth.currentUser?.id
                         case final userId?)
                       ParkedOpsBanner(key: ValueKey(userId), userId: userId),
+                    const SyncTimingStrip(),
                   ],
                 ),
               ),

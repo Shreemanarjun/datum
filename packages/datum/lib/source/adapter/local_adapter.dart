@@ -1,6 +1,15 @@
 import 'dart:async';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/health/datum_health.dart';
+import 'package:datum/source/core/models/migration_record.dart';
+import 'package:datum/source/core/models/datum_change_detail.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_pagination.dart';
+import 'package:datum/source/core/models/datum_sync_metadata.dart';
+import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/core/models/datum_sync_result.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
+import 'package:datum/source/core/query/datum_query.dart';
 import 'package:meta/meta.dart';
 
 /// Local storage adapter abstraction that provides access to offline data.

@@ -31,7 +31,7 @@ void main() {
         database: db,
         table: 'snake',
         fromMap: SnakeKeyedEntity.fromMap,
-        columns: const {'user_id': 'TEXT', 'name': 'TEXT', 'is_deleted': 'INTEGER'},
+        columns: const {'user_id': 'TEXT', 'name': 'TEXT', 'is_deleted': 'BOOLEAN', 'modified_at': 'INTEGER'},
       );
       await adapter.initialize();
       return adapter;

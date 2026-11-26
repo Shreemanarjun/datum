@@ -158,12 +158,16 @@ void main() {
     // 4. Idle sync cost (nothing changed anywhere), and delta pulls: after
     //    the first full pull B only ever fetches rows the server changed.
     await Future<void>.delayed(const Duration(milliseconds: 1500)); // past the overlap window
-    await b.manager.synchronize(userId, options: const DatumSyncOptions(forceFullSync: true));
+    await b.manager.synchronize(userId);
     final fullPullsBefore = b.remote.fullPulls;
     b.remote.deltaRows = 0;
-    await _timed('B: idle delta sync', () => b.manager.synchronize(userId, options: const DatumSyncOptions(forceFullSync: true)));
+    await _timed('B: idle delta sync', () => b.manager.synchronize(userId));
     expect(b.remote.fullPulls, fullPullsBefore, reason: 'no full-table pull once synced');
     expect(b.remote.deltaRows, lessThan(5), reason: 'only the overlap window, not 50 rows');
+    // forceFullSync is the explicit way to re-read everything.
+    await b.manager.synchronize(userId, options: const DatumSyncOptions(forceFullSync: true));
+    expect(b.remote.fullPulls, fullPullsBefore + 1, reason: 'a forced sync re-reads the table');
+    b.remote.fullPulls = fullPullsBefore;
 
     // 5. Soft delete on B propagates to A as a tombstone.
     await b.manager.delete(id: _id('live-1'), userId: userId, behavior: DeleteBehavior.softDelete);

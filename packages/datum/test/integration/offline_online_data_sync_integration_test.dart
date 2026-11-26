@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:datum/source/config/datum_config.dart';
-import 'package:datum/source/core/engine/datum_core.dart';
-import 'package:datum/source/core/models/datum_registration.dart';
+import 'package:datum/source/core/facade/datum_core.dart';
+import 'package:datum/source/core/facade/datum_registration.dart';
 import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart';
-import 'package:datum/source/core/manager/datum_sync_request_strategy.dart';
+import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
 import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 

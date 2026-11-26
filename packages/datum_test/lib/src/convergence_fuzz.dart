@@ -280,22 +280,27 @@ class _ConvergenceScenario {
   Future<Map<String, _VisibleRow>> _deviceState(_Device device) async {
     final all = await device.local.readAll(userId: userId);
     await _assertNoDuplicates(device, 'final state');
+    // App-visible state: a tombstone and a row the device never stored are
+    // the same thing (devices skip tombstones of rows they never had).
     return {
       for (final e in all)
-        e.id: (name: e.name, value: e.value, isDeleted: e.isDeleted),
+        if (!e.isDeleted)
+          e.id: (name: e.name, value: e.value, isDeleted: false),
     };
   }
 
   Map<String, _VisibleRow> _serverState(LocalSyncServer server) {
     final rows =
         server.storage[userId] ?? const <String, Map<String, dynamic>>{};
-    return rows.map(
-      (id, raw) => MapEntry(id, (
-        name: raw['name'] as String? ?? '',
-        value: (raw['value'] as num?)?.toInt() ?? 0,
-        isDeleted: raw['isDeleted'] as bool? ?? false,
-      )),
-    );
+    return {
+      for (final MapEntry(key: id, value: raw) in rows.entries)
+        if (raw['isDeleted'] != true)
+          id: (
+            name: raw['name'] as String? ?? '',
+            value: (raw['value'] as num?)?.toInt() ?? 0,
+            isDeleted: false,
+          ),
+    };
   }
 
   Future<void> _assertNoDuplicates(_Device device, String when) async {

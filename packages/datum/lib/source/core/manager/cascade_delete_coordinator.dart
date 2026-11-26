@@ -1,6 +1,13 @@
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/cascade_delete.dart';
+import 'package:datum/source/core/manager/datum_manager.dart';
+import 'package:datum/source/core/models/data_source.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
+import 'package:datum/source/core/query/datum_query.dart';
+import 'package:datum/source/utils/datum_logger.dart';
 
 import 'manager_cache_coordinator.dart';
+import 'package:datum/source/core/manager/manager_locator.dart';
 
 // Internal class representing a step in the cascade delete plan.
 enum CascadeStepType { delete, update }
@@ -232,7 +239,7 @@ class CascadeDeleteCoordinator<T extends DatumEntityInterface> {
         if (thisLocalKeyValue == null) return [];
 
         // Get the manager for the pivot entity
-        final pivotManager = Datum.managerByType(relation.pivotType);
+        final pivotManager = ManagerLocator.byType(relation.pivotType);
 
         // Query the pivot entity to find related pivot entities
         final pivotEntities = await pivotManager.query(

@@ -1,7 +1,33 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/adapter/adapter_capabilities.dart';
+import 'package:datum/source/adapter/local_adapter.dart';
+import 'package:datum/source/adapter/remote_adapter.dart';
+import 'package:datum/source/config/datum_config.dart';
+import 'package:datum/source/core/engine/conflict_detector.dart';
+import 'package:datum/source/core/engine/datum_observer.dart';
+import 'package:datum/source/core/engine/isolate_helper.dart';
+import 'package:datum/source/core/engine/queue_manager.dart';
+import 'package:datum/source/core/errors/datum_exception.dart';
+import 'package:datum/source/core/events/conflict_detected_event.dart';
+import 'package:datum/source/core/events/conflict_resolved_event.dart';
+import 'package:datum/source/core/events/datum_event.dart';
+import 'package:datum/source/core/events/user_switched_event.dart';
+import 'package:datum/source/core/health/datum_health.dart';
+import 'package:datum/source/core/models/conflict_context.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_operation.dart';
+import 'package:datum/source/core/models/datum_sync_metadata.dart';
+import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/core/models/datum_sync_options.dart';
+import 'package:datum/source/core/models/datum_sync_result.dart';
+import 'package:datum/source/core/models/datum_sync_scope.dart';
+import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
+import 'package:datum/source/core/resolver/conflict_resolution.dart';
+import 'package:datum/source/core/utils/hash_generator.dart';
+import 'package:datum/source/utils/connectivity_checker.dart';
+import 'package:datum/source/utils/datum_logger.dart';
 import 'package:datum/source/core/engine/metadata_hash_cache.dart';
 
 import 'package:rxdart/rxdart.dart';
@@ -236,7 +262,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     DatumSyncScope? scope,
     List<DatumSyncEvent<T>> generatedEvents,
   ) async {
-    Future<int> push() => _pushChanges(userId, generatedEvents);
+    Future<int> push() => _pushChanges(userId, options, generatedEvents);
     Future<int> pull() => _pullChanges(userId, options, scope, generatedEvents);
     return switch (_directionOf(options)) {
       SyncDirection.pushThenPull => (pushed: await push(), pulled: await pull()),
@@ -323,6 +349,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
 
   Future<int> _pushChanges(
     String userId,
+    DatumSyncOptions<T>? options,
     List<DatumSyncEvent<T>> generatedEvents,
   ) async {
     int cumulativeBytesPushed = 0;
@@ -330,14 +357,16 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     _blockedEntityIds.clear();
     final pending = await queueManager.getPending(userId);
     // Parked ops stay queued, and nothing later for the same entity may
-    // overtake them.
-    final parked = {
+    // overtake them. Deletes held back by `includeDeletes: false` hold their
+    // entity's later ops the same way.
+    final holdDeletes = options?.includeDeletes == false;
+    final held = {
       for (final op in pending)
-        if (op.isParked) op.entityId
+        if (op.isParked || (holdDeletes && op.type == DatumOperationType.delete)) op.entityId
     };
     final operationsToProcess = [
       for (final op in pending)
-        if (!parked.contains(op.entityId)) op
+        if (!held.contains(op.entityId)) op
     ];
     if (operationsToProcess.isEmpty) {
       logger.info('No pending changes to push for user $userId.');
@@ -345,7 +374,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     }
 
     // Group consecutive operations of the same type to enable batching.
-    final groups = _groupOperations(operationsToProcess);
+    final groups = _groupOperations(operationsToProcess, _batchSize(options));
 
     logger.info(
       'Pushing ${operationsToProcess.length} changes (in ${groups.length} batches) for user $userId...',
@@ -547,6 +576,18 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     }
   }
 
+  bool _isForced(DatumSyncOptions<T>? options) => options?.forceFullSync ?? false;
+
+  /// Whether this pull compares the full remote id set against local rows.
+  /// Needs an unscoped, unfiltered pull, and deletions being synced at all.
+  bool _detectsDeletions(DatumSyncOptions<T>? options, DatumSyncScope? scope) {
+    final isFiltered = options?.query.filters.isNotEmpty ?? false;
+    return config.detectRemoteDeletions && scope == null && !isFiltered && (options?.includeDeletes ?? true);
+  }
+
+  /// This cycle's batch size: the per-sync override, else the configured one.
+  int _batchSize(DatumSyncOptions<T>? options) => options?.overrideBatchSize ?? config.remoteSyncBatchSize;
+
   Future<int> _pullChanges(
     String userId,
     DatumSyncOptions<T>? options,
@@ -568,12 +609,13 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
 
     // Track every remote id seen so we can detect remote deletions (entities
     // present locally but absent remotely) after the pull, when enabled.
-    final detectDeletions = config.detectRemoteDeletions && scope == null && !isFiltered;
+    final detectDeletions = _detectsDeletions(options, scope);
 
     // Use streaming approach for large datasets to reduce memory usage.
     // Deletion detection needs the COMPLETE remote id set, so those cycles
     // must never use an incremental (delta) pull.
-    final remoteItemsStream = _streamRemoteItems(userId, scope, allowDelta: !detectDeletions);
+    // A forced full sync re-reads everything too (its documented contract).
+    final remoteItemsStream = _streamRemoteItems(userId, scope, allowDelta: !detectDeletions && !_isForced(options));
     final remoteBatch = <T>[];
     final seenRemoteIds = detectDeletions ? <String>{} : null;
 
@@ -582,7 +624,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       remoteBatch.add(remoteItem);
 
       // Process batch when it reaches the batch size
-      if (remoteBatch.length >= config.remoteSyncBatchSize) {
+      if (remoteBatch.length >= _batchSize(options)) {
         final batchBytes = await _processRemoteBatch(
           remoteBatch,
           userId,
@@ -777,6 +819,20 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     return await remoteAdapter.readAll(userId: userId, scope: scope);
   }
 
+  /// Where a pulled, non-conflicting [remoteItem] goes: [toCreate] when new,
+  /// [toUpdate] when strictly newer than [localItem], else null (skip).
+  List<T>? _pullTarget(T? localItem, T remoteItem, List<T> toCreate, List<T> toUpdate) => switch (localItem) {
+        // A tombstone for a row this device never had deletes nothing: do
+        // not store it (fresh devices skip the remote's deletion history).
+        null when remoteItem.isDeleted => null,
+        null => toCreate,
+        // Equal versions must not produce redundant update() calls, spurious
+        // change events and sync loops. Concurrent edits already went to the
+        // resolver.
+        final T local when _isRemoteStrictlyNewer(local, remoteItem) => toUpdate,
+        _ => null,
+      };
+
   /// Whether [remote] should replace [local] during a pull, when no conflict
   /// was detected.
   ///
@@ -815,6 +871,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       userId: userId,
       events: generatedEvents,
       resolver: options?.conflictResolver ?? conflictResolver,
+      resolve: options?.resolveConflicts ?? true,
       pending: _opIdsByEntity(await queueManager.getPending(userId)),
     );
 
@@ -845,11 +902,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // applied only if the remote is *actually* newer — equal versions must
       // not produce redundant update() calls, spurious change events and sync
       // noise/loops. Concurrent edits were already routed to the resolver.
-      final target = switch (localItem) {
-        null => toCreate,
-        final T local when _isRemoteStrictlyNewer(local, remoteItem) => toUpdate,
-        _ => null,
-      };
+      final target = _pullTarget(localItem, remoteItem, toCreate, toUpdate);
       if (target == null) {
         logger.debug('Skipping remote update for ${remoteItem.id}: local is newer or identical.');
       } else {
@@ -904,6 +957,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         remoteData: remoteItem,
       ),
     );
+    if (!pull.resolve) {
+      logger.info('Conflict on ${remoteItem.id} reported but left unresolved (resolveConflicts: false).');
+      return;
+    }
 
     final resolution = await pull.resolver.resolve(
       local: localItem,
@@ -1236,12 +1293,12 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   /// Groups consecutive batchable operations (same type and user; creates,
   /// deletes and full updates only) into [DatumSyncBatchOperation]s of at most
   /// `remoteSyncBatchSize`.
-  List<DatumSyncOperation<T>> _groupOperations(List<DatumSyncOperation<T>> operations) {
+  List<DatumSyncOperation<T>> _groupOperations(List<DatumSyncOperation<T>> operations, int batchSize) {
     final result = <DatumSyncOperation<T>>[];
     var currentBatch = <DatumSyncOperation<T>>[];
 
     for (final op in operations) {
-      if (currentBatch.isNotEmpty && !(_canBatchWith(currentBatch.last, op) && currentBatch.length < config.remoteSyncBatchSize)) {
+      if (currentBatch.isNotEmpty && !(_canBatchWith(currentBatch.last, op) && currentBatch.length < batchSize)) {
         result.add(_collapseBatch(currentBatch));
         currentBatch = [];
       }
@@ -1351,6 +1408,8 @@ typedef _PullContext<T extends DatumEntityInterface> = ({
   String userId,
   List<DatumSyncEvent<T>> events,
   DatumConflictResolver<T> resolver,
+  // False (`resolveConflicts: false`): conflicts are reported, not resolved.
+  bool resolve,
   // entityId -> ids of its still-queued local ops.
   Map<String, List<String>> pending,
 });

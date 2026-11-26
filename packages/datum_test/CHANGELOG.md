@@ -1,5 +1,16 @@
 ## Unreleased
 
+- Migration conformance: the migration history lists applied steps in
+  order, records a failing step as failed, and survives a relaunch.
+- Sync-stack suite: backoff retry, `includeDeletes: false`,
+  `resolveConflicts: false`, live pending count / `waitUntilSynced`,
+  `purgeTombstones`, tombstones of unknown rows are not stored,
+  `clearUserData`.
+- Key-naming conformance also drives soft delete, tombstone filtering and
+  `restore` through a manager. The convergence fuzz compares app-visible
+  state (a tombstone equals an absent row).
+
+
 - `runKeyNamingConformanceTests` + `SnakeKeyedEntity`: local adapters must
   read, scope, list and clear entities whose maps use snake_case keys.
 - Sync-stack suite: a 401 (`AuthenticationException`) pauses sync with the

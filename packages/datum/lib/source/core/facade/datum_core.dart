@@ -1,8 +1,40 @@
 import 'dart:async';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/config/datum_config.dart';
+import 'package:datum/source/core/cascade_delete.dart';
+import 'package:datum/source/core/engine/datum_observer.dart';
+import 'package:datum/source/core/errors/datum_error.dart';
+import 'package:datum/source/core/events/conflict_resolved_event.dart';
+import 'package:datum/source/core/events/datum_event.dart';
+import 'package:datum/source/core/events/user_switched_event.dart';
+import 'package:datum/source/core/facade/_internal.dart';
+import 'package:datum/source/core/facade/datum_registration.dart';
+import 'package:datum/source/core/health/datum_health.dart';
+import 'package:datum/source/core/manager/datum_manager.dart';
+import 'package:datum/source/core/models/data_source.dart';
+import 'package:datum/source/core/models/datum_either.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_metrics.dart';
+import 'package:datum/source/core/models/datum_pagination.dart';
+import 'package:datum/source/core/models/datum_sync_metadata.dart';
+import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/core/models/datum_sync_options.dart';
+import 'package:datum/source/core/models/datum_sync_result.dart';
+import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
+import 'package:datum/source/core/models/user_switch_models.dart';
+import 'package:datum/source/core/persistence/datum_persistence.dart';
+import 'package:datum/source/core/persistence/in_memory_datum_persistence.dart';
+import 'package:datum/source/core/query/datum_query.dart';
+import 'package:datum/source/core/resolver/conflict_resolution.dart';
+import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart';
+import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
+import 'package:datum/source/utils/connectivity_checker.dart';
+import 'package:datum/source/utils/datum_logger.dart';
+import 'package:datum/source/utils/duration_formatter.dart';
 import 'package:meta/meta.dart';
 import 'package:rxdart/rxdart.dart';
+import 'package:datum/source/core/manager/manager_locator.dart';
 
 /// The central engine for the Datum framework, managing data synchronization,
 /// entity registration, and communication between local and remote sources.
@@ -302,7 +334,14 @@ class Datum {
     required this.connectivityChecker,
     this.persistence,
     DatumLogger? logger,
-  }) : logger = logger ?? DatumLogger(enabled: config.enableLogging);
+  }) : logger = logger ?? DatumLogger(enabled: config.enableLogging) {
+    // Lets layers below the facade reach sibling managers without importing it.
+    ManagerLocator.install(
+      of: Datum.manager,
+      byType: Datum.managerByType,
+      refreshStreams: () async => _instance?.refreshStreams(),
+    );
+  }
 
   /// Initializes the central Datum engine as a singleton.
   ///

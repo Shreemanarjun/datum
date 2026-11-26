@@ -1,6 +1,8 @@
 import 'dart:async';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/conflict_context.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/resolver/conflict_resolution.dart';
 
 /// Resolves conflicts by always preferring the local version of the entity.
 /// If the local version does not exist, it will use the remote version.

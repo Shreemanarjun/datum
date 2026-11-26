@@ -1,7 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/adapter/adapter_capabilities.dart';
+import 'package:datum/source/adapter/local_adapter.dart';
+import 'package:datum/source/adapter/rereading_watch.dart';
+import 'package:datum/source/core/errors/datum_exception.dart';
+import 'package:datum/source/core/health/datum_health.dart';
+import 'package:datum/source/core/models/migration_record.dart';
+import 'package:datum/source/core/models/datum_change_detail.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_operation.dart';
+import 'package:datum/source/core/models/datum_pagination.dart';
+import 'package:datum/source/core/models/datum_sync_metadata.dart';
+import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/core/models/datum_sync_result.dart';
+import 'package:datum/source/core/query/datum_query.dart';
+import 'package:datum/source/core/query/datum_query_matcher.dart';
 
 /// A complete, dependency-free **in-memory** [LocalAdapter] implementation.
 ///

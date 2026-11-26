@@ -5,7 +5,10 @@ import 'dart:isolate';
 
 // import 'package:test_api/src/backend/invoker.dart';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/errors/datum_exception.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/utils/datum_logger.dart';
 
 // import '_isolate_runner_io.dart' if (dart.library.html) '_isolate_runner_web.dart';
 

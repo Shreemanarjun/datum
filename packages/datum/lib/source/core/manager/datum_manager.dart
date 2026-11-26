@@ -2,7 +2,52 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:collection/collection.dart';
-import 'package:datum/datum.dart';
+import 'package:datum/source/adapter/adapter_capabilities.dart';
+import 'package:datum/source/adapter/local_adapter.dart';
+import 'package:datum/source/adapter/remote_adapter.dart';
+import 'package:datum/source/config/datum_config.dart';
+import 'package:datum/source/core/cascade_delete.dart';
+import 'package:datum/source/core/engine/conflict_detector.dart';
+import 'package:datum/source/core/engine/datum_observer.dart';
+import 'package:datum/source/core/engine/datum_sync_engine.dart';
+import 'package:datum/source/core/engine/isolate_helper.dart';
+import 'package:datum/source/core/engine/queue_manager.dart';
+import 'package:datum/source/core/errors/datum_error.dart';
+import 'package:datum/source/core/errors/datum_exception.dart';
+import 'package:datum/source/core/events/conflict_detected_event.dart';
+import 'package:datum/source/core/events/data_change_event.dart';
+import 'package:datum/source/core/events/datum_event.dart';
+import 'package:datum/source/core/events/user_switched_event.dart';
+import 'package:datum/source/core/health/datum_health.dart';
+import 'package:datum/source/core/manager/disposable.dart';
+import 'package:datum/source/core/middleware/datum_middleware.dart';
+import 'package:datum/source/core/migration/auto/auto_migration_executor.dart';
+import 'package:datum/source/core/migration/migration_executor.dart';
+import 'package:datum/source/core/models/migration_record.dart';
+import 'package:datum/source/core/models/data_fetch_strategy.dart';
+import 'package:datum/source/core/models/data_source.dart';
+import 'package:datum/source/core/models/datum_change_detail.dart';
+import 'package:datum/source/core/models/datum_either.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_operation.dart';
+import 'package:datum/source/core/models/datum_pagination.dart';
+import 'package:datum/source/core/models/datum_sync_metadata.dart';
+import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/core/models/datum_sync_options.dart';
+import 'package:datum/source/core/models/datum_sync_result.dart';
+import 'package:datum/source/core/models/datum_sync_scope.dart';
+import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
+import 'package:datum/source/core/models/user_switch_models.dart';
+import 'package:datum/source/core/models/vector_clock.dart';
+import 'package:datum/source/core/persistence/datum_persistence.dart';
+import 'package:datum/source/core/query/datum_query.dart';
+import 'package:datum/source/core/query/datum_raw_query.dart';
+import 'package:datum/source/core/resolver/conflict_resolution.dart';
+import 'package:datum/source/core/resolver/last_write_wins_resolver.dart';
+import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
+import 'package:datum/source/utils/connectivity_checker.dart';
+import 'package:datum/source/utils/datum_logger.dart';
 
 import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
@@ -15,6 +60,7 @@ import 'cascade_delete_coordinator.dart';
 import 'cold_start_manager.dart';
 import 'manager_cache_coordinator.dart';
 import 'relation_loader.dart';
+import 'package:datum/source/core/manager/manager_locator.dart';
 
 /// Represents a preview of the cascade delete operation.
 class CascadeDeletePreview {
@@ -71,6 +117,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   final Set<String> _authPausedUserIds = {};
   StreamSubscription<bool>? _authStateSubscription;
   final Map<String, Timer> _syncAfterWriteTimers = {};
+  final Map<String, Timer> _backoffRetryTimers = {};
 
   /// Each paused user's auto-sync interval, so resume keeps custom intervals.
   final Map<String, Duration> _pausedAutoSyncIntervals = {};
@@ -339,6 +386,15 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       logger: _logger,
     );
     try {
+      final stored = await localAdapter.getStoredSchemaVersion();
+      if (stored > config.schemaVersion) {
+        // A store written by a newer app version (or a schemaVersion that was
+        // lowered): older code may misread rows it does not understand.
+        // ponytail: warning only — many setups version the adapter but leave
+        // DatumConfig.schemaVersion at 0; make it an error behind a flag if a
+        // hard downgrade guard is wanted.
+        _logger.warn('The local store is at schema v$stored, newer than DatumConfig.schemaVersion (${config.schemaVersion}).');
+      }
       if (await executor.needsMigration()) {
         final result = await executor.execute();
         // A migration (or its rollback) rewrites raw rows wholesale.
@@ -391,7 +447,6 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         toVersion: version,
         appliedAt: DateTime.now().toUtc(),
         duration: watch.elapsed,
-        rowCount: (await localAdapter.getAllRawData()).length,
         error: outcome.success ? null : '${outcome.error}',
       ));
     }
@@ -968,24 +1023,13 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     }
 
     return adapterStream.asyncMap((emitted) async {
-      final list = includeDeleted ? emitted : emitted.where((e) => !e.isDeleted).toList();
+      final list = includeDeleted ? emitted : _live(emitted);
       try {
         // Eagerly load requested relations on every emission (reactive #UX).
         if (withRelated.isNotEmpty && list.isNotEmpty) {
           await _fetchAndStitchRelations(list, withRelated, DataSource.local, userId);
         }
-        // Apply post-fetch transforms with error handling
-        final transformedList = <T>[];
-        for (final entity in list) {
-          try {
-            final transformed = await _applyPostFetchTransforms(entity);
-            transformedList.add(transformed);
-          } catch (e, stack) {
-            _logger.error('Failed to apply post-fetch transforms to entity ${entity.id}: $e', stack);
-            // Continue with other entities instead of failing the entire stream
-            transformedList.add(entity); // Use original entity if transform fails
-          }
-        }
+        final transformedList = await _transformAll(list);
         return transformedList;
       } catch (e, stack) {
         _logger.error('Failed to transform entity list in watchAll: $e', stack);
@@ -1038,28 +1082,19 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// Emits an empty stream if the adapter does not support reactive queries.
   Stream<List<T>> watchQuery(DatumQuery query, {String? userId, List<String> withRelated = const [], bool includeDeleted = false}) {
     _ensureInitialized();
-    if (!includeDeleted) query = _excludeTombstones(query);
+    final hideTombstones = !includeDeleted && !_mentionsIsDeleted(query.filters);
+    if (hideTombstones) query = _excludeTombstones(query);
     final adapterStream = localAdapter.watchQuery(query, userId: userId);
     if (adapterStream == null) return Stream<List<T>>.empty();
 
-    return adapterStream.asyncMap((list) async {
+    return adapterStream.asyncMap((emitted) async {
+      final list = hideTombstones ? _live(emitted) : emitted;
       try {
         // Eagerly load requested relations on every emission (reactive #UX).
         if (withRelated.isNotEmpty && list.isNotEmpty) {
           await _fetchAndStitchRelations(list, withRelated, DataSource.local, userId);
         }
-        // Apply post-fetch transforms with error handling
-        final transformedList = <T>[];
-        for (final entity in list) {
-          try {
-            final transformed = await _applyPostFetchTransforms(entity);
-            transformedList.add(transformed);
-          } catch (e, stack) {
-            _logger.error('Failed to apply post-fetch transforms to entity ${entity.id}: $e', stack);
-            // Continue with other entities instead of failing the entire stream
-            transformedList.add(entity); // Use original entity if transform fails
-          }
-        }
+        final transformedList = await _transformAll(list);
         return transformedList;
       } catch (e, stack) {
         _logger.error('Failed to transform entity list in watchQuery: $e', stack);
@@ -1126,9 +1161,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     // Tombstones are filtered via query pushdown so limit/offset count only
     // live rows. Remote queries are passed through untouched — translation
     // capabilities vary by remote adapter.
-    if (!includeDeleted && source == DataSource.local) {
-      query = _excludeTombstones(query);
-    }
+    // A query that names `isDeleted` itself states its intent about tombstones.
+    final hideTombstones = !includeDeleted && source == DataSource.local && !_mentionsIsDeleted(query.filters);
+    if (hideTombstones) query = _excludeTombstones(query);
 
     // Create a cache key for this query
     final cacheKey = _cacheCoordinator.createQueryCacheKey(query, source, userId);
@@ -1147,7 +1182,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     }
 
     final adapter = (source == DataSource.local ? localAdapter : remoteAdapter) as dynamic;
-    final entities = await adapter.query(query, userId: userId) as List<T>;
+    var entities = await adapter.query(query, userId: userId) as List<T>;
+    // The pushdown filter assumes an `isDeleted` key; entities that spell it
+    // differently are filtered here, by the entity's own flag.
+    if (hideTombstones) entities = _live(entities);
 
     if (query.withRelated.isNotEmpty && entities.isNotEmpty) {
       await _fetchAndStitchRelations(entities, query.withRelated, source, userId);
@@ -1158,18 +1196,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       _cacheCoordinator.cacheQuery(cacheKey, entities);
     }
 
-    // Apply post-fetch transforms with error handling
-    final transformedEntities = <T>[];
-    for (final entity in entities) {
-      try {
-        final transformed = await _applyPostFetchTransforms(entity);
-        transformedEntities.add(transformed);
-      } catch (e, stack) {
-        _logger.error('Failed to apply post-fetch transforms to entity ${entity.id}: $e', stack);
-        // Continue with other entities instead of failing the entire operation
-        transformedEntities.add(entity); // Use original entity if transform fails
-      }
-    }
+    final transformedEntities = await _transformAll(entities);
     return transformedEntities;
   }
 
@@ -1370,24 +1397,84 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// Soft delete: marks [existing] as deleted. The tombstone bumps the version
   /// like any other write so version-based conflict detection sees it as
   /// newer than the live row it replaces.
-  Future<T> _softDeleteLocally(T existing, String userId) async {
-    final id = existing.id;
+  Future<T> _softDeleteLocally(T existing, String userId) => _setDeletedLocally(existing, userId, deleted: true);
+
+  /// Flips [existing]'s tombstone flag locally. The patch uses the key names
+  /// and timestamp format of the entity's own local map: camelCase by
+  /// contract, but generated entities write snake_case keys and epoch-ms
+  /// times, and a mismatched key would leave the row unchanged.
+  Future<T> _setDeletedLocally(T existing, String userId, {required bool deleted}) async {
+    final map = existing.toDatumMap();
+    String key(String camel) {
+      final snake = camel.replaceAllMapped(RegExp('[A-Z]'), (m) => '_${m[0]!.toLowerCase()}');
+      return !map.containsKey(camel) && map.containsKey(snake) ? snake : camel;
+    }
+
+    final now = DateTime.now();
     final delta = <String, dynamic>{
-      'isDeleted': true,
-      'modifiedAt': DateTime.now().toIso8601String(),
-      'version': existing.version + 1,
+      key('isDeleted'): deleted,
+      key('modifiedAt'): map[key('modifiedAt')] is int ? now.millisecondsSinceEpoch : now.toIso8601String(),
+      key('version'): existing.version + 1,
     };
     // Only carry the clock when the entity actually serializes one — adding it
     // unconditionally wrote a phantom column (which throws on strict
     // fixed-schema adapters).
     final device = deviceId;
-    if (device != null && existing.toDatumMap().containsKey('vectorClock')) {
-      delta['vectorClock'] = (existing.vectorClock ?? const VectorClock()).increment(device).toMap();
+    if (device != null && map.containsKey(key('vectorClock'))) {
+      delta[key('vectorClock')] = (existing.vectorClock ?? const VectorClock()).increment(device).toMap();
     }
     _metadataHashCache.invalidate(userId);
-    final patched = await localAdapter.patch(id: id, delta: delta, userId: userId);
-    _recordLocalEcho(id, patched);
+    final patched = await localAdapter.patch(id: existing.id, delta: delta, userId: userId);
+    _recordLocalEcho(existing.id, patched);
     return patched;
+  }
+
+  /// Brings a soft-deleted entity back — the inverse of a soft [delete] — and
+  /// queues the change for sync. Returns null when [id] is not a tombstone.
+  Future<T?> restore({required String id, required String userId}) async {
+    _ensureInitialized();
+    final existing = await localAdapter.read(id, userId: userId);
+    if (existing == null || !existing.isDeleted) return null;
+    final restored = await _setDeletedLocally(existing, userId, deleted: false);
+    await _enqueueSized(_createOperation(userId: userId, type: DatumOperationType.update, entityId: id, data: restored));
+    _eventController.add(DataChangeEvent<T>(userId: userId, data: restored, changeType: ChangeType.updated, source: DataSource.local));
+    _cacheCoordinator.invalidateCachesForEntity(restored);
+    return restored;
+  }
+
+  /// Compaction: physically removes [userId]'s soft-deleted rows whose
+  /// deletion is older than [olderThan] and already uploaded (nothing queued
+  /// for them). Returns how many were purged.
+  ///
+  /// A device that stays offline longer than [olderThan] would never learn of
+  /// such a deletion from this device's store, so keep the window longer than
+  /// the longest offline period you support. The remote keeps its tombstones.
+  Future<int> purgeTombstones(String userId, {Duration olderThan = const Duration(days: 30)}) async {
+    _ensureInitialized();
+    final cutoff = DateTime.now().subtract(olderThan);
+    final queued = {for (final op in await _queueManager.getPending(userId)) op.entityId};
+    final stale = [
+      for (final e in await localAdapter.readAll(userId: userId))
+        if (e.isDeleted && e.modifiedAt.isBefore(cutoff) && !queued.contains(e.id)) e.id
+    ];
+    if (stale.isEmpty) return 0;
+    await localAdapter.deleteAll(stale, userId: userId);
+    _metadataHashCache.invalidate(userId);
+    clearCaches();
+    _logger.info('Purged ${stale.length} tombstone(s) older than $olderThan for $userId.');
+    return stale.length;
+  }
+
+  /// Wipes everything stored locally for [userId] — rows, queued operations
+  /// and sync state — e.g. on sign-out from a shared device. Unsent changes
+  /// are lost: check [getPendingCount] first when that matters.
+  Future<void> clearUserData(String userId) async {
+    _ensureInitialized();
+    _backoffRetryTimers.remove(userId)?.cancel();
+    _syncAfterWriteTimers.remove(userId)?.cancel();
+    await localAdapter.clearUserData(userId);
+    _metadataHashCache.invalidate(userId);
+    clearCaches();
   }
 
   /// Hard delete: physically removes [existing]. Returns false when the local
@@ -1422,11 +1509,31 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// Debounced sync after a local write ([DatumConfig.syncAfterWriteDelay]).
   void _scheduleSyncAfterWrite(String userId) {
     final delay = config.syncAfterWriteDelay;
-    if (delay == null || isDisposed) return;
-    _syncAfterWriteTimers.remove(userId)?.cancel();
-    _syncAfterWriteTimers[userId] = Timer(delay, () {
-      _syncAfterWriteTimers.remove(userId);
-      unawaited(synchronize(userId).then<void>((_) {}, onError: (Object e) => _logger.warn('Sync after write failed for $userId: $e')));
+    if (delay != null) _deferSync(_syncAfterWriteTimers, userId, delay, 'after write');
+  }
+
+  /// Operations that failed retryably stay queued; re-sync after the
+  /// configured backoff ([DatumErrorRecoveryStrategy.backoffStrategy]) for the
+  /// most-retried one, rather than leaving them to the next auto-sync.
+  Future<void> _scheduleBackoffRetry(String userId, DatumSyncResult<T> result) async {
+    _backoffRetryTimers.remove(userId)?.cancel();
+    final attempts = [
+      for (final op in result.pendingOperations)
+        if (!op.isParked && op.retryCount > 0) op.retryCount
+    ];
+    if (attempts.isEmpty) return;
+    final delay = await config.errorRecoveryStrategy.backoffStrategy.getDelay(attempts.reduce((a, b) => a > b ? a : b));
+    _logger.info('Retrying ${attempts.length} failed operation(s) for $userId in $delay.');
+    _deferSync(_backoffRetryTimers, userId, delay, 'retry');
+  }
+
+  /// (Re)arms [timers]' one-shot sync for [userId] after [delay].
+  void _deferSync(Map<String, Timer> timers, String userId, Duration delay, String why) {
+    if (isDisposed) return;
+    timers.remove(userId)?.cancel();
+    timers[userId] = Timer(delay, () {
+      timers.remove(userId);
+      unawaited(synchronize(userId).then<void>((_) {}, onError: (Object e) => _logger.warn('Sync ($why) failed for $userId: $e')));
     });
   }
 
@@ -1955,7 +2062,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
           final (result, events) = config.useIsolateSync ? await _runSyncInIsolate(userId, typedOptions, effectiveScope) : await _runSyncWithTimeout(userId, typedOptions, effectiveScope);
 
           _processSyncEvents(events);
-          if (!result.wasSkipped) await _persistSyncResult(userId, result);
+          if (!result.wasSkipped) {
+            await _persistSyncResult(userId, result);
+            await _scheduleBackoffRetry(userId, result);
+          }
           return result;
         } on Object catch (e, stack) {
           _pauseIfSessionExpired(userId, e);
@@ -2397,7 +2507,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     if (isDisposed) return;
     stopAutoSync();
     await _authStateSubscription?.cancel();
-    for (final timer in _syncAfterWriteTimers.values) {
+    for (final timer in [..._syncAfterWriteTimers.values, ..._backoffRetryTimers.values]) {
       timer.cancel();
     }
     // Closing the streams first marks a running cycle cancelled (it stops
@@ -2420,6 +2530,27 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     }
     return transformed;
   }
+
+  /// Applies the post-fetch transforms to every entity. One that fails to
+  /// transform is returned as fetched, so a single bad row never fails a read.
+  Future<List<T>> _transformAll(List<T> entities) async {
+    final transformed = <T>[];
+    for (final entity in entities) {
+      try {
+        transformed.add(await _applyPostFetchTransforms(entity));
+      } catch (e, stack) {
+        _logger.error('Failed to apply post-fetch transforms to entity ${entity.id}: $e', stack);
+        transformed.add(entity);
+      }
+    }
+    return transformed;
+  }
+
+  /// [entities] without soft-deleted rows.
+  static List<E> _live<E extends DatumEntityInterface>(List<E> entities) => [
+        for (final e in entities)
+          if (!e.isDeleted) e
+      ];
 
   Future<T> _applyPostFetchTransforms(T entity) async {
     var transformed = entity;
@@ -2445,9 +2576,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
     // Refresh all streams to ensure they show data for the new user
     // Only call this if Datum is initialized (when using Datum singleton)
-    if (Datum.isInitialized) {
-      unawaited(Datum.instance.refreshStreams());
-    }
+    unawaited(ManagerLocator.refreshStreams());
 
     // Also emit to the shared user change stream for reactive queries
     // This is a bit of a hack since we don't have direct access to Datum._userChangeController
@@ -2499,6 +2628,42 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   Future<List<DatumSyncOperation<T>>> getPendingOperations(String userId) async {
     _ensureInitialized();
     return _queueManager.getPending(userId);
+  }
+
+  /// Live view of [userId]'s queued (not yet uploaded) operations: emits now,
+  /// then after every local write or sync event that changes the queue.
+  Stream<List<DatumSyncOperation<T>>> watchPendingOperations(String userId) {
+    _ensureInitialized();
+    return eventStream.cast<Object?>().startWith(null).asyncMap((_) => _queueManager.getPending(userId)).distinct(const ListEquality<Object?>().equals);
+  }
+
+  /// Live count of [userId]'s queued operations.
+  Stream<int> watchPendingCount(String userId) => watchPendingOperations(userId).map((ops) => ops.length).distinct();
+
+  /// Whether entity [id] still has a change waiting to be uploaded.
+  Future<bool> isPending(String id, {required String userId}) async => (await getPendingOperations(userId)).any((op) => op.entityId == id);
+
+  /// Completes once [userId] has nothing left to upload. It only waits —
+  /// call [synchronize] or rely on auto-sync to make progress. Parked
+  /// operations keep it waiting; with [timeout] it then throws Datum's
+  /// [TimeoutException].
+  Future<void> waitUntilSynced(String userId, {Duration? timeout}) {
+    final synced = watchPendingCount(userId).firstWhere((count) => count == 0);
+    if (timeout == null) return synced;
+    return synced.timeout(
+      timeout,
+      onTimeout: () => throw TimeoutException(message: 'Operations for $userId were still waiting to upload after $timeout.'),
+    );
+  }
+
+  /// Interrupts the sync cycle that is running, if any: it stops before its
+  /// next operation and reports a cancelled result. Unsent operations stay
+  /// queued and, unlike [pauseSync], later syncs run normally. Has no effect
+  /// on a cycle running in a background isolate ([DatumConfig.useIsolateSync]).
+  void cancelSync() {
+    if (currentStatus.status != DatumSyncStatus.syncing || _statusSubject.isClosed) return;
+    _logger.info('Cancelling the running sync for manager $T.');
+    _statusSubject.add(currentStatus.copyWith(status: DatumSyncStatus.idle));
   }
 
   /// Operations sync gave up on (see [DatumSyncOperation.parkedError]), e.g.

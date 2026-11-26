@@ -1,6 +1,12 @@
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/manager/datum_manager.dart';
+import 'package:datum/source/core/models/data_source.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/relation_schema.dart';
+import 'package:datum/source/core/models/vector_clock.dart';
+import 'package:datum/source/core/query/datum_query.dart';
 import 'package:datum/source/core/models/map_diff.dart';
 import 'package:equatable/equatable.dart';
+import 'package:datum/source/core/manager/manager_locator.dart';
 
 /// Defines the cascading behavior for delete operations on relationships.
 enum CascadeDeleteBehavior {
@@ -124,7 +130,7 @@ class BelongsTo<T extends DatumEntityInterface> extends Relation<T> {
 
   @override
   DatumManager<T> getRelatedManager() {
-    return Datum.manager<T>();
+    return ManagerLocator.of<T>();
   }
 }
 
@@ -185,7 +191,7 @@ class HasMany<T extends DatumEntityInterface> extends Relation<T> {
 
   @override
   DatumManager<T> getRelatedManager() {
-    return Datum.manager<T>();
+    return ManagerLocator.of<T>();
   }
 }
 
@@ -252,7 +258,7 @@ class HasOne<T extends DatumEntityInterface> extends Relation<T> {
 
   @override
   DatumManager<T> getRelatedManager() {
-    return Datum.manager<T>();
+    return ManagerLocator.of<T>();
   }
 }
 
@@ -316,7 +322,7 @@ class ManyToMany<T extends DatumEntityInterface> extends Relation<T> {
     }
 
     // Get the manager for the pivot entity
-    final pivotManager = Datum.managerByType(pivotType);
+    final pivotManager = ManagerLocator.byType(pivotType);
 
     // Query the pivot entity to find related pivot entities
     final pivotEntities = await pivotManager.query(
@@ -351,7 +357,7 @@ class ManyToMany<T extends DatumEntityInterface> extends Relation<T> {
 
   @override
   DatumManager<T> getRelatedManager() {
-    return Datum.manager<T>();
+    return ManagerLocator.of<T>();
   }
 }
 

@@ -1,6 +1,8 @@
 import 'dart:async';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_sync_result.dart';
+import 'package:datum/source/utils/datum_logger.dart';
 
 /// Strategies for handling errors within error boundaries.
 enum ErrorBoundaryStrategy {

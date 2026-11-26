@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Persists the migration history in a `<table>__migrations` table.
+
+
 - Fix: entities whose map spells the key columns differently (`user_id`)
   failed the `userId NOT NULL` insert; `id`/`userId` now come from the
   entity itself.

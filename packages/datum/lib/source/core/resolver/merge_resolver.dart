@@ -1,6 +1,8 @@
 import 'dart:async';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/conflict_context.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/resolver/conflict_resolution.dart';
 
 /// A function that defines how to merge a local and remote entity.
 typedef DatumMergeFunction<T extends DatumEntityInterface> = FutureOr<T?> Function(T local, T remote, DatumConflictContext context);

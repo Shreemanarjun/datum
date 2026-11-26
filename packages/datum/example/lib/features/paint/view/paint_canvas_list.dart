@@ -1,3 +1,4 @@
+import 'package:example/shared/helper/global_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 import 'package:datum/datum.dart';
@@ -25,7 +26,7 @@ class PaintCanvasList extends SignalStatefulWidget {
   State<PaintCanvasList> createState() => _PaintCanvasListState();
 }
 
-class _PaintCanvasListState extends State<PaintCanvasList> {
+class _PaintCanvasListState extends State<PaintCanvasList> with GlobalHelper {
   final _canvases = streamSignal(_watchCanvases);
 
   @override
@@ -221,14 +222,7 @@ class _PaintCanvasListState extends State<PaintCanvasList> {
         await Datum.manager<PaintCanvas>()
             .push(item: canvas, userId: canvas.userId);
 
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Created "${canvas.title}"'),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
+        if (mounted) showSuccessSnack(child: Text('Created "${canvas.title}"'));
 
         widget.onCanvasSelected(canvas.id);
       } catch (e) {
@@ -264,14 +258,7 @@ class _PaintCanvasListState extends State<PaintCanvasList> {
         await Datum.manager<PaintCanvas>()
             .push(item: deletedCanvas, userId: deletedCanvas.userId);
 
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Deleted "${canvas.title}"'),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
+        if (mounted) showSuccessSnack(child: Text('Deleted "${canvas.title}"'));
       } catch (e) {
         talker.error('Failed to delete canvas: $e');
       }

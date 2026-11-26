@@ -1,4 +1,7 @@
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/data_source.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/query/datum_query.dart';
+import 'package:datum/source/utils/datum_logger.dart';
 
 import '../engine/metadata_hash_cache.dart';
 import '../utils/lru_cache.dart';

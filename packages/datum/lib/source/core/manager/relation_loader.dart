@@ -1,4 +1,11 @@
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/manager/datum_manager.dart';
+import 'package:datum/source/core/models/data_source.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/relation_schema.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
+import 'package:datum/source/core/query/datum_query.dart';
+import 'package:datum/source/utils/datum_logger.dart';
+import 'package:datum/source/core/manager/manager_locator.dart';
 
 /// Internal collaborator of [DatumManager] that loads and stitches related
 /// entities: eager loading (`withRelated`), relation-schema registration, and
@@ -96,7 +103,7 @@ class RelationLoader<T extends DatumEntityInterface> {
       );
     }
 
-    final relatedManager = Datum.manager<R>();
+    final relatedManager = ManagerLocator.of<R>();
 
     switch (source) {
       case DataSource.local:
@@ -133,7 +140,7 @@ class RelationLoader<T extends DatumEntityInterface> {
       );
     }
 
-    final relatedManager = Datum.manager<R>();
+    final relatedManager = ManagerLocator.of<R>();
 
     return manager.localAdapter.watchRelated(
       parent,
@@ -241,7 +248,7 @@ Future<List<DatumEntityInterface>> _stitchManyToMany(
   final localKeyValues = _distinctValues(entities, thisLocalKeyName);
   if (localKeyValues.isEmpty) return const [];
 
-  final pivotEntries = await queryIn(Datum.managerByType(relation.pivotType), relation.thisForeignKey, localKeyValues);
+  final pivotEntries = await queryIn(ManagerLocator.byType(relation.pivotType), relation.thisForeignKey, localKeyValues);
   final otherIdsByParent = <Object?, List<Object?>>{};
   final allOtherIds = <Object?>{};
   for (final pe in pivotEntries) {

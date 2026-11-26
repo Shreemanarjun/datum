@@ -1,6 +1,9 @@
 import 'dart:async';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/engine/datum_sync_engine.dart';
+import 'package:datum/source/core/events/datum_event.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_sync_result.dart';
 
 /// Utility class for handling synchronization errors consistently across the manager and engine.
 class SyncErrorHandler {

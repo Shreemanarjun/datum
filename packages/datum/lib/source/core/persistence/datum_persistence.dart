@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/models/datum_sync_metadata.dart';
 
 /// Abstract interface for persistent storage of Datum sync metadata and configuration.
 ///

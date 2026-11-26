@@ -1,11 +1,11 @@
 import 'package:datum/source/config/datum_config.dart';
-import 'package:datum/source/core/engine/datum_core.dart';
+import 'package:datum/source/core/facade/datum_core.dart';
 import 'package:datum/source/core/errors/datum_exception.dart';
 import 'package:datum/source/core/health/datum_health.dart';
 import 'package:datum/source/core/manager/datum_manager.dart';
 import 'package:datum/source/core/models/conflict_context.dart';
 import 'package:datum/source/core/models/datum_operation.dart';
-import 'package:datum/source/core/models/datum_registration.dart';
+import 'package:datum/source/core/facade/datum_registration.dart';
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
 import 'package:datum/source/core/models/datum_sync_result.dart';

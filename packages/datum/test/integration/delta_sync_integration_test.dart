@@ -145,6 +145,17 @@ void main() {
     expect(fullPulls().length, greaterThanOrEqualTo(2));
   });
 
+  test('forceFullSync pulls everything even on a delta-capable adapter', () async {
+    await setUpManager();
+    await manager.synchronize('u1'); // first sync: full, sets the watermark
+    final fullBefore = fullPulls().length;
+
+    await manager.synchronize('u1', options: const DatumSyncOptions(forceFullSync: true));
+
+    expect(fullPulls().length, fullBefore + 1, reason: 'a forced sync must re-read everything');
+    expect(deltaPulls(), isEmpty);
+  });
+
   test('detectRemoteDeletions forces full pulls (needs the complete remote id set)', () async {
     await setUpManager(
       config: const DatumConfig<TestEntity>(detectRemoteDeletions: true),

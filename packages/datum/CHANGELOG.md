@@ -1,5 +1,33 @@
 # Unreleased
 
+- **New manager APIs:** `watchPendingOperations` / `watchPendingCount`,
+  `isPending`, `waitUntilSynced`, `cancelSync`, `restore` (undo a soft
+  delete), `purgeTombstones`, `clearUserData`, `getMigrationHistory`.
+- **Migration history:** every applied or failed migration step (versioned
+  and auto) is recorded as a `MigrationRecord` (name, versions, time,
+  duration, rows, error). **Breaking for custom adapters:** `LocalAdapter`
+  gains `getMigrationHistory()` and `recordMigration()`. `Migration` gains a
+  `name` getter (defaults to the class name).
+- **Options that were ignored are now honored:**
+  `DatumErrorRecoveryStrategy.backoffStrategy` (a retryable failure is
+  retried by a scheduled sync after the delay),
+  `DatumSyncOptions.includeDeletes`, `resolveConflicts`, `overrideBatchSize`.
+- **Behavior change:** `forceFullSync` now really pulls everything, also on
+  delta/cursor adapters (it used to skip only the "nothing changed" check).
+- **Behavior change:** a pulled tombstone for a row the device never had is
+  not stored.
+- Fix: `delete(softDelete)` and tombstone filtering assumed camelCase map
+  keys; entities with snake_case keys (generated code) stayed un-deleted.
+- A store whose schema version is newer than `DatumConfig.schemaVersion`
+  logs a warning at start-up.
+- **Layering:** `lib/source` follows a dependency rule enforced by
+  `test/architecture_test.dart`. Moved (deep imports only; the barrel is
+  unchanged): the `Datum` facade and `DatumRegistration` to `core/facade`,
+  `DatumSyncRequestStrategy` to `core/sync`, `hash_generator` to
+  `core/utils`, `SyncDirection` next to `DatumSyncOptions`. No file inside
+  `lib` imports the package barrel any more. See `doc/SYNC_ENGINE_AUDIT.md`.
+
+
 - A parked operation's `parkedError` holds the `DatumException` message
   (readable in UI) instead of the full `toString()` dump.
 

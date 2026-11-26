@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
-import '../core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
 
 /// Utility for generating consistent hashes for data integrity checks.
 class DatumHashGenerator {

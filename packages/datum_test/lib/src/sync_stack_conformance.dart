@@ -107,6 +107,8 @@ void runSyncStackConformanceTests({
     _failureTests(s);
     _parkingTests(s);
     _authPauseTests(s);
+    _syncOptionTests(s);
+    _queueAndCompactionApiTests(s);
     _crashAndReplayTests(s);
     _conflictTests(s);
     _deleteAndWatchTests(s);
@@ -769,6 +771,172 @@ void _authPauseTests(_Stack s) {
     expect((await d.$1.synchronize(_u1)).failedCount, 0);
     expect((await s.remoteRow('a'))?.name, 'a-v2');
   }, skip: s.noFaults);
+}
+
+void _syncOptionTests(_Stack s) {
+  test('a retryable failure is retried by itself after the backoff delay', () async {
+    final d = await s.device(
+      recovery: DatumErrorRecoveryStrategy(
+        shouldRetry: (e) async => e is NetworkException && e.isRetryable,
+        backoffStrategy: const FixedBackoff(delay: Duration(milliseconds: 150)),
+      ),
+    );
+    await _seedSynced(d, ['r']);
+    await _edit(d, 'r', name: 'r-v2');
+    s.failEntityWrites!('r', status: 503, times: 1);
+
+    final retried = d.$1.onSyncCompleted.skip(1).first;
+    await _syncCatching(d.$1);
+    final waiting = (await d.$1.getPendingOperations(_u1)).single;
+    expect(waiting.retryCount, 1);
+    expect((await s.remoteRow('r'))?.name, 'r-v1', reason: 'not delivered yet');
+
+    // No further sync call: the backoff timer re-syncs.
+    await retried.timeout(const Duration(seconds: 5));
+    expect((await s.remoteRow('r'))?.name, 'r-v2');
+    expect(await d.$1.getPendingOperations(_u1), isEmpty);
+  }, skip: s.noFaults);
+
+  test('includeDeletes: false holds deletes (and later ops of that entity) '
+      'while other writes sync', () async {
+    final d = await s.device(deleteBehavior: DeleteBehavior.hardDelete);
+    await _seedSynced(d, ['gone', 'kept']);
+    await d.$1.delete(id: 'gone', userId: _u1);
+    await _edit(d, 'kept', name: 'kept-v2');
+
+    await d.$1.synchronize(_u1, options: const DatumSyncOptions(includeDeletes: false));
+    expect(await s.remoteIds(), {'gone', 'kept'}, reason: 'the delete was held back');
+    expect((await s.remoteRow('kept'))?.name, 'kept-v2');
+    expect((await d.$1.getPendingOperations(_u1)).map((op) => op.entityId), ['gone']);
+
+    await d.$1.synchronize(_u1);
+    expect(await s.remoteIds(), {'kept'});
+    expect(await d.$1.getPendingOperations(_u1), isEmpty);
+  });
+
+  test('resolveConflicts: false reports the conflict and leaves both sides '
+      'untouched', () async {
+    final a = await s.device();
+    final b = await s.device();
+    await _seedSynced(a, ['x']);
+    await b.$1.synchronize(_u1);
+
+    final t0 = DateTime.now();
+    await _edit(a, 'x', name: 'A', modifiedAt: t0);
+    await a.$1.synchronize(_u1);
+    await _edit(b, 'x', name: 'B', modifiedAt: t0.add(const Duration(seconds: 1)));
+
+    final conflicts = <String>[];
+    final sub = b.$1.onConflict.listen((e) => conflicts.add(e.remoteData?.name ?? ''));
+    addTearDown(sub.cancel);
+    await b.$1.synchronize(
+      _u1,
+      options: const DatumSyncOptions(direction: SyncDirection.pullOnly, resolveConflicts: false),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(conflicts, ['A'], reason: 'the conflict is reported');
+    expect((await b.$1.read('x', userId: _u1))?.name, 'B', reason: 'local kept');
+    expect((await s.remoteRow('x'))?.name, 'A', reason: 'remote kept');
+    expect(await b.$1.getPendingCount(_u1), 1, reason: 'the local edit stays queued');
+
+    // A normal sync then resolves it (later write wins).
+    await b.$1.synchronize(_u1);
+    await a.$1.synchronize(_u1);
+    expect(await _converge([a, b], 'x'), 'B');
+  });
+}
+
+void _queueAndCompactionApiTests(_Stack s) {
+  test('watchPendingCount / isPending / waitUntilSynced follow the queue live', () async {
+    final d = await s.device();
+    final counts = <int>[];
+    final sub = d.$1.watchPendingCount(_u1).listen(counts.add);
+    addTearDown(sub.cancel);
+    await Future<void>.delayed(Duration.zero);
+
+    await d.$1.push(item: _make('w', name: 'w-v1'), userId: _u1);
+    expect(await d.$1.isPending('w', userId: _u1), isTrue);
+    await expectLater(
+      d.$1.waitUntilSynced(_u1, timeout: const Duration(milliseconds: 100)),
+      throwsA(isA<TimeoutException>()),
+      reason: 'nothing syncs on its own here',
+    );
+
+    final synced = d.$1.waitUntilSynced(_u1, timeout: const Duration(seconds: 5));
+    await d.$1.synchronize(_u1);
+    await synced;
+    expect(await d.$1.isPending('w', userId: _u1), isFalse);
+    await Future<void>.delayed(Duration.zero);
+    expect(counts.first, 0);
+    expect(counts, contains(1));
+    expect(counts.last, 0);
+  });
+
+  test('purgeTombstones removes only old, uploaded tombstones', () async {
+    final d = await s.device();
+    await _seedSynced(d, ['old', 'fresh', 'queued', 'live']);
+    for (final id in ['old', 'fresh', 'queued']) {
+      await d.$1.delete(id: id, userId: _u1);
+    }
+    // 'queued' keeps a pending op: it must survive however old it is.
+    await d.$1.synchronize(_u1);
+    await d.$1.restore(id: 'queued', userId: _u1);
+    await d.$1.delete(id: 'queued', userId: _u1);
+
+    expect(await d.$1.purgeTombstones(_u1), 0, reason: 'nothing is 30 days old');
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    // Re-delete 'fresh' so its tombstone is newer than the cutoff below.
+    await d.$1.restore(id: 'fresh', userId: _u1);
+    await d.$1.synchronize(_u1);
+    final cutoff = DateTime.now();
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    await d.$1.delete(id: 'fresh', userId: _u1);
+    await d.$1.synchronize(_u1);
+    await d.$1.restore(id: 'queued', userId: _u1); // pending again
+
+    final purged = await d.$1.purgeTombstones(_u1, olderThan: DateTime.now().difference(cutoff));
+    expect(purged, 1);
+    expect(await d.$2.read('old', userId: _u1), isNull, reason: 'physically gone');
+    expect((await d.$2.read('fresh', userId: _u1))?.isDeleted, isTrue);
+    expect(await d.$2.read('queued', userId: _u1), isNotNull);
+    expect((await d.$1.read('live', userId: _u1))?.name, 'live-v1');
+    expect((await s.remoteRow('old'))?.isDeleted, isTrue, reason: 'the remote keeps its tombstone');
+  });
+
+  test('a fresh device does not store tombstones of rows it never had', () async {
+    final a = await s.device();
+    await _seedSynced(a, ['kept', 'gone']);
+    await a.$1.delete(id: 'gone', userId: _u1);
+    await a.$1.synchronize(_u1);
+
+    final b = await s.device();
+    await b.$1.synchronize(_u1);
+    expect((await b.$2.readAll(userId: _u1)).map((e) => e.id), ['kept']);
+
+    // The row still arrives if it is restored later.
+    await a.$1.restore(id: 'gone', userId: _u1);
+    await a.$1.synchronize(_u1);
+    await b.$1.synchronize(_u1);
+    expect((await b.$1.read('gone', userId: _u1))?.name, 'gone-v1');
+  });
+
+  test('clearUserData wipes one user\'s rows and queue only', () async {
+    final d = await s.device();
+    await _seedSynced(d, ['mine']);
+    await d.$1.push(item: _make('theirs', userId: 'u2'), userId: 'u2');
+    await _edit(d, 'mine', name: 'mine-v2');
+
+    await d.$1.clearUserData(_u1);
+
+    expect(await d.$2.readAll(userId: _u1), isEmpty);
+    expect(await d.$1.getPendingCount(_u1), 0);
+    expect((await d.$2.readAll(userId: 'u2')).map((e) => e.id), ['theirs']);
+    expect(await d.$1.getPendingCount('u2'), 1);
+    // The next sync brings the user's synced data back.
+    await d.$1.synchronize(_u1);
+    expect((await d.$1.read('mine', userId: _u1))?.name, 'mine-v1');
+  });
 }
 
 void _crashAndReplayTests(_Stack s) {

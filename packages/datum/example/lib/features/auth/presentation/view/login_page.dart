@@ -1,5 +1,4 @@
-import 'package:datum/source/config/datum_config.dart';
-import 'package:datum/source/core/engine/datum_core.dart';
+import 'package:datum/source/core/facade/datum_core.dart';
 import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:example/bootstrap.dart';
 import 'package:example/features/auth/presentation/view/supabase_security_dialog.dart';

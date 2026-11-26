@@ -8,7 +8,7 @@ import 'package:datum/source/core/models/error_strategy.dart';
 import 'package:datum/source/core/models/user_switch_models.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart';
-import 'package:datum/source/core/manager/datum_sync_request_strategy.dart';
+import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
 import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:datum/source/core/models/cold_start_strategy.dart';
 import 'package:datum/source/core/schema/datum_schema.dart';
@@ -27,22 +27,6 @@ typedef MigrationErrorHandler = Future<void> Function(Object error, StackTrace s
 /// Returns the sync direction to use for the operation. If null is returned,
 /// the default direction will be used.
 typedef SyncDirectionResolver = SyncDirection? Function(int pendingCount, SyncDirection defaultDirection);
-
-/// Defines the direction of a synchronization operation.
-/// Defines the order of operations during a synchronization cycle.
-enum SyncDirection {
-  /// Push local changes first, then pull remote changes. This is the default.
-  pushThenPull,
-
-  /// Pull remote changes first, then push local changes.
-  pullThenPush,
-
-  /// Only push local changes to the remote.
-  pushOnly,
-
-  /// Only pull remote changes to local.
-  pullOnly,
-}
 
 /// Defines how delete operations are handled by the DatumManager.
 enum DeleteBehavior {

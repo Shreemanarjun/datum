@@ -1,4 +1,10 @@
-import 'package:datum/datum.dart';
+import 'package:datum/source/core/health/datum_health.dart';
+import 'package:datum/source/core/models/datum_change_detail.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_sync_metadata.dart';
+import 'package:datum/source/core/models/datum_sync_scope.dart';
+import 'package:datum/source/core/models/relational_datum_entity.dart';
+import 'package:datum/source/core/query/datum_query.dart';
 
 /// Remote storage adapter abstraction for cloud data sources.
 abstract class RemoteAdapter<T extends DatumEntityInterface> {

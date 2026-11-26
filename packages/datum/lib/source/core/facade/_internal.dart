@@ -1,16 +1,16 @@
 import 'package:datum/source/adapter/local_adapter.dart';
 import 'package:datum/source/adapter/remote_adapter.dart';
 import 'package:datum/source/config/datum_config.dart';
-import 'package:datum/source/core/manager/datum_sync_request_strategy.dart';
-import 'package:datum/source/core/models/datum_registration.dart';
-import 'package:datum/source/core/engine/datum_core.dart';
+import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
+import 'package:datum/source/core/facade/datum_registration.dart';
+import 'package:datum/source/core/facade/datum_core.dart';
 import 'package:datum/source/core/engine/datum_observer.dart';
 import 'package:datum/source/core/manager/datum_manager.dart';
 import 'package:datum/source/core/middleware/datum_middleware.dart';
 
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 
-import '../models/datum_entity.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
 
 // Helper to hold adapter pairs before managers are created.
 abstract class AdapterPair {

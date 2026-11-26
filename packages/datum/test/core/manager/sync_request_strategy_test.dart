@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:datum/source/core/manager/datum_sync_request_strategy.dart';
+import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
 import 'package:test/test.dart';
 
 void main() {

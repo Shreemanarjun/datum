@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:datum/datum.dart';
 import 'package:example/data/paint/entity/paint_canvas.dart';
 import 'package:example/data/paint/entity/paint_stroke.dart';
@@ -8,7 +9,8 @@ import 'package:rxdart/rxdart.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 
-const _synced = [Task, PaintStroke, PaintCanvas, UserSettings];
+/// Every entity type the app syncs.
+const syncedEntityTypes = [Task, PaintStroke, PaintCanvas, UserSettings];
 
 /// [userId]'s parked operations (writes the server rejected for good), across
 /// every synced entity type, refreshed on each sync or data event.
@@ -16,13 +18,10 @@ Stream<List<DatumSyncOperation>> _parked(String userId) => Datum.instance.events
     .cast<Object?>()
     .startWith(null)
     .asyncMap((_) async => [
-          for (final type in _synced)
+          for (final type in syncedEntityTypes)
             ...await Datum.managerByType(type).getParkedOperations(userId),
         ])
-    .distinct((a, b) => _summary(a) == _summary(b));
-
-String _summary(List<DatumSyncOperation> ops) =>
-    [for (final op in ops) '${op.id}:${op.parkedError}'].join('|');
+    .distinct(const ListEquality<DatumSyncOperation>().equals);
 
 /// Tells the user that some changes could not sync and lets them retry.
 /// A parked write also blocks later edits of the same item, so it must not
@@ -46,7 +45,7 @@ class _ParkedOpsBannerState extends State<ParkedOpsBanner> {
   }
 
   Future<void> _retry() async {
-    for (final type in _synced) {
+    for (final type in syncedEntityTypes) {
       await Datum.managerByType(type).retryParkedOperations(widget.userId);
     }
     // A still-rejected write simply parks again; the banner shows why.

@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Persists the migration history (`getMigrationHistory` / `recordMigration`)
+  in the metadata box.
+
+
 - **Fix — entities whose map keys aren't `userId`** (e.g. generated code's
   `user_id`) were invisible: `readAll`, `watchAll`, `getAllUserIds`,
   `clearUserData` and `getAllRawData` filtered on `map['userId']`, and the

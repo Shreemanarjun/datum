@@ -1,19 +1,39 @@
-import 'package:datum/source/config/datum_config.dart';
 import 'package:datum/source/core/query/datum_query.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:meta/meta.dart';
 
+/// Defines the order of operations during a synchronization cycle.
+enum SyncDirection {
+  /// Push local changes first, then pull remote changes. This is the default.
+  pushThenPull,
+
+  /// Pull remote changes first, then push local changes.
+  pullThenPush,
+
+  /// Only push local changes to the remote.
+  pushOnly,
+
+  /// Only pull remote changes to local.
+  pullOnly,
+}
+
 /// Configuration passed when triggering a manual synchronization via `Datum.sync()`.
 @immutable
 class DatumSyncOptions<T extends DatumEntityInterface> {
-  /// Whether to include delete operations in the sync.
+  /// Whether this cycle syncs deletions. When false, queued delete
+  /// operations stay queued (with any later ops for the same entity, to keep
+  /// order) and remote-deletion detection is skipped.
   final bool includeDeletes;
 
-  /// Whether to automatically resolve conflicts using the configured resolver.
+  /// Whether conflicts found while pulling are resolved with the configured
+  /// resolver. When false they are only reported (`ConflictDetectedEvent`);
+  /// the local row and its queued operations are left untouched.
   final bool resolveConflicts;
 
-  /// If true, forces a full pull of all remote data, ignoring local metadata.
+  /// If true, forces a full pull of all remote data: the "nothing changed"
+  /// metadata shortcut is skipped and delta/cursor adapters are asked for
+  /// everything (`readAll`) instead of changes since the last sync.
   final bool forceFullSync;
 
   /// A custom batch size for this sync, overriding the one in [DatumConfig].

@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 import 'package:example/bootstrap.dart';
+import 'package:example/shared/helper/global_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:datum/datum.dart';
 import 'package:example/data/paint/entity/paint_stroke.dart';
@@ -45,7 +46,7 @@ class PaintCanvas extends SignalStatefulWidget {
   State<PaintCanvas> createState() => _PaintCanvasState();
 }
 
-class _PaintCanvasState extends State<PaintCanvas> {
+class _PaintCanvasState extends State<PaintCanvas> with GlobalHelper {
   late final _strokes = streamSignal(() => _watchStrokes(widget.canvasId));
 
   /// High-performance notifier for the active stroke being drawn
@@ -160,18 +161,6 @@ class _PaintCanvasState extends State<PaintCanvas> {
         showErrorSnack(child: Text('Failed to sync: $e'));
       }
     }
-  }
-
-  void showSuccessSnack({required Widget child}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: child, backgroundColor: Colors.green),
-    );
-  }
-
-  void showErrorSnack({required Widget child}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: child, backgroundColor: Colors.red),
-    );
   }
 
   @override

@@ -35,10 +35,6 @@ void syncThemeWithAccount() {
       .listen((userId) {
     _accountUserId = userId;
     unawaited(_accountTheme?.cancel());
-    if (userId != null) {
-      // A write parked by an older build would block this row for good.
-      unawaited(Datum.manager<UserSettings>().retryParkedOperations(userId));
-    }
     _accountTheme = userId == null
         ? null
         : Datum.manager<UserSettings>()

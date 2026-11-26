@@ -1,4 +1,9 @@
-import 'package:datum/datum.dart';
+import 'package:datum/source/adapter/local_adapter.dart';
+import 'package:datum/source/core/migration/migration.dart';
+import 'package:datum/source/core/migration/migration_plan.dart';
+import 'package:datum/source/core/models/migration_record.dart';
+import 'package:datum/source/core/models/datum_entity.dart';
+import 'package:datum/source/utils/datum_logger.dart';
 
 /// A record representing the outcome of a migration execution.
 typedef MigrationResult = ({
