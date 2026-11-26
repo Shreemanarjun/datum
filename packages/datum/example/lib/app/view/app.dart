@@ -4,7 +4,6 @@ import 'package:flash/flash_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:example/core/router/auto_route_observer.dart';
 import 'package:example/core/router/router.dart';
 import 'package:example/core/theme/theme_controller.dart';
 import 'package:example/i18n/strings.g.dart';
@@ -26,8 +25,7 @@ class App extends SignalStatefulWidget {
 }
 
 class _AppState extends State<App> with GlobalHelper {
-  final _router = AppRouter();
-  final _navigatorKey = GlobalKey<NavigatorState>();
+  final _router = createRouterConfig();
 
   @override
   Widget build(BuildContext context) {
@@ -44,12 +42,7 @@ class _AppState extends State<App> with GlobalHelper {
         brightness: Brightness.light,
         colorScheme: const ShadSlateColorScheme.light(),
       ),
-      routerConfig: _router.config(
-        placeholder: (context) => const SizedBox.shrink(),
-        navigatorObservers: () => [
-          RouterObserver(),
-        ],
-      ),
+      routerConfig: _router,
       locale: translations.value.$meta.locale.flutterLocale,
       supportedLocales: AppLocaleUtils.supportedLocales,
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
@@ -107,7 +100,7 @@ class _AppState extends State<App> with GlobalHelper {
         }
 
         ///Add toast support for flash
-        return Toast(navigatorKey: _navigatorKey, child: child);
+        return Toast(navigatorKey: _router.navigatorKey, child: child);
       },
     );
   }

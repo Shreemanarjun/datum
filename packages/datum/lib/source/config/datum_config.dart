@@ -58,6 +58,18 @@ enum DeleteBehavior {
   hardDelete,
 }
 
+/// What a sync does when an adapter throws [AuthenticationException]
+/// (an expired or missing session).
+enum AuthErrorPolicy {
+  /// Keep the operation queued untouched and pause the manager until the
+  /// user signs in again (see [DatumConfig.authState]). The default.
+  pauseSync,
+
+  /// Treat it like any other non-retryable failure: park the operation until
+  /// `retryParkedOperations` is called.
+  park,
+}
+
 /// Configuration for the Datum engine and its managers.
 class DatumConfig<T extends DatumEntityInterface> extends Equatable {
   /// The interval for any automatic background synchronization.
@@ -267,6 +279,20 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
   /// [schema]. Off by default — destructive changes are opt-in.
   final bool autoMigrateDropColumns;
 
+  /// How an [AuthenticationException] from an adapter is handled.
+  final AuthErrorPolicy authErrorPolicy;
+
+  /// Signed-in state from your auth provider (`true` = valid session). After
+  /// an [AuthErrorPolicy.pauseSync] pause, the next `true` resumes sync and
+  /// re-syncs the affected users. Without it, call `resumeSync()` yourself.
+  /// Never sent to a sync isolate.
+  final Stream<bool>? authState;
+
+  /// When set, a local write schedules a sync for its user after this quiet
+  /// period (debounced: a burst of writes, e.g. paint strokes, becomes one
+  /// sync). Null (the default) leaves uploads to auto-sync and explicit calls.
+  final Duration? syncAfterWriteDelay;
+
   const DatumConfig({
     this.autoSyncInterval = const Duration(minutes: 15),
     this.autoStartSync = false,
@@ -314,6 +340,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     this.schema,
     this.autoMigrate = false,
     this.autoMigrateDropColumns = false,
+    this.authErrorPolicy = AuthErrorPolicy.pauseSync,
+    this.authState,
+    this.syncAfterWriteDelay,
   });
 
   /// A default configuration with sensible production values.
@@ -365,6 +394,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     DatumSchema<E>? schema,
     bool? autoMigrate,
     bool? autoMigrateDropColumns,
+    AuthErrorPolicy? authErrorPolicy,
+    Stream<bool>? authState,
+    Duration? syncAfterWriteDelay,
   }) {
     return DatumConfig<E>(
       autoSyncInterval: autoSyncInterval ?? this.autoSyncInterval,
@@ -414,6 +446,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       schema: schema ?? (this.schema is DatumSchema<E> ? this.schema as DatumSchema<E> : null),
       autoMigrate: autoMigrate ?? this.autoMigrate,
       autoMigrateDropColumns: autoMigrateDropColumns ?? this.autoMigrateDropColumns,
+      authErrorPolicy: authErrorPolicy ?? this.authErrorPolicy,
+      authState: authState ?? this.authState,
+      syncAfterWriteDelay: syncAfterWriteDelay ?? this.syncAfterWriteDelay,
     );
   }
 
@@ -472,6 +507,8 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       schema: schema is DatumSchema<E> ? schema as DatumSchema<E> : null,
       autoMigrate: autoMigrate,
       autoMigrateDropColumns: autoMigrateDropColumns,
+      authErrorPolicy: authErrorPolicy,
+      syncAfterWriteDelay: syncAfterWriteDelay,
     );
   }
 
@@ -536,6 +573,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
       schema,
       autoMigrate,
       autoMigrateDropColumns,
+      authErrorPolicy,
+      authState,
+      syncAfterWriteDelay,
     ];
   }
 }

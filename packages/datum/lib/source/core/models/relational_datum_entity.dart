@@ -602,7 +602,7 @@ mixin RelationalDatumEntityMixin implements Equatable, DatumEntityInterface {
   /// Defaults to a deep comparison of [toDatumMap] outputs; generated entities
   /// override it with a field-by-field diff.
   @override
-  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) => diffDatumMaps(toDatumMap(), oldVersion.toDatumMap());
+  Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) => diffDatumMaps(toDatumMap(target: MapTarget.remote), oldVersion.toDatumMap(target: MapTarget.remote));
 
   /// Merges this entity with [other].
   @override

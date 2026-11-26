@@ -28,7 +28,8 @@ class TestConnectivityChecker implements DatumConnectivityChecker {
 
 /// Makes the shared backend reject the next [times] writes (update, patch or
 /// delete; creates may also be covered) touching [entityId] with an HTTP-like
-/// [status]: 5xx = retryable, 401/403/4xx = non-retryable.
+/// [status]: 5xx = retryable, 401 = expired session (pauses sync), other
+/// 4xx = non-retryable (parks).
 typedef FailEntityWrites =
     void Function(String entityId, {required int status, int times});
 
@@ -105,6 +106,7 @@ void runSyncStackConformanceTests({
     _directionAndOrderingTests(s);
     _failureTests(s);
     _parkingTests(s);
+    _authPauseTests(s);
     _crashAndReplayTests(s);
     _conflictTests(s);
     _deleteAndWatchTests(s);
@@ -153,6 +155,8 @@ class _Stack {
     DatumErrorRecoveryStrategy? recovery,
     LocalAdapter<ConformanceEntity>? local,
     bool online = true,
+    Stream<bool>? authState,
+    AuthErrorPolicy authErrorPolicy = AuthErrorPolicy.pauseSync,
   }) async {
     final adapter = local ?? await createLocal();
     final remote = await createRemote();
@@ -168,6 +172,8 @@ class _Stack {
         defaultConflictResolver:
             resolver ?? LastWriteWinsResolver<ConformanceEntity>(),
         errorRecoveryStrategy: recovery ?? defaults.errorRecoveryStrategy,
+        authState: authState,
+        authErrorPolicy: authErrorPolicy,
       ),
     );
     await manager.initialize();
@@ -636,19 +642,19 @@ void _failureTests(_Stack s) {
 }
 
 void _parkingTests(_Stack s) {
-  test('non-retryable 401/403 parks the op: kept, skipped with its successors, '
+  test('non-retryable 403 parks the op: kept, skipped with its successors, '
       'others sync, retry re-arms, discard drops', () async {
     final d = await s.device();
     await _seedSynced(d, ['p', 'q', 'r']);
     await _edit(d, 'p', name: 'p-v2');
     await _edit(d, 'q', name: 'q-v2');
-    s.failEntityWrites!('p', status: 401);
+    s.failEntityWrites!('p', status: 403);
 
     expect(await _syncCatching(d.$1), isNotNull, reason: 'parking surfaces');
 
     var parked = await d.$1.getParkedOperations(_u1);
     expect(parked.map((op) => op.entityId), ['p']);
-    expect(parked.single.parkedError, contains('401'));
+    expect(parked.single.parkedError, contains('403'));
     expect(
       (await d.$1.getPendingOperations(_u1)).map((op) => op.entityId),
       containsAll(['p', 'q']),
@@ -693,7 +699,7 @@ void _parkingTests(_Stack s) {
     var d = await s.device();
     await _seedSynced(d, ['p']);
     await _edit(d, 'p', name: 'p-v2');
-    s.failEntityWrites!('p', status: 401);
+    s.failEntityWrites!('p', status: 403);
     await _syncCatching(d.$1);
     final before = await d.$1.getParkedOperations(_u1);
     expect(before, hasLength(1));
@@ -712,6 +718,57 @@ void _parkingTests(_Stack s) {
     expect((await s.remoteRow('p'))?.name, 'p-v2');
     expect(await d.$1.getPendingOperations(_u1), isEmpty);
   }, skip: s.noFaults ?? s.noReopen);
+}
+
+void _authPauseTests(_Stack s) {
+  test('an expired session (401) pauses sync with the queue untouched; '
+      'signing back in resumes and delivers on its own', () async {
+    final auth = StreamController<bool>.broadcast();
+    addTearDown(auth.close);
+    final d = await s.device(authState: auth.stream);
+    await _seedSynced(d, ['a', 'b']);
+    await _edit(d, 'a', name: 'a-v2');
+    await _edit(d, 'b', name: 'b-v2');
+    s.failEntityWrites!('a', status: 401);
+
+    expect(await _syncCatching(d.$1), isA<AuthenticationException>());
+    expect(d.$1.currentStatus.status, DatumSyncStatus.paused);
+    expect(await d.$1.getParkedOperations(_u1), isEmpty, reason: 'not parked');
+    final queued = await d.$1.getPendingOperations(_u1);
+    expect(queued.map((op) => op.entityId), containsAll(['a', 'b']));
+    expect(queued.every((op) => op.retryCount == 0), isTrue, reason: 'no retry budget spent');
+
+    // While paused, syncs are skipped and nothing reaches the remote.
+    await _edit(d, 'a', name: 'a-v3');
+    expect((await d.$1.synchronize(_u1)).wasSkipped, isTrue);
+    expect((await s.remoteRow('a'))?.name, 'a-v1');
+
+    // A signed-out event changes nothing; signing in resumes and re-syncs.
+    auth.add(false);
+    await Future<void>.delayed(Duration.zero);
+    expect(d.$1.currentStatus.status, DatumSyncStatus.paused);
+    final resynced = d.$1.onSyncCompleted.first;
+    auth.add(true);
+    await resynced.timeout(const Duration(seconds: 10));
+    expect(await d.$1.getPendingCount(_u1), 0);
+    expect((await s.remoteRow('a'))?.name, 'a-v3');
+    expect((await s.remoteRow('b'))?.name, 'b-v2');
+    expect(d.$1.currentStatus.status, isNot(DatumSyncStatus.paused), reason: 'unpaused');
+  }, skip: s.noFaults);
+
+  test('AuthErrorPolicy.park keeps the pre-pause behaviour', () async {
+    final d = await s.device(authErrorPolicy: AuthErrorPolicy.park);
+    await _seedSynced(d, ['a']);
+    await _edit(d, 'a', name: 'a-v2');
+    s.failEntityWrites!('a', status: 401);
+
+    expect(await _syncCatching(d.$1), isA<AuthenticationException>());
+    expect(d.$1.currentStatus.status, isNot(DatumSyncStatus.paused));
+    expect((await d.$1.getParkedOperations(_u1)).map((op) => op.entityId), ['a']);
+    expect(await d.$1.retryParkedOperations(_u1), 1);
+    expect((await d.$1.synchronize(_u1)).failedCount, 0);
+    expect((await s.remoteRow('a'))?.name, 'a-v2');
+  }, skip: s.noFaults);
 }
 
 void _crashAndReplayTests(_Stack s) {
@@ -1055,7 +1112,7 @@ void _isolationAndScaleTests(_Stack s) {
       item: a.copyWith(name: 'a-v2'),
       userId: _u1,
     );
-    s.failEntityWrites!('a', status: 401);
+    s.failEntityWrites!('a', status: 403);
     await _syncCatching(manager);
     expect(await manager.getParkedOperations(_u1), hasLength(1));
 

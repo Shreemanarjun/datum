@@ -31,13 +31,13 @@ void main() {
   Future<void> pumpList(
     WidgetTester tester, {
     required AsyncState<List<Task>> tasks,
-    AsyncState<DateTime?>? lastSyncTime,
+    AsyncState<Set<String>>? pendingIds,
   }) =>
       tester.pumpWidget(ShadApp(
         home: Scaffold(
           body: TaskList(
             tasks: tasks,
-            lastSyncTime: lastSyncTime ?? AsyncState.loading(),
+            pendingIds: pendingIds ?? AsyncState.loading(),
             onToggle: toggled.add,
             onUpdate: updated.add,
             onDelete: deleted.add,
@@ -64,11 +64,11 @@ void main() {
     final done = _task('2', 'Completed Task',
         done: true, modifiedAt: DateTime(2026, 1, 3));
 
-    // Last sync between the two edits: only `done` is pending.
+    // Only `done` has a queued upload.
     await pumpList(
       tester,
       tasks: AsyncState.data([active, done]),
-      lastSyncTime: AsyncState.data(DateTime(2026, 1, 2, 12)),
+      pendingIds: AsyncState.data({'2'}),
     );
 
     expect(find.text('Active Task'), findsOneWidget);
@@ -97,24 +97,24 @@ void main() {
     await tester.tap(find.byIcon(Icons.delete).first);
     expect(deleted.single.id, '1');
 
-    // Never synced: everything is pending.
+    // Both queued.
     await pumpList(tester,
         tasks: AsyncState.data([active, done]),
-        lastSyncTime: AsyncState.data(null));
+        pendingIds: AsyncState.data({'1', '2'}));
     expect(find.byIcon(Icons.cloud_upload_outlined), findsNWidgets(2));
 
-    // Synced after both edits: nothing pending.
+    // Queue drained (e.g. rows that arrived by realtime): nothing pending.
     await pumpList(tester,
         tasks: AsyncState.data([active, done]),
-        lastSyncTime: AsyncState.data(DateTime(2027)));
+        pendingIds: AsyncState.data(const {}));
     expect(find.byIcon(Icons.cloud_upload_outlined), findsNothing);
 
-    // Sync time still loading / failed.
+    // Queue still loading / failed.
     await pumpList(tester, tasks: AsyncState.data([active]));
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     await pumpList(tester,
         tasks: AsyncState.data([active]),
-        lastSyncTime: AsyncState.error('offline', StackTrace.empty));
+        pendingIds: AsyncState.error('offline', StackTrace.empty));
     expect(find.byIcon(Icons.error_outline), findsOneWidget);
   });
 }

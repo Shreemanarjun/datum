@@ -1,5 +1,25 @@
 # Unreleased
 
+- **Expired sessions pause sync instead of parking writes**
+  (`DatumConfig.authErrorPolicy`, default `AuthErrorPolicy.pauseSync`): an
+  `AuthenticationException` leaves the queue untouched and pauses the
+  manager. The next `true` on `DatumConfig.authState` resumes and re-syncs on
+  its own. `AuthErrorPolicy.park` keeps the old behaviour.
+- `DatumConfig.syncAfterWriteDelay` (opt-in): a local write schedules a
+  debounced sync for its user, so a burst of writes (e.g. paint strokes)
+  uploads in one sync without the app calling `synchronize`.
+- Fix: the default `diff` from the entity mixins compared *local* maps, so
+  update deltas carried local-format values (epoch-ms timestamps) to the
+  remote; Postgres rejected them and the write parked. It now diffs remote
+  maps; the local patch applies each changed key in its local format.
+- Fix: retrying a parked operation (`retryParkedOperations`) sends the full
+  entity instead of replaying the stored delta that may be why it failed.
+- Fix: `Datum.instance.pushAndSync`/`updateAndSync`/`create`/`update`/
+  `createMany`/`updateMany` threw "Cannot use DatumEntityInterface directly"
+  when `T` was inferred as the base interface from a return-type context;
+  they now resolve the manager from the item's runtime type.
+
+
 - ⚡ Watch streams coalesce change bursts (`rereadingWatch`, exported): a
   500-write burst re-reads 2× instead of 500× (~16× faster). `watchById`
   ignores other entities; Hive `watchAll` ignores other users.

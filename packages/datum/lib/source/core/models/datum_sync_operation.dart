@@ -133,7 +133,10 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
     );
   }
 
-  /// A live copy of this parked operation with its retry budget reset.
+  /// A live copy of this parked operation with its retry budget reset. When
+  /// the full entity is held, the stored delta is dropped so the retry sends
+  /// the entity, serialized afresh: the patch itself may be what failed (e.g.
+  /// a delta written by an older build in a format the server rejects).
   DatumSyncOperation<T> unparked() => DatumSyncOperation<T>(
         id: id,
         userId: userId,
@@ -142,7 +145,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
         type: type,
         timestamp: timestamp,
         data: data,
-        delta: delta,
+        delta: data == null ? delta : null,
         sizeInBytes: sizeInBytes,
       );
 

@@ -7,7 +7,6 @@ environment:
   sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
-  auto_route: ^10.2.0
   collection: ^1.19.1
   compute: ^1.0.2
   datum:
@@ -30,6 +29,7 @@ dependencies:
   hive_ce_flutter: ^2.3.2
   internet_connection_checker_plus: ^2.9.0
   intl: ^0.20.2
+  kaisel: ^1.3.1
   platform_info: ^5.0.0
   recase: ^4.1.0
   responsive_framework:
@@ -41,11 +41,11 @@ dependencies:
   slang_flutter: ^4.9.0
   supabase_flutter: ^2.10.3
   talker_flutter: ^5.0.2
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  auto_route_generator: ^10.2.5
   build_runner: ^2.15.1
   # End-to-end integration tests (integration_test/) against a local sync
   # server, exercising both SQLite and Hive local adapters.

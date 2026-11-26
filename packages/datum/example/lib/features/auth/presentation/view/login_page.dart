@@ -2,16 +2,13 @@ import 'package:datum/source/config/datum_config.dart';
 import 'package:datum/source/core/engine/datum_core.dart';
 import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:example/bootstrap.dart';
-import 'package:example/core/router/router.gr.dart';
 import 'package:example/features/auth/presentation/view/supabase_security_dialog.dart';
 import 'package:example/shared/helper/global_helper.dart';
-import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-@RoutePage()
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -60,8 +57,6 @@ class _LoginPageState extends State<LoginPage> with GlobalHelper {
               // Don't throw here - we don't want to crash the app if initial sync fails
             }
           }
-          if (!mounted) return;
-          await context.router.replaceAll([const DashboardRoute()]);
         }
       } on AuthException catch (e, s) {
         talker.error(e, s);

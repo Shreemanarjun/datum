@@ -444,6 +444,12 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // operation has failed.
       throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
     } on Object catch (e, stackTrace) {
+      if (e is AuthenticationException && config.authErrorPolicy == AuthErrorPolicy.pauseSync) {
+        // Session expired: the op stays queued untouched and the manager
+        // pauses until the user signs in again.
+        _notifyPostOperationObservers(operation, success: false);
+        throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
+      }
       final isRetryable = e is DatumException && operation.retryCount < config.errorRecoveryStrategy.maxRetries && await config.errorRecoveryStrategy.shouldRetry(e);
 
       if (isRetryable) {

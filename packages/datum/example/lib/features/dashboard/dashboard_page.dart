@@ -1,45 +1,59 @@
-import 'package:auto_route/auto_route.dart';
-import 'package:example/core/router/router.gr.dart';
+import 'package:example/features/home/view/home_page.dart';
+import 'package:example/features/paint/view/paint_page.dart';
+import 'package:example/features/settings/settings_page.dart';
+import 'package:example/features/tasks/presentation/views/simple_datum_page.dart';
 import 'package:flutter/material.dart';
+import 'package:kaisel/kaisel.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-@RoutePage()
+/// The dashboard's tabs; each keeps its own back stack.
+sealed class TabRoute extends KaiselRoute {
+  const TabRoute();
+}
+
+final class OverviewTab extends TabRoute {
+  const OverviewTab();
+}
+
+final class TasksTab extends TabRoute {
+  const TasksTab();
+}
+
+final class PaintTab extends TabRoute {
+  const PaintTab();
+}
+
+final class SettingsTab extends TabRoute {
+  const SettingsTab();
+}
+
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return AutoTabsRouter(
-      routes: const [
-        HomeRoute(),
-        SimpleDatumRoute(),
-        PaintRoute(),
-        SettingsRoute(),
-      ],
-      builder: (context, child) {
-        final tabsRouter = AutoTabsRouter.of(context);
+    return KaiselShell<TabRoute>(
+      branchInitials: const [OverviewTab(), TasksTab(), PaintTab(), SettingsTab()],
+      pageBuilder: (context, route) => switch (route) {
+        OverviewTab() => const HomePage(),
+        TasksTab() => const SimpleDatumPage(),
+        PaintTab() => const PaintPage(),
+        SettingsTab() => const SettingsPage(),
+      },
+      chromeBuilder: (context, activeIndex, child, switchTo) {
         final isMobile = ResponsiveBreakpoints.of(context).isMobile;
-
         return Scaffold(
           body: Row(
             children: [
               if (!isMobile)
-                _Sidebar(
-                  activeIndex: tabsRouter.activeIndex,
-                  onNavItemTapped: tabsRouter.setActiveIndex,
-                ),
-              Expanded(
-                child: child,
-              ),
+                _Sidebar(activeIndex: activeIndex, onNavItemTapped: switchTo),
+              Expanded(child: child),
             ],
           ),
           bottomNavigationBar: isMobile
-              ? _BottomNav(
-                  activeIndex: tabsRouter.activeIndex,
-                  onNavItemTapped: tabsRouter.setActiveIndex,
-                )
+              ? _BottomNav(activeIndex: activeIndex, onNavItemTapped: switchTo)
               : null,
         );
       },

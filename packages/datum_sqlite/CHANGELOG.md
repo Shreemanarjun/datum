@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Fix: entities whose map spells the key columns differently (`user_id`)
+  failed the `userId NOT NULL` insert; `id`/`userId` now come from the
+  entity itself.
+
+
 - ⚡ `createAll`/`updateAll` write in one transaction (joining an open one).
 - ⚡ Indexes on `userId` and the pending queue's `user_id`; `watchCount` uses
   `COUNT(*)`, `watchFirst` uses `LIMIT 1`; watch streams coalesce bursts.

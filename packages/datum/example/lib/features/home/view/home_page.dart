@@ -1,11 +1,10 @@
-import 'package:auto_route/auto_route.dart';
+import 'package:kaisel/kaisel.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:example/features/tasks/presentation/widgets/sync_dashboard_widget.dart';
 
-@RoutePage()
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -141,14 +140,14 @@ class HomePage extends StatelessWidget {
             _QuickActionCard(
               title: 'Add New Task',
               icon: LucideIcons.plus,
-              onTap: () => AutoTabsRouter.of(context).setActiveIndex(1),
+              onTap: () => context.shell().switchTo(1),
               color: Colors.blue,
             ),
             const SizedBox(width: 16),
             _QuickActionCard(
               title: 'Start Drawing',
               icon: LucideIcons.brush,
-              onTap: () => AutoTabsRouter.of(context).setActiveIndex(2),
+              onTap: () => context.shell().switchTo(2),
               color: Colors.purple,
             ),
           ],

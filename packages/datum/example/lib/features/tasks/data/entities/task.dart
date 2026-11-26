@@ -1,6 +1,6 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:convert';
-import 'dart:math';
+import 'package:uuid/uuid.dart';
 
 import 'package:datum/datum.dart';
 
@@ -161,7 +161,7 @@ class Task extends DatumEntity {
       throw Exception('Cannot create task: user is not logged in.');
     }
     return Task(
-      id: '${now.millisecondsSinceEpoch}${Random().nextInt(9999)}',
+      id: const Uuid().v4(),
       userId: userId,
       title: title,
       description: description,

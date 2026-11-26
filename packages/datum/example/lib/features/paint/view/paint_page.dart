@@ -1,10 +1,8 @@
-import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:example/features/paint/view/paint_canvas.dart';
 import 'package:example/features/paint/view/paint_canvas_list.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-@RoutePage()
 class PaintPage extends StatefulWidget {
   const PaintPage({super.key});
 

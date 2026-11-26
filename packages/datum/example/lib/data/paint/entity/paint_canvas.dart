@@ -1,5 +1,5 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
-import 'dart:math';
+import 'package:uuid/uuid.dart';
 
 import 'package:datum/datum.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -97,7 +97,7 @@ class PaintCanvas extends RelationalDatumEntity with _$PaintCanvasMixin {
       throw Exception('Cannot create paint canvas: user is not logged in.');
     }
     return PaintCanvas(
-      id: '${now.millisecondsSinceEpoch}${Random().nextInt(9999)}',
+      id: const Uuid().v4(),
       userId: userId,
       title: title,
       description: description,

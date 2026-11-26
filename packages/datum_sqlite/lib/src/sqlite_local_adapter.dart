@@ -355,6 +355,10 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
     }
   }
 
+  /// [entity]'s map with the key columns taken from the entity itself, so an
+  /// entity whose map spells them differently (`user_id`) still lands in them.
+  Map<String, dynamic> _rowOf(T entity) => {...entity.toDatumMap(), 'id': entity.id, 'userId': entity.userId};
+
   /// Upserts a row from its map form, covering the table's known columns.
   void _insertRow(Map<String, dynamic> map) {
     _checkDeclared(map.keys);
@@ -369,13 +373,13 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
 
   @override
   Future<void> create(T entity) async {
-    _insertRow(entity.toDatumMap());
+    _insertRow(_rowOf(entity));
     _notify(entity.id, entity.userId, DatumOperationType.create, entity);
   }
 
   @override
   Future<void> update(T entity) async {
-    _insertRow(entity.toDatumMap());
+    _insertRow(_rowOf(entity));
     _notify(entity.id, entity.userId, DatumOperationType.update, entity);
   }
 
@@ -395,7 +399,7 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
     if (owns) database.execute('BEGIN IMMEDIATE');
     try {
       for (final entity in entities) {
-        _insertRow(entity.toDatumMap());
+        _insertRow(_rowOf(entity));
       }
       if (owns) database.execute('COMMIT');
     } catch (_) {

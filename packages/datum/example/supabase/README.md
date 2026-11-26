@@ -67,13 +67,58 @@ Typical timings on an M-series Mac, native stack:
   now keyed by table and client, and dropped on dispose so a later adapter
   never inherits closed controllers.
 
-## Further improvements (not done)
+## Sync improvements (done)
 
-- An expired session currently parks the write. The adapter should map
-  PostgREST `42501` and `401` errors to an auth error that pauses sync until
-  the user signs in again, instead of needing `retryParkedOperations`.
-- The adapter isn't `DeltaSyncCapable`, so every sync pulls the whole table.
-  Add a `readSince` filtered on a server-maintained `updated_at` column (a
-  trigger), as the `DeltaSyncCapable` docs recommend.
-- Entity ids are global primary keys. Another account's row with the same id
-  is rejected by row-level security and the operation parks. Keep ids as UUIDs.
+- **Expired session → pause, not park.** The adapter maps a missing/expired
+  session and PostgREST `401`/`PGRST30x` to `AuthenticationException`; the
+  manager pauses with the queue untouched and resumes by itself when
+  `DatumConfig.authState` (Supabase `onAuthStateChange`) reports a session.
+  Row-level-security rejections (`42501`) map to `AuthorizationException` and
+  park. `authErrorPolicy: AuthErrorPolicy.park` restores the old behaviour.
+- **Delta pulls.** Tables carry a trigger-maintained `updated_at`; the adapter
+  is `DeltaSyncCapable` and pulls `updated_at > watermark - deltaSyncOverlap`
+  instead of the whole table.
+- **UUID ids.** Entity ids are client-generated UUIDs and the `id` columns are
+  `UUID`, so ids can't collide across accounts.
+- **Upload soon after writes.** `syncAfterWriteDelay: 300ms` sends a burst of
+  local writes (paint strokes) in one debounced sync; other devices get them
+  by realtime within ~1–2 s.
+- **Theme syncs per account** through a hand-written (no codegen)
+  `UserSettings` entity in `user_settings`.
+
+## Multi-device run (1 iOS simulator + 2 Android emulators)
+
+```sh
+supabase start --runtime native --eager
+adb -s <serial> reverse tcp:54321 tcp:54321      # per emulator
+flutter run -d <ios-udid> --dart-define=SUPABASE_URL=http://127.0.0.1:54321 \
+  --dart-define=SUPABASE_ANON_KEY=<PUBLISHABLE_KEY>
+flutter build apk --profile --dart-define=...   # then adb install -r on each
+```
+
+Debug/profile manifests allow cleartext HTTP for the local stack. Checked
+live on all three at once: sign-in/sign-out routing, user switch (Bob's rows
+never shown to Alice), task create → realtime on the other devices, paint
+strokes from three devices converging, theme sync, and concurrent theme
+changes converging on the later write.
+
+Found and fixed during the run: Hive adapters hid entities whose maps use
+`user_id` (all generated entities, i.e. the paint feature); the default
+`diff` sent epoch-ms timestamps to Postgres; `Datum.instance.pushAndSync`
+threw when `T` inferred as the base interface; the task "pending" badge
+guessed from timestamps instead of reading the queue; no sign-out on phones.
+
+Profile build, Android emulator, 20 strokes drawn while syncing: RSS
+233 → 247 MB then flat (no growth on idle or navigation churn), CPU ~25–30%
+while drawing, 0% idle. Emulator frame timing isn't representative; measure
+jank on a device.
+
+## Still open
+
+- Stroke points are stored in device pixels, so a stroke from a wide screen
+  overflows a narrow one. Store points normalized to the canvas size.
+- `sync_metadata` is one row per user shared by every entity type; each
+  manager overwrites the others' entry. It only costs extra syncs now, but a
+  per-entity-type key would make the skip check exact.
+- A parked op blocks later edits of its entity until retried; the app should
+  surface parked ops (count + retry) instead of failing silently.

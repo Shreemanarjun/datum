@@ -1,5 +1,5 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
-import 'dart:math';
+import 'package:uuid/uuid.dart';
 import 'dart:ui';
 
 import 'package:datum/datum.dart';
@@ -109,7 +109,7 @@ class PaintStroke extends RelationalDatumEntity with _$PaintStrokeMixin {
       throw Exception('Cannot create paint stroke: user is not logged in.');
     }
     return PaintStroke(
-      id: '${now.millisecondsSinceEpoch}${Random().nextInt(9999)}',
+      id: const Uuid().v4(),
       userId: userId,
       points: points,
       color: color,

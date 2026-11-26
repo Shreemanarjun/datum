@@ -44,6 +44,7 @@ class InMemoryRemoteBackend {
     }
     throw switch (fault.status) {
       404 => EntityNotFoundException(message: 'Entity $entityId not found'),
+      401 => AuthenticationException(message: 'Injected 401 on $entityId'),
       409 => ConflictException(message: 'Injected conflict on $entityId'),
       final s => NetworkException(
         message: 'Injected status $s on $entityId',

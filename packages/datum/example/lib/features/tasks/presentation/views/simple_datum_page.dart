@@ -1,9 +1,7 @@
 import 'dart:async';
 
-import 'package:auto_route/auto_route.dart';
 import 'package:datum/datum.dart';
 import 'package:example/bootstrap.dart';
-import 'package:example/core/router/router.gr.dart';
 import 'package:example/features/auth/data/adapters/supabase_adapter.dart';
 import 'package:example/features/tasks/data/entities/task.dart';
 import 'package:example/features/tasks/presentation/controllers/sync_streams.dart';
@@ -17,7 +15,6 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
-@RoutePage()
 class SimpleDatumPage extends SignalStatefulWidget {
   const SimpleDatumPage({super.key});
 
@@ -37,9 +34,9 @@ class _SimpleDatumPageState extends State<SimpleDatumPage> with GlobalHelper {
     return Datum.manager<Task>()
         .watchAll(userId: userId, includeInitialData: true);
   });
-  late final _lastSyncTime = streamSignal<DateTime?>(() {
+  late final _pendingIds = streamSignal<Set<String>>(() {
     final userId = _userId.value;
-    return userId == null ? const Stream.empty() : lastSyncTime(userId);
+    return userId == null ? const Stream.empty() : pendingTaskIds(userId);
   });
 
   @override
@@ -58,8 +55,6 @@ class _SimpleDatumPageState extends State<SimpleDatumPage> with GlobalHelper {
 
     if (authState.event == AuthChangeEvent.signedOut) {
       Datum.instance.pauseSync();
-      // Automatically navigate to login screen when user logs out
-      if (mounted) context.router.replaceAll([const LoginRoute()]);
     } else if (authState.event == AuthChangeEvent.signedIn) {
       final userId = authState.session?.user.id;
       if (userId == null) return;
@@ -111,7 +106,7 @@ class _SimpleDatumPageState extends State<SimpleDatumPage> with GlobalHelper {
     _authSubscription.cancel();
     _appLifecycleListener.dispose();
     _tasks.dispose();
-    _lastSyncTime.dispose();
+    _pendingIds.dispose();
     _userId.dispose();
     _waitingForInitialSync.dispose();
     super.dispose();
@@ -264,7 +259,7 @@ class _SimpleDatumPageState extends State<SimpleDatumPage> with GlobalHelper {
               Expanded(
                 child: TaskList(
                   tasks: tasks,
-                  lastSyncTime: _lastSyncTime.value,
+                  pendingIds: _pendingIds.value,
                   onToggle: _saveTask,
                   onUpdate: _updateTask,
                   onDelete: _deleteTask,

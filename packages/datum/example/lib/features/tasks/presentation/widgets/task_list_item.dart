@@ -7,14 +7,14 @@ class TaskListItem extends StatelessWidget {
   const TaskListItem({
     super.key,
     required this.task,
-    required this.lastSyncTime,
+    required this.pendingIds,
     required this.onToggle,
     required this.onUpdate,
     required this.onDelete,
   });
 
   final Task task;
-  final AsyncState<DateTime?> lastSyncTime;
+  final AsyncState<Set<String>> pendingIds;
   final void Function(Task) onToggle;
   final void Function(Task) onUpdate;
   final void Function(Task) onDelete;
@@ -118,11 +118,9 @@ class TaskListItem extends StatelessWidget {
   }
 
   Widget _buildSyncStatus() {
-    return lastSyncTime.map(
-      data: (lastSyncTime) {
-        final isPending =
-            lastSyncTime == null || task.modifiedAt.isAfter(lastSyncTime);
-        if (!isPending) return const SizedBox.shrink();
+    return pendingIds.map(
+      data: (pendingIds) {
+        if (!pendingIds.contains(task.id)) return const SizedBox.shrink();
 
         return Tooltip(
           message: 'Pending sync',

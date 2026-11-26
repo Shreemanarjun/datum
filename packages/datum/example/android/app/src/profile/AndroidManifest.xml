@@ -4,4 +4,6 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Plain HTTP to a local Supabase stack (127.0.0.1 via adb reverse). -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

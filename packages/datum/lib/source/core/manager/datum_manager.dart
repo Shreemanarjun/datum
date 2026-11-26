@@ -67,6 +67,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   DatumSyncStatus? _prePauseStatus;
   final Set<String> _pausedAutoSyncUserIds = {};
 
+  /// Users whose sync paused on an expired session ([AuthErrorPolicy.pauseSync]).
+  final Set<String> _authPausedUserIds = {};
+  StreamSubscription<bool>? _authStateSubscription;
+  final Map<String, Timer> _syncAfterWriteTimers = {};
+
   /// Each paused user's auto-sync interval, so resume keeps custom intervals.
   final Map<String, Duration> _pausedAutoSyncIntervals = {};
   bool get isInitialized => _initialized;
@@ -319,6 +324,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
     // Subscribe to external changes
     _subscribeToChangeStreams();
+
+    _authStateSubscription = config.authState?.where((signedIn) => signedIn).listen((_) => _resumeAfterSignIn());
 
     // Subscribe to internal events to notify observers
     // _listenToEvents(); // This is now handled synchronously in synchronize()
@@ -734,7 +741,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       weakObserver.target?.onUpdateStart(transformed);
     }
 
-    final patched = await localAdapter.patch(id: transformed.id, delta: delta, userId: userId);
+    // The delta is in remote format (it is sent upstream); the local store
+    // gets each changed key in its own local format.
+    final local = transformed.toDatumMap();
+    final localDelta = {for (final key in delta.keys) key: local.containsKey(key) ? local[key] : delta[key]};
+    final patched = await localAdapter.patch(id: transformed.id, delta: localDelta, userId: userId);
     _recordLocalEcho(transformed.id, patched);
     _recordLocalEcho(transformed.id, transformed);
     _metadataHashCache.invalidate(userId);
@@ -1385,6 +1396,18 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     final payload = operation.delta ?? operation.data?.toDatumMap(target: MapTarget.remote);
     final encoded = payload != null ? await _isolateHelper.computeJsonEncode(payload) : '';
     await _queueManager.enqueue(operation.copyWith(sizeInBytes: encoded.length));
+    _scheduleSyncAfterWrite(operation.userId);
+  }
+
+  /// Debounced sync after a local write ([DatumConfig.syncAfterWriteDelay]).
+  void _scheduleSyncAfterWrite(String userId) {
+    final delay = config.syncAfterWriteDelay;
+    if (delay == null || isDisposed) return;
+    _syncAfterWriteTimers.remove(userId)?.cancel();
+    _syncAfterWriteTimers[userId] = Timer(delay, () {
+      _syncAfterWriteTimers.remove(userId);
+      unawaited(synchronize(userId).then<void>((_) {}, onError: (Object e) => _logger.warn('Sync after write failed for $userId: $e')));
+    });
   }
 
   /// Deletes an entity locally and immediately triggers a synchronization.
@@ -1799,6 +1822,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       final size = (await _isolateHelper.computeJsonEncode(payload)).length;
 
       await _queueManager.enqueue(operation.copyWith(sizeInBytes: size));
+      _scheduleSyncAfterWrite(existing.userId);
     }
 
     return true;
@@ -1914,6 +1938,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
           if (!result.wasSkipped) await _persistSyncResult(userId, result);
           return result;
         } on Object catch (e, stack) {
+          _pauseIfSessionExpired(userId, e);
           // Delegate to the shared handler: it processes the events carried
           // inside a SyncExceptionWithEvents and rethrows the original error
           // WITH its original stack trace (the previous inline duplicate of
@@ -1931,6 +1956,26 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         );
       },
     );
+  }
+
+  /// Pauses sync when [error] is an expired session under
+  /// [AuthErrorPolicy.pauseSync]; the queue is left untouched.
+  void _pauseIfSessionExpired(String userId, Object error) {
+    final cause = error is SyncExceptionWithEvents ? error.originalError : error;
+    if (cause is! AuthenticationException || config.authErrorPolicy != AuthErrorPolicy.pauseSync) return;
+    _logger.warn('Session expired for $userId: sync paused until sign-in.');
+    _authPausedUserIds.add(userId);
+    if (!_isSyncPaused) pauseSync();
+  }
+
+  /// Resumes an auth pause and re-syncs the affected users.
+  void _resumeAfterSignIn() {
+    if (_authPausedUserIds.isEmpty || isDisposed) return;
+    final userIds = {..._authPausedUserIds};
+    resumeSync();
+    for (final userId in userIds) {
+      unawaited(synchronize(userId).then<void>((_) {}, onError: (Object e) => _logger.warn('Re-sync after sign-in failed for $userId: $e')));
+    }
   }
 
   /// Rejects a sync for [userId] when switching away from a previous user who
@@ -2331,6 +2376,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   Future<void> dispose() async {
     if (isDisposed) return;
     stopAutoSync();
+    await _authStateSubscription?.cancel();
+    for (final timer in _syncAfterWriteTimers.values) {
+      timer.cancel();
+    }
     // Closing the streams first marks a running cycle cancelled (it stops
     // before its next operation); wait for it to unwind before the adapters
     // close, so nothing touches them or the network after dispose returns.
@@ -2542,6 +2591,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// Resumes synchronization activity for this manager.
   void resumeSync() {
     _isSyncPaused = false;
+    _authPausedUserIds.clear();
     // Restore the pre-pause status, or idle. Never `syncing`: a sync that was
     // in flight at pause time was cancelled by it, and a restored `syncing`
     // made every later sync skip itself as "already in progress".

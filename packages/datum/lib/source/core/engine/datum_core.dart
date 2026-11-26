@@ -893,11 +893,17 @@ class Datum {
 
   // CRUD operations remain the same but now use DatumEntityInterface
 
+  /// The manager for [item]. When `T` was inferred as the base interface
+  /// (e.g. from a `DatumSyncResult<DatumEntityInterface>` return context),
+  /// it is resolved by the item's runtime type instead of throwing.
+  DatumManager<T> _managerFor<T extends DatumEntityInterface>(T item) =>
+      T == DatumEntityInterface ? managerByType(item.runtimeType) as DatumManager<T> : Datum.manager<T>();
+
   /// Creates a new entity and pushes it to the appropriate manager.
   ///
   /// This is a convenience method that is equivalent to calling `Datum.manager<T>().push(item: entity, userId: entity.userId)`.
   Future<T> create<T extends DatumEntityInterface>(T entity) {
-    return Datum.manager<T>().push(item: entity, userId: entity.userId);
+    return _managerFor<T>(entity).push(item: entity, userId: entity.userId);
   }
 
   Future<T?> read<T extends DatumEntityInterface>(String id, {String? userId}) {
@@ -909,7 +915,7 @@ class Datum {
   }
 
   Future<T> update<T extends DatumEntityInterface>(T entity) {
-    return Datum.manager<T>().push(item: entity, userId: entity.userId);
+    return _managerFor<T>(entity).push(item: entity, userId: entity.userId);
   }
 
   Future<List<T>> createMany<T extends DatumEntityInterface>({
@@ -918,7 +924,7 @@ class Datum {
     bool andSync = false,
     DatumSyncOptions<T>? syncOptions,
   }) {
-    return Datum.manager<T>().saveMany(
+    return (items.isEmpty ? Datum.manager<T>() : _managerFor<T>(items.first)).saveMany(
       items: items,
       userId: userId,
       andSync: andSync,
@@ -932,7 +938,7 @@ class Datum {
     bool andSync = false,
     DatumSyncOptions<T>? syncOptions,
   }) {
-    return Datum.manager<T>().saveMany(
+    return (items.isEmpty ? Datum.manager<T>() : _managerFor<T>(items.first)).saveMany(
       items: items,
       userId: userId,
       andSync: andSync,
@@ -998,7 +1004,7 @@ class Datum {
     required String userId,
     DatumSyncOptions<T>? syncOptions,
   }) {
-    return Datum.manager<T>().pushAndSync(
+    return _managerFor<T>(item).pushAndSync(
       item: item,
       userId: userId,
       syncOptions: syncOptions,
@@ -1010,7 +1016,7 @@ class Datum {
     required String userId,
     DatumSyncOptions<T>? syncOptions,
   }) {
-    return Datum.manager<T>().updateAndSync(
+    return _managerFor<T>(item).updateAndSync(
       item: item,
       userId: userId,
       syncOptions: syncOptions,

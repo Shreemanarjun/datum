@@ -22,6 +22,22 @@ void main() {
     tempDir.deleteSync(recursive: true);
   });
 
+  runKeyNamingConformanceTests(
+    name: 'SqliteLocalAdapter',
+    create: () async {
+      final db = sqlite3.openInMemory();
+      addTearDown(db.dispose);
+      final adapter = SqliteLocalAdapter<SnakeKeyedEntity>(
+        database: db,
+        table: 'snake',
+        fromMap: SnakeKeyedEntity.fromMap,
+        columns: const {'user_id': 'TEXT', 'name': 'TEXT', 'is_deleted': 'INTEGER'},
+      );
+      await adapter.initialize();
+      return adapter;
+    },
+  );
+
   Future<LocalAdapter<ConformanceEntity>> openAt(String path) async {
     final db = sqlite3.open(path);
     final adapter = SqliteLocalAdapter<ConformanceEntity>(

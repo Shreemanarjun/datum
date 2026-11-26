@@ -454,6 +454,22 @@ void main() {
     });
 
     group('Facade "AndSync" methods', () {
+      test('item methods resolve the manager from the item when T is erased to the base interface', () async {
+        await initializeDatum();
+        when(() => localAdapter1.read(any(), userId: 'u1')).thenAnswer((_) async => null);
+        // A return-type context like this makes Dart infer T as the base
+        // interface; it used to throw "Cannot use DatumEntityInterface directly".
+        Future<(Object?, DatumSyncResult<DatumEntityInterface>)> erased(TestEntity e) => Datum.instance.pushAndSync(item: e, userId: 'u1');
+        Future<DatumEntityInterface> erasedCreate(DatumEntityInterface e) => Datum.instance.create(e);
+
+        final (saved, result) = await erased(TestEntity.create('e1', 'u1', 'Item 1'));
+        expect((saved! as TestEntity).id, 'e1');
+        expect(result.wasSkipped || result.isSuccess, isTrue);
+        expect((await erasedCreate(TestEntity.create('e2', 'u1', 'Item 2'))).id, 'e2');
+        verify(() => localAdapter1.create(any())).called(2);
+        expect(() => Datum.manager<DatumEntityInterface>(), throwsArgumentError, reason: 'type-only lookup still rejects the base type');
+      });
+
       test('Datum.pushAndSync() delegates and performs both actions', () async {
         // Arrange
         await initializeDatum();

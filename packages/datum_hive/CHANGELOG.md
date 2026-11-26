@@ -1,5 +1,12 @@
 ## Unreleased
 
+- **Fix — entities whose map keys aren't `userId`** (e.g. generated code's
+  `user_id`) were invisible: `readAll`, `watchAll`, `getAllUserIds`,
+  `clearUserData` and `getAllRawData` filtered on `map['userId']`, and the
+  start-up re-keying moved such rows under an empty owner. The owner now
+  comes from `fromMap(row).userId`.
+
+
 - **Pure Dart:** depends on `hive_ce` instead of `hive_ce_flutter`, so it runs
   in CLI/server Dart and `dart test`. Flutter apps add `hive_ce_flutter`
   themselves for `Hive.initFlutter()` (see README).

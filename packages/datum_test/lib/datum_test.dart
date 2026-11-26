@@ -33,6 +33,7 @@ export 'src/convergence_fuzz.dart';
 export 'src/crash_recovery_conformance.dart';
 export 'src/http_remote_adapter.dart';
 export 'src/in_memory_remote_adapter.dart';
+export 'src/key_naming_conformance.dart';
 export 'src/local_adapter_conformance.dart';
 export 'src/local_sync_server.dart';
 export 'src/migration_conformance.dart';

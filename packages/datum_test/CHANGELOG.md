@@ -1,5 +1,13 @@
 ## Unreleased
 
+- `runKeyNamingConformanceTests` + `SnakeKeyedEntity`: local adapters must
+  read, scope, list and clear entities whose maps use snake_case keys.
+- Sync-stack suite: a 401 (`AuthenticationException`) pauses sync with the
+  queue untouched and resumes on sign-in; `AuthErrorPolicy.park` parks.
+  Parking tests use 403. The in-memory and HTTP remotes map 401 to
+  `AuthenticationException`.
+
+
 - `bench()` / `runBenchSuite()` / `BenchStats`: multi-run benchmark helper
   (mean, median, min, stdev; JIT/AOT aware) printing markdown tables.
 - `runSyncConformanceMatrix`: the sync-stack suite for one local adapter

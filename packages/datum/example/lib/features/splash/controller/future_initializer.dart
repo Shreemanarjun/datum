@@ -17,6 +17,7 @@ import 'package:platform_info/platform_info.dart';
 import 'package:example/bootstrap.dart';
 import 'package:example/init.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:example/features/settings/user_settings.dart';
 import 'package:example/core/theme/theme_controller.dart';
 import 'package:example/shared/translations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -80,6 +81,9 @@ Future<void> initializeApp() async {
     initialUserId: _initialUserId, // Use top-level function
     changeCacheDuration: Duration(seconds: 1),
     remoteEventDebounceTime: Duration(milliseconds: 100),
+    // Upload shortly after local writes (e.g. a burst of paint strokes) so
+    // other devices see them by realtime without waiting for auto-sync.
+    syncAfterWriteDelay: Duration(milliseconds: 300),
     autoSyncInterval: Duration(
       minutes: 10,
     ),
@@ -91,6 +95,10 @@ Future<void> initializeApp() async {
     enablePerformanceLogging: false,
     logLevel: LogLevel.trace,
     onMigrationError: _onMigrationError, // Use top-level function
+    // An expired session pauses sync (writes stay queued); signing back in
+    // resumes it.
+    authState: Supabase.instance.client.auth.onAuthStateChange
+        .map((s) => s.session != null),
     // Cold start sync now runs in background - won't block app initialization
     coldStartConfig: const ColdStartConfig(
       strategy: ColdStartStrategy.adaptive, // Runs in background
@@ -117,6 +125,17 @@ Future<void> initializeApp() async {
         remoteAdapter: SupabaseRemoteAdapter<Task>(
           fromMap: Task.fromMap,
           tableName: "tasks",
+        ),
+      ),
+      DatumRegistration<UserSettings>(
+        localAdapter: IsolatedHiveLocalAdapter<UserSettings>(
+          entityBoxName: "UserSettings",
+          fromMap: UserSettings.fromMap,
+          schemaVersion: 0,
+        ),
+        remoteAdapter: SupabaseRemoteAdapter<UserSettings>(
+          fromMap: UserSettings.fromMap,
+          tableName: "user_settings",
         ),
       ),
       DatumRegistration<PaintStroke>(
@@ -148,6 +167,7 @@ Future<void> initializeApp() async {
       (error, stackTrace) =>
           Error.throwWithStackTrace(error, stackTrace ?? StackTrace.current),
       (_) {});
+  syncThemeWithAccount();
 }
 
 /// App startup. Read by the splash screen; errors surface there.

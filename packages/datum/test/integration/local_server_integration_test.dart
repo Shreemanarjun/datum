@@ -289,8 +289,12 @@ void main() {
     expect((await manager.read('e1', userId: 'u1'))?.name, 'fine');
   });
 
-  test('401 auth failure parks the op (never drops it); retry after re-auth pushes it', () async {
-    await manager.push(item: TestEntity.create('e1', 'u1', 'unauthorized'), userId: 'u1');
+  test('401 pauses sync with the op untouched; signing back in resumes and pushes it', () async {
+    final auth = StreamController<bool>.broadcast();
+    addTearDown(auth.close);
+    final device = await newDevice(config: DatumConfig<TestEntity>(authState: auth.stream));
+    addTearDown(device.dispose);
+    await device.push(item: TestEntity.create('e1', 'u1', 'unauthorized'), userId: 'u1');
 
     server
       ..failStatusCode = 401
@@ -298,30 +302,67 @@ void main() {
       ..remainingFailures = 1;
 
     await expectLater(
+      device.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pushOnly)),
+      throwsA(isA<AuthenticationException>()),
+    );
+
+    // Kept, not parked, and sync is paused until sign-in.
+    expect(await device.getParkedOperations('u1'), isEmpty);
+    expect(await device.getPendingCount('u1'), 1);
+    expect(device.currentStatus.status, DatumSyncStatus.paused);
+    expect(server.storage['u1']?['e1'], isNull);
+
+    final resynced = device.onSyncCompleted.first;
+    auth.add(true);
+    await resynced.timeout(const Duration(seconds: 10));
+    expect(server.storage['u1']?['e1']?['name'], 'unauthorized');
+    expect(await device.getPendingCount('u1'), 0);
+  });
+
+  test('syncAfterWriteDelay: a burst of local writes uploads in one debounced sync, no sync call', () async {
+    final device = await newDevice(config: const DatumConfig<TestEntity>(syncAfterWriteDelay: Duration(milliseconds: 100)));
+    addTearDown(device.dispose);
+    final synced = device.onSyncCompleted.first;
+    for (var i = 0; i < 5; i++) {
+      await device.push(item: TestEntity.create('w$i', 'u1', 'stroke $i'), userId: 'u1');
+    }
+    expect(server.storage['u1']?['w0'], isNull, reason: 'nothing sent before the quiet period');
+    await synced.timeout(const Duration(seconds: 5));
+    expect(server.storage['u1']?.keys, containsAll([for (var i = 0; i < 5; i++) 'w$i']));
+    expect(await device.getPendingCount('u1'), 0);
+
+    // Off by default: the shared manager never syncs on its own.
+    await manager.push(item: TestEntity.create('idle', 'u1', 'x'), userId: 'u1');
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(server.storage['u1']?['idle'], isNull);
+  });
+
+  test('403 parks the op (never drops it); retry re-arms it', () async {
+    await manager.push(item: TestEntity.create('e1', 'u1', 'forbidden'), userId: 'u1');
+
+    server
+      ..failStatusCode = 403
+      ..failMatcher = ((method, path) => method == 'POST')
+      ..remainingFailures = 1;
+
+    await expectLater(
       manager.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pushOnly)),
       throwsA(isA<NetworkException>().having((e) => e.isRetryable, 'isRetryable', isFalse)),
     );
-
-    // Parked, not dropped: the edit survives locally and in the queue.
     final parked = await manager.getParkedOperations('u1');
     expect(parked.map((op) => op.entityId), ['e1']);
-    expect(parked.single.parkedError, contains('401'));
-    expect((await manager.read('e1', userId: 'u1'))?.name, 'unauthorized');
-    expect(server.storage['u1']?['e1'], isNull);
+    expect(parked.single.parkedError, contains('403'));
 
     // Later syncs skip the parked op but still push other entities.
     await manager.push(item: TestEntity.create('e2', 'u1', 'other'), userId: 'u1');
     await manager.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pushOnly));
     expect(server.storage['u1']?['e2'], isNotNull);
     expect(server.storage['u1']?['e1'], isNull);
-    expect(await manager.getPendingCount('u1'), 1);
 
-    // After re-auth the app re-arms it and the next sync delivers it.
     expect(await manager.retryParkedOperations('u1'), 1);
-    expect(await manager.getParkedOperations('u1'), isEmpty);
     final result = await manager.synchronize('u1', options: const DatumSyncOptions(direction: SyncDirection.pushOnly));
     expect(result.failedCount, 0);
-    expect(server.storage['u1']?['e1']?['name'], 'unauthorized');
+    expect(server.storage['u1']?['e1']?['name'], 'forbidden');
     expect(await manager.getPendingCount('u1'), 0);
     expect(await manager.discardParkedOperations('u1'), 0);
   });

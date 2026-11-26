@@ -7,14 +7,14 @@ class TaskList extends StatelessWidget {
   const TaskList({
     super.key,
     required this.tasks,
-    required this.lastSyncTime,
+    required this.pendingIds,
     required this.onToggle,
     required this.onUpdate,
     required this.onDelete,
   });
 
   final AsyncState<List<Task>> tasks;
-  final AsyncState<DateTime?> lastSyncTime;
+  final AsyncState<Set<String>> pendingIds;
   final void Function(Task) onToggle;
   final void Function(Task) onUpdate;
   final void Function(Task) onDelete;
@@ -62,7 +62,7 @@ class TaskList extends StatelessWidget {
             return TaskListItem(
               key: ValueKey(task.id),
               task: task,
-              lastSyncTime: lastSyncTime,
+              pendingIds: pendingIds,
               onToggle: onToggle,
               onUpdate: onUpdate,
               onDelete: onDelete,

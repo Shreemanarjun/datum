@@ -61,8 +61,8 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
     for (final key in entityBox.keys) {
       final value = entityBox.get(key);
       if (value == null) continue;
-      final userId = value['userId'] as String? ?? '';
-      final id = value['id'] as String? ?? key.toString();
+      final entity = fromMap(_normalizeMap(value));
+      final (userId, id) = (entity.userId, entity.id);
       final expected = hiveBoxKey(userId, id);
       if (key != expected) {
         rekeyed[expected] = value;
@@ -121,8 +121,10 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
 
   @override
   Future<List<T>> readAll({String? userId}) async {
-    final maps = (entityBox.values).where((map) => userId == null || map['userId'] == userId);
-    return maps.map((map) => fromMap(_normalizeMap(map))).toList();
+    // ponytail: parses every row to read its owner (map key names vary, e.g.
+    // generated entities store `user_id`); index by box-key prefix if huge.
+    final all = (entityBox.values).map((map) => fromMap(_normalizeMap(map)));
+    return [for (final e in all) if (userId == null || e.userId == userId) e];
   }
 
   @override
@@ -181,7 +183,7 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
     // user — deleteAll takes keys.
     final keysToDelete = [
       for (final key in entityBox.keys)
-        if (entityBox.get(key)?['userId'] == userId) key,
+        if (_ownerOf(entityBox.get(key)) == userId) key,
     ];
     await Future.wait([
       entityBox.deleteAll(keysToDelete),
@@ -238,12 +240,12 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
 
   @override
   Future<List<String>> getAllUserIds() async {
-    return (entityBox.values).map((map) => map['userId'] as String).toSet().toList();
+    return (entityBox.values).map(_ownerOf).nonNulls.toSet().toList();
   }
 
   @override
   Future<List<Map<String, dynamic>>> getAllRawData({String? userId}) async {
-    final maps = (entityBox.values).where((map) => userId == null || map['userId'] == userId);
+    final maps = (entityBox.values).where((map) => userId == null || _ownerOf(map) == userId);
     return maps.map(_normalizeMap).toList();
   }
 
@@ -260,8 +262,8 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
     // know about yet — a round-trip would silently drop them.
     final newEntities = <String, Map<dynamic, dynamic>>{};
     for (final rawItem in data) {
-      final id = rawItem['id'] as String? ?? fromMap(rawItem).id;
-      final owner = rawItem['userId'] as String? ?? fromMap(rawItem).userId;
+      final entity = fromMap(rawItem);
+      final (owner, id) = (entity.userId, entity.id);
       newEntities[hiveBoxKey(owner, id)] = Map<String, dynamic>.from(rawItem);
     }
     await entityBox.putAll(newEntities);
@@ -346,6 +348,10 @@ class HiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> w
   }
 
   // Helper to convert Map<dynamic, dynamic> from Hive to Map<String, dynamic>
+  /// The owning user of a stored row, read through [fromMap] so it works
+  /// whatever key the entity uses (`userId`, `user_id`, …).
+  String? _ownerOf(Map<dynamic, dynamic>? map) => map == null ? null : fromMap(_normalizeMap(map)).userId;
+
   Map<String, dynamic> _normalizeMap(Map<dynamic, dynamic> maybeMap) {
     return Map.fromEntries(
       maybeMap.entries.map((entry) {

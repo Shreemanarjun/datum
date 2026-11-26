@@ -91,6 +91,9 @@ class HttpRemoteAdapter<T extends DatumEntityInterface> extends RemoteAdapter<T>
         message: 'Remote rejected write (version conflict): $body',
       );
     }
+    if (status == 401) {
+      throw AuthenticationException(message: 'Server responded 401: $body');
+    }
     throw NetworkException(
       message: 'Server responded $status: $body',
       isRetryable: status >= 500,

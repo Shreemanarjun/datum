@@ -110,7 +110,7 @@ class _SupabaseAdapterState<T extends DatumEntityInterface> {
 }
 
 class SupabaseRemoteAdapter<T extends DatumEntityInterface>
-    extends RemoteAdapter<T> {
+    extends RemoteAdapter<T> with DeltaSyncCapable<T> {
   final String tableName;
   final T Function(Map<String, dynamic>) fromMap;
   final SupabaseClient? _clientOverride;
@@ -126,7 +126,8 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
 
   // Per table AND client: two clients (accounts/devices) on one table must not
   // share a realtime channel, auth flag or change stream.
-  String get _stateKey => '$tableName#${_clientOverride == null ? 'default' : identityHashCode(_clientOverride)}';
+  String get _stateKey =>
+      '$tableName#${_clientOverride == null ? 'default' : identityHashCode(_clientOverride)}';
 
   _SupabaseAdapterState<T> get _state {
     final state = _states[_stateKey] ??= _SupabaseAdapterState<T>();
@@ -178,26 +179,66 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
 
   Stream<bool> get authStateStream => _authStateController.stream;
 
-  @override
-  Future<bool> delete(String id, {String? userId}) async {
+  /// Runs a PostgREST call with its failures mapped onto Datum exceptions: a
+  /// missing or expired session → [AuthenticationException] (sync pauses until
+  /// sign-in), a row-level-security rejection → [AuthorizationException]
+  /// (the write parks).
+  Future<R> _guarded<R>(Future<R> Function() call) async {
+    if (_client.auth.currentSession == null) {
+      throw const AuthenticationException(message: 'No Supabase session');
+    }
     try {
-      final response = await _client
-          .from(tableName)
-          .delete()
-          .eq(
-            'id',
-            id,
-          )
-          .select();
-      return response.isNotEmpty;
+      return await call();
     } on PostgrestException catch (e) {
-      // PGRST116: "Cannot coerce the result to a single JSON object" - means no rows were affected
-      if (e.code == 'PGRST116') {
-        return false;
+      if (e.code == '401' || (e.code?.startsWith('PGRST30') ?? false)) {
+        throw AuthenticationException(message: e.message, details: e.toJson());
+      }
+      if (e.code == '42501') {
+        throw AuthorizationException(message: e.message, details: e.toJson());
       }
       rethrow;
     }
   }
+
+  /// Rows changed since [since], by the server-maintained `updated_at`.
+  @override
+  Future<List<T>> readSince(DateTime since,
+          {String? userId, DatumSyncScope? scope}) =>
+      _guarded(() async {
+        PostgrestFilterBuilder query = _client
+            .from(tableName)
+            .select()
+            .gt('updated_at', since.toUtc().toIso8601String());
+        for (final condition in scope?.query.filters ?? const []) {
+          query = _applyFilter(query, condition);
+        }
+        final List rows = await query;
+        return [
+          for (final row in rows)
+            fromMap(_toCamelCase(row as Map<String, dynamic>))
+        ];
+      });
+
+  @override
+  Future<bool> delete(String id, {String? userId}) => _guarded(() async {
+        try {
+          final response = await _client
+              .from(tableName)
+              .delete()
+              .eq(
+                'id',
+                id,
+              )
+              .select();
+          return response.isNotEmpty;
+        } on PostgrestException catch (e) {
+          // PGRST116: "Cannot coerce the result to a single JSON object" - means no rows were affected
+          if (e.code == 'PGRST116') {
+            return false;
+          }
+          rethrow;
+        }
+      });
 
   @override
   Future<AdapterHealthStatus> checkHealth() async {
@@ -217,7 +258,10 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
   }
 
   @override
-  Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) async {
+  Future<List<T>> readAll({String? userId, DatumSyncScope? scope}) =>
+      _guarded(() => _readAll(userId, scope));
+
+  Future<List<T>> _readAll(String? userId, DatumSyncScope? scope) async {
     talker.info(
         "🔍 [Adapter] readAll called for table: $tableName, userId: $userId");
     talker.debug("🔍 [Adapter] scope: $scope");
@@ -318,54 +362,55 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
   }
 
   @override
-  Future<void> create(T entity) async {
-    final data = _toSnakeCase(entity.toDatumMap(target: MapTarget.remote));
-    // Ensure userId is in the payload
-    data['user_id'] = entity.userId;
-    final response = await _client
-        .from(tableName)
-        .upsert(data, onConflict: 'id')
-        .select()
-        .maybeSingle();
-    if (response == null) {
-      throw Exception(
-        'Failed to push item: upsert did not return the expected record. Check RLS policies.',
-      );
-    }
-  }
+  Future<void> create(T entity) => _guarded(() async {
+        final data = _toSnakeCase(entity.toDatumMap(target: MapTarget.remote));
+        // Ensure userId is in the payload
+        data['user_id'] = entity.userId;
+        final response = await _client
+            .from(tableName)
+            .upsert(data, onConflict: 'id')
+            .select()
+            .maybeSingle();
+        if (response == null) {
+          throw Exception(
+            'Failed to push item: upsert did not return the expected record. Check RLS policies.',
+          );
+        }
+      });
 
   @override
   Future<T> patch({
     required String id,
     required Map<String, dynamic> delta,
     String? userId,
-  }) async {
-    try {
-      final snakeCaseDelta = _toSnakeCase(delta);
-      final response = await _client
-          .from(tableName)
-          .update(snakeCaseDelta)
-          .eq('id', id)
-          .select()
-          .maybeSingle();
-      if (response == null) {
-        throw EntityNotFoundException(
-          message:
-              'Failed to patch item: record not found or RLS policy prevented selection.',
-        );
-      }
-      return fromMap(_toCamelCase(response));
-    } on PostgrestException catch (e) {
-      // PGRST116: "Cannot coerce the result to a single JSON object" - means no rows were affected
-      if (e.code == 'PGRST116') {
-        throw EntityNotFoundException(
-          message:
-              'Entity with id $id not found in table $tableName during patch operation',
-        );
-      }
-      rethrow;
-    }
-  }
+  }) =>
+      _guarded(() async {
+        try {
+          final snakeCaseDelta = _toSnakeCase(delta);
+          final response = await _client
+              .from(tableName)
+              .update(snakeCaseDelta)
+              .eq('id', id)
+              .select()
+              .maybeSingle();
+          if (response == null) {
+            throw EntityNotFoundException(
+              message:
+                  'Failed to patch item: record not found or RLS policy prevented selection.',
+            );
+          }
+          return fromMap(_toCamelCase(response));
+        } on PostgrestException catch (e) {
+          // PGRST116: "Cannot coerce the result to a single JSON object" - means no rows were affected
+          if (e.code == 'PGRST116') {
+            throw EntityNotFoundException(
+              message:
+                  'Entity with id $id not found in table $tableName during patch operation',
+            );
+          }
+          rethrow;
+        }
+      });
 
   @override
   Stream<List<T>>? watchAll({String? userId, DatumSyncScope? scope}) {
@@ -1069,40 +1114,42 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
   }
 
   @override
-  Future<void> update(T entity) async {
-    // The sync engine calls `update` for full-data updates.
-    // We can use `upsert` to handle both creating and replacing the entity.
-    final data = _toSnakeCase(entity.toDatumMap(target: MapTarget.remote));
-    data['user_id'] = entity.userId;
-    try {
-      await _client.from(tableName).upsert(data, onConflict: 'id');
-    } catch (e, stack) {
-      talker.error('❌ [Adapter] update failed for table: $tableName', e, stack);
-      rethrow;
-    }
-  }
+  Future<void> update(T entity) => _guarded(() async {
+        // The sync engine calls `update` for full-data updates.
+        // We can use `upsert` to handle both creating and replacing the entity.
+        final data = _toSnakeCase(entity.toDatumMap(target: MapTarget.remote));
+        data['user_id'] = entity.userId;
+        try {
+          await _client.from(tableName).upsert(data, onConflict: 'id');
+        } catch (e, stack) {
+          talker.error(
+              '❌ [Adapter] update failed for table: $tableName', e, stack);
+          rethrow;
+        }
+      });
 
   @override
-  Future<void> createAll(List<T> entities) async {
-    if (entities.isEmpty) return;
-    talker.info("Batch creating ${entities.length} items in $tableName");
+  Future<void> createAll(List<T> entities) => _guarded(() async {
+        if (entities.isEmpty) return;
+        talker.info("Batch creating ${entities.length} items in $tableName");
 
-    final data = entities.map((e) {
-      final map = _toSnakeCase(e.toDatumMap(target: MapTarget.remote));
-      map['user_id'] = e.userId;
-      return map;
-    }).toList();
+        final data = entities.map((e) {
+          final map = _toSnakeCase(e.toDatumMap(target: MapTarget.remote));
+          map['user_id'] = e.userId;
+          return map;
+        }).toList();
 
-    try {
-      // Use efficient batch upsert
-      await _client.from(tableName).upsert(data, onConflict: 'id');
-      talker.info("✅ [Adapter] Batch create successful for table: $tableName");
-    } catch (e, stack) {
-      talker.error(
-          "❌ [Adapter] createAll failed for table: $tableName", e, stack);
-      rethrow;
-    }
-  }
+        try {
+          // Use efficient batch upsert
+          await _client.from(tableName).upsert(data, onConflict: 'id');
+          talker.info(
+              "✅ [Adapter] Batch create successful for table: $tableName");
+        } catch (e, stack) {
+          talker.error(
+              "❌ [Adapter] createAll failed for table: $tableName", e, stack);
+          rethrow;
+        }
+      });
 
   @override
   Future<void> updateAll(List<T> entities) async {
@@ -1111,19 +1158,21 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
   }
 
   @override
-  Future<void> deleteAll(List<String> ids, {String? userId}) async {
-    if (ids.isEmpty) return;
-    talker.info("Batch deleting ${ids.length} items from $tableName");
+  Future<void> deleteAll(List<String> ids, {String? userId}) =>
+      _guarded(() async {
+        if (ids.isEmpty) return;
+        talker.info("Batch deleting ${ids.length} items from $tableName");
 
-    try {
-      await _client.from(tableName).delete().inFilter('id', ids);
-      talker.info("✅ [Adapter] Batch delete successful for table: $tableName");
-    } catch (e, stack) {
-      talker.error(
-          "❌ [Adapter] deleteAll failed for table: $tableName", e, stack);
-      rethrow;
-    }
-  }
+        try {
+          await _client.from(tableName).delete().inFilter('id', ids);
+          talker.info(
+              "✅ [Adapter] Batch delete successful for table: $tableName");
+        } catch (e, stack) {
+          talker.error(
+              "❌ [Adapter] deleteAll failed for table: $tableName", e, stack);
+          rethrow;
+        }
+      });
 
   PostgrestFilterBuilder _applyFilter(
     PostgrestFilterBuilder builder,

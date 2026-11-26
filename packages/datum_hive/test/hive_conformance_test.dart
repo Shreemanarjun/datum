@@ -21,6 +21,18 @@ void main() {
     await dir.delete(recursive: true);
   });
 
+  runKeyNamingConformanceTests(
+    name: 'HiveLocalAdapter',
+    create: () async {
+      final adapter = HiveLocalAdapter<SnakeKeyedEntity>(
+        entityBoxName: 'snake_${boxCounter++}',
+        fromMap: SnakeKeyedEntity.fromMap,
+      );
+      await adapter.initialize();
+      return adapter;
+    },
+  );
+
   runLocalAdapterConformanceTests(
     name: 'HiveLocalAdapter',
     create: () async {
