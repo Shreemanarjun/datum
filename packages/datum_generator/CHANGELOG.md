@@ -1,5 +1,15 @@
 ## Unreleased
 
+- `@DatumField(diff: false)` keeps a serialized field out of the generated
+  `diff` (it never triggers an update on its own); `diff: true` forces a
+  bookkeeping field in. Default rule unchanged otherwise.
+
+
+- **Fix:** generated `datumDiff` ignored `isDeleted`, so pushing
+  `copyWith(isDeleted: true/false)` (soft delete, undo, restore) produced a
+  null diff and the manager skipped the save. `isDeleted` is now diffed.
+
+
 - **Behavior change:** remote-target and diff `DateTime` values serialize as
   UTC (`toUtc().toIso8601String()`). A bare local time was stored by Postgres
   as UTC, shifting every timestamp by the device's offset and breaking

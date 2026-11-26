@@ -93,6 +93,9 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   String get _syncStateTable => '${table}__sync_state';
   String get _metaTable => '${table}__meta';
 
+  /// The migration history table: one row per applied or failed step.
+  String get _migrationsTable => '${table}__migrations';
+
   @override
   String get sqlTable => table;
 
@@ -143,6 +146,13 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
       )
       ..execute(
         'CREATE TABLE IF NOT EXISTS ${_q(_metaTable)} (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      )
+      ..execute(
+        'CREATE TABLE IF NOT EXISTS ${_q(_migrationsTable)} ('
+        'seq INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, '
+        'from_version INTEGER NOT NULL, to_version INTEGER NOT NULL, '
+        'applied_at TEXT NOT NULL, duration_micros INTEGER NOT NULL, '
+        'row_count INTEGER, error TEXT)',
       );
     _migrateLegacyPrimaryKey();
     // The (id, userId) primary key can't serve `WHERE userId = ?`.
@@ -581,6 +591,37 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
       "SELECT value FROM ${_q(_metaTable)} WHERE key = 'schema_version'",
     );
     return rows.isEmpty ? 0 : int.parse(rows.first['value'] as String);
+  }
+
+  @override
+  Future<List<MigrationRecord>> getMigrationHistory() async => [
+        for (final row in database.select('SELECT * FROM ${_q(_migrationsTable)} ORDER BY seq'))
+          MigrationRecord(
+            name: row['name'] as String,
+            fromVersion: row['from_version'] as int,
+            toVersion: row['to_version'] as int,
+            appliedAt: DateTime.parse(row['applied_at'] as String),
+            duration: Duration(microseconds: row['duration_micros'] as int),
+            rowCount: row['row_count'] as int?,
+            error: row['error'] as String?,
+          ),
+      ];
+
+  @override
+  Future<void> recordMigration(MigrationRecord record) async {
+    database.execute(
+      'INSERT INTO ${_q(_migrationsTable)} (name, from_version, to_version, applied_at, duration_micros, row_count, error) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        record.name,
+        record.fromVersion,
+        record.toVersion,
+        record.appliedAt.toUtc().toIso8601String(),
+        record.duration.inMicroseconds,
+        record.rowCount,
+        record.error,
+      ],
+    );
   }
 
   @override

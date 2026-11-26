@@ -398,7 +398,7 @@ class Tag extends RelationalDatumEntity {
 }
 
 /// A local adapter that intentionally does not implement fetchRelated.
-class _UnimplementedLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> {
+class _UnimplementedLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T> with FakeMigrationHistory {
   @override
   Future<List<R>> fetchRelated<R extends DatumEntityInterface>(
     RelationalDatumEntity parent,

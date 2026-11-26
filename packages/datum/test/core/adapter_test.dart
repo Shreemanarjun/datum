@@ -2,6 +2,7 @@ import 'package:datum/datum.dart';
 import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
+import '../mocks/mock_adapters.dart' show FakeMigrationHistory;
 
 /// A simple User entity for testing relationships.
 class User extends RelationalDatumEntity {
@@ -40,7 +41,7 @@ class User extends RelationalDatumEntity {
 }
 
 /// A minimal concrete implementation of [LocalAdapter] for testing default behaviors.
-class _TestLocalAdapter extends LocalAdapter<TestEntity> {
+class _TestLocalAdapter extends LocalAdapter<TestEntity> with FakeMigrationHistory {
   @override
   Future<void> addPendingOperation(
     String userId,

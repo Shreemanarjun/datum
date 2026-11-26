@@ -113,12 +113,18 @@ Profile build, Android emulator, 20 strokes drawn while syncing: RSS
 while drawing, 0% idle. Emulator frame timing isn't representative; measure
 jank on a device.
 
-## Still open
+## Also fixed after the first run
 
-- Stroke points are stored in device pixels, so a stroke from a wide screen
-  overflows a narrow one. Store points normalized to the canvas size.
-- `sync_metadata` is one row per user shared by every entity type; each
-  manager overwrites the others' entry. It only costs extra syncs now, but a
-  per-entity-type key would make the skip check exact.
-- A parked op blocks later edits of its entity until retried; the app should
-  surface parked ops (count + retry) instead of failing silently.
+- **Strokes scale with the screen.** Points are stored as fractions of the
+  canvas width (one factor for both axes, so shapes keep their proportions);
+  every device draws the same picture at its own size.
+- **Sync metadata per entity table.** `sync_metadata` is keyed by
+  `(user_id, entity_table)`, so the task, paint and settings managers no
+  longer overwrite each other's hashes and counts.
+- **Parked writes are visible.** A banner above the tab bar shows how many
+  changes the server rejected, why (Postgres class 22/23 errors map to a
+  readable `ValidationException`), and retries them. The task page says
+  "Saved here, but not synced" instead of "Error creating task" when only
+  the upload failed. Checked live with a temporary `CHECK` constraint: the
+  write parked, the banner showed the reason, and Retry delivered it once
+  the constraint was dropped.

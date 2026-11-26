@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:datum/datum.dart';
@@ -175,6 +176,8 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
     }
   }
 
+  // One row per (user, entity table): every manager has its own hashes and
+  // counts, so managers never overwrite each other's sync state.
   String get _metadataTableName => 'sync_metadata';
 
   Stream<bool> get authStateStream => _authStateController.stream;
@@ -190,14 +193,34 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
     try {
       return await call();
     } on PostgrestException catch (e) {
-      if (e.code == '401' || (e.code?.startsWith('PGRST30') ?? false)) {
-        throw AuthenticationException(message: e.message, details: e.toJson());
+      final (:code, :message) = _postgresError(e);
+      final details = e.toJson();
+      if (code == '401' || code.startsWith('PGRST30')) {
+        throw AuthenticationException(message: message, details: details);
       }
-      if (e.code == '42501') {
-        throw AuthorizationException(message: e.message, details: e.toJson());
+      if (code == '42501') {
+        throw AuthorizationException(message: message, details: details);
+      }
+      // Class 22 (data) / 23 (integrity): the row itself is rejected.
+      if (code.startsWith('22') || code.startsWith('23')) {
+        throw ValidationException(message: message, details: details);
       }
       rethrow;
     }
+  }
+
+  /// The Postgres error inside [e]. PostgREST may deliver it JSON-encoded in
+  /// the message with only the HTTP status as the code.
+  static ({String code, String message}) _postgresError(PostgrestException e) {
+    try {
+      final inner = jsonDecode(e.message);
+      if (inner is Map && inner['code'] is String) {
+        return (code: inner['code'] as String, message: '${inner['message']}');
+      }
+    } on FormatException {
+      // Plain message.
+    }
+    return (code: e.code ?? '', message: e.message);
   }
 
   /// Rows changed since [since], by the server-maintained `updated_at`.
@@ -325,6 +348,7 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
           .from(_metadataTableName)
           .select()
           .eq('user_id', userId)
+          .eq('entity_table', tableName)
           .maybeSingle();
 
       talker.info(
@@ -731,9 +755,12 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
         .debug("Updating sync metadata for user: $userId with data: $metadata");
     final data = _toSnakeCase(metadata.toMap());
     data['user_id'] = userId;
+    data['entity_table'] = tableName;
 
     try {
-      await _client.from(_metadataTableName).upsert(data);
+      await _client
+          .from(_metadataTableName)
+          .upsert(data, onConflict: 'user_id,entity_table');
     } catch (e) {
       // Handle RLS policy violations gracefully
       if (e is PostgrestException && e.code == '42501') {
@@ -934,7 +961,11 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
   }
 
   Future<void> clearSyncMetadata(String userId) async {
-    await _client.from(_metadataTableName).delete().eq('user_id', userId);
+    await _client
+        .from(_metadataTableName)
+        .delete()
+        .eq('user_id', userId)
+        .eq('entity_table', tableName);
   }
 
   // Authentication monitoring methods

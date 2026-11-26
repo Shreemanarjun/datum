@@ -149,6 +149,13 @@ abstract class LocalAdapter<T extends DatumEntityInterface> {
   /// Persist the new schema version to the database.
   Future<void> setStoredSchemaVersion(int version);
 
+  /// The store's migration history, oldest first: every migration step that
+  /// was applied to it or that failed. Persisted next to the data.
+  Future<List<MigrationRecord>> getMigrationHistory();
+
+  /// Appends [record] to the migration history.
+  Future<void> recordMigration(MigrationRecord record);
+
   /// Fetch all data for a user as a list of raw maps.
   /// This is used during schema migrations to avoid deserialization issues.
   Future<List<Map<String, dynamic>>> getAllRawData({String? userId});

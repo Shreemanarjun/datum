@@ -297,6 +297,24 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
     await metadataBox.put(schemaVersionKey, {'version': version});
   }
 
+  /// Reserved metadata-box key persisting the migration history.
+  static const String migrationHistoryKey = '__datum_migrations__';
+
+  @override
+  Future<List<MigrationRecord>> getMigrationHistory() async {
+    final stored = await metadataBox.get(migrationHistoryKey);
+    final rows = stored?['records'] as List? ?? const [];
+    return [for (final row in rows) MigrationRecord.fromMap(_normalizeMap(row as Map))];
+  }
+
+  @override
+  Future<void> recordMigration(MigrationRecord record) async {
+    final history = await getMigrationHistory();
+    await metadataBox.put(migrationHistoryKey, {
+      'records': [for (final r in [...history, record]) r.toMap()],
+    });
+  }
+
   /// Reserved metadata-box key persisting the auto-migration fingerprint.
   static const String schemaFingerprintKey = '__datum_schema_fingerprint__';
 

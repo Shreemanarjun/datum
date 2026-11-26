@@ -5,7 +5,16 @@ import 'package:collection/collection.dart';
 import 'package:datum/datum.dart';
 import 'package:rxdart/rxdart.dart' show MergeStream, Rx, SwitchMapExtension;
 
-class MockLocalAdapter<T extends DatumEntityInterface> implements LocalAdapter<T> {
+/// In-memory migration history for hand-written test adapters.
+mixin FakeMigrationHistory {
+  final migrationHistory = <MigrationRecord>[];
+
+  Future<List<MigrationRecord>> getMigrationHistory() async => migrationHistory;
+
+  Future<void> recordMigration(MigrationRecord record) async => migrationHistory.add(record);
+}
+
+class MockLocalAdapter<T extends DatumEntityInterface> with FakeMigrationHistory implements LocalAdapter<T> {
   MockLocalAdapter({this.fromJson, this.relatedAdapters});
 
   final Map<String, Map<String, T>> _storage = {};

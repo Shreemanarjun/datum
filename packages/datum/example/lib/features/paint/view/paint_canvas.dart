@@ -7,16 +7,33 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 
+/// Every stroke of [canvasId], oldest first, soft-deleted ones included:
+/// undo and redo are derived from them, so they work on any device.
 Stream<List<PaintStroke>> _watchStrokes(String canvasId) {
   final userId = Supabase.instance.client.auth.currentUser?.id;
   if (userId == null) return Stream.value([]);
 
   return Datum.manager<PaintStroke>()
-      .watchAll(userId: userId, includeInitialData: true)
-      .map((allStrokes) => allStrokes
-          .where((stroke) => stroke.canvasId == canvasId && !stroke.isDeleted)
-          .toList()
-        ..sort((a, b) => a.order.compareTo(b.order)));
+      .watchAll(userId: userId, includeInitialData: true, includeDeleted: true)
+      .map((allStrokes) =>
+          allStrokes.where((stroke) => stroke.canvasId == canvasId).toList()
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
+}
+
+List<PaintStroke> _live(List<PaintStroke> all) => [
+      for (final s in all)
+        if (!s.isDeleted) s
+    ];
+
+/// Undone strokes that redo can bring back, latest undo last: those deleted
+/// after the newest visible stroke was drawn (drawing again ends redo).
+List<PaintStroke> _redoable(List<PaintStroke> all) {
+  final live = _live(all);
+  final newest = live.isEmpty ? null : live.last.createdAt;
+  return [
+    for (final s in all)
+      if (s.isDeleted && (newest == null || s.modifiedAt.isAfter(newest))) s
+  ]..sort((a, b) => a.modifiedAt.compareTo(b.modifiedAt));
 }
 
 class PaintCanvas extends SignalStatefulWidget {
@@ -30,8 +47,6 @@ class PaintCanvas extends SignalStatefulWidget {
 
 class _PaintCanvasState extends State<PaintCanvas> {
   late final _strokes = streamSignal(() => _watchStrokes(widget.canvasId));
-
-  final List<PaintStroke> _redoStrokes = [];
 
   /// High-performance notifier for the active stroke being drawn
   final ValueNotifier<List<Offset>> _currentPointsNotifier = ValueNotifier([]);
@@ -50,12 +65,19 @@ class _PaintCanvasState extends State<PaintCanvas> {
     super.dispose();
   }
 
+  /// Canvas width, the unit stroke points are stored in: devices with
+  /// different screens draw the same picture at their own scale.
+  double _canvasWidth = 1;
+
   void _startStroke(Offset position) {
-    _currentPointsNotifier.value = [position];
+    _currentPointsNotifier.value = [position / _canvasWidth];
   }
 
   void _updateStroke(Offset position) {
-    _currentPointsNotifier.value = [..._currentPointsNotifier.value, position];
+    _currentPointsNotifier.value = [
+      ..._currentPointsNotifier.value,
+      position / _canvasWidth
+    ];
   }
 
   Future<void> _endStroke() async {
@@ -79,7 +101,6 @@ class _PaintCanvasState extends State<PaintCanvas> {
     setState(() {
       _optimisticStrokes.add(stroke);
       _currentPointsNotifier.value = [];
-      _redoStrokes.clear();
     });
 
     // 3. Save to Datum
@@ -96,48 +117,32 @@ class _PaintCanvasState extends State<PaintCanvas> {
     }
   }
 
+  List<PaintStroke> get _all => _strokes.peek().value ?? const [];
+
+  /// Soft-deletes or restores [stroke], stamped now so the change wins on
+  /// every device and orders the redo list.
+  Future<void> _setDeleted(PaintStroke stroke, bool deleted) =>
+      Datum.manager<PaintStroke>().push(
+        item:
+            stroke.copyWithAll(isDeleted: deleted, modifiedAt: DateTime.now()),
+        userId: stroke.userId,
+      );
+
   Future<void> _undo() async {
-    final strokes = _strokes.peek().value ?? <PaintStroke>[];
-
-    if (strokes.isEmpty) return;
-    final lastStroke = strokes.last;
-
-    setState(() {
-      _redoStrokes.add(lastStroke);
-    });
-
-    final deletedStroke = lastStroke.copyWith(isDeleted: true) as PaintStroke;
-    await Datum.manager<PaintStroke>()
-        .push(item: deletedStroke, userId: deletedStroke.userId);
+    final live = _live(_all);
+    if (live.isNotEmpty) await _setDeleted(live.last, true);
   }
 
   Future<void> _redo() async {
-    if (_redoStrokes.isEmpty) return;
-
-    final stroke = _redoStrokes.removeLast();
-    final restoredStroke = stroke.copyWith(isDeleted: false) as PaintStroke;
-    await Datum.manager<PaintStroke>()
-        .push(item: restoredStroke, userId: restoredStroke.userId);
+    final undone = _redoable(_all);
+    if (undone.isNotEmpty) await _setDeleted(undone.last, false);
   }
 
-  void _clearCanvas() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-
-    final strokes = _strokes.peek().value ?? <PaintStroke>[];
-
-    for (final stroke in strokes) {
-      final deletedStroke = stroke.copyWith(isDeleted: true) as PaintStroke;
-      await Datum.manager<PaintStroke>().push(
-        item: deletedStroke,
-        userId: userId,
-      );
+  Future<void> _clearCanvas() async {
+    for (final stroke in _live(_all)) {
+      await _setDeleted(stroke, true);
     }
-
-    setState(() {
-      _redoStrokes.clear();
-      _optimisticStrokes.clear();
-    });
+    setState(_optimisticStrokes.clear);
   }
 
   Future<void> _syncToRemote() async {
@@ -192,7 +197,7 @@ class _PaintCanvasState extends State<PaintCanvas> {
                 _buildWidthPicker(theme),
                 _buildDivider(theme),
                 strokesAsync.maybeMap(
-                  data: (strokes) => _buildActions(strokes, theme),
+                  data: (all) => _buildActions(all, theme),
                   orElse: () => _buildDisabledActions(theme),
                 ),
                 _buildDivider(theme),
@@ -210,11 +215,12 @@ class _PaintCanvasState extends State<PaintCanvas> {
           child: Container(
             color: Colors.white,
             child: strokesAsync.map(
-              data: (strokes) {
+              data: (all) {
+                final strokes = _live(all);
                 // Sync optimistic cache: Remove strokes that have now safely
                 // arrived in the stream.
                 if (_optimisticStrokes.isNotEmpty) {
-                  final strokeIds = strokes.map((s) => s.id).toSet();
+                  final strokeIds = all.map((s) => s.id).toSet();
                   _optimisticStrokes
                       .removeWhere((s) => strokeIds.contains(s.id));
                 }
@@ -222,29 +228,32 @@ class _PaintCanvasState extends State<PaintCanvas> {
                 // Combine stream data with remaining optimistic strokes
                 final combinedStrokes = [...strokes, ..._optimisticStrokes];
 
-                return RepaintBoundary(
-                  child: GestureDetector(
-                    onPanStart: (details) =>
-                        _startStroke(details.localPosition),
-                    onPanUpdate: (details) =>
-                        _updateStroke(details.localPosition),
-                    onPanEnd: (details) => _endStroke(),
-                    child: ValueListenableBuilder<List<Offset>>(
-                      valueListenable: _currentPointsNotifier,
-                      builder: (context, currentPoints, _) {
-                        return CustomPaint(
-                          painter: _CanvasPainter(
-                            strokes: combinedStrokes,
-                            currentPoints: currentPoints,
-                            currentColor: _selectedColor,
-                            currentStrokeWidth: _strokeWidth,
-                          ),
-                          size: Size.infinite,
-                        );
-                      },
+                return LayoutBuilder(builder: (context, constraints) {
+                  _canvasWidth = constraints.maxWidth;
+                  return RepaintBoundary(
+                    child: GestureDetector(
+                      onPanStart: (details) =>
+                          _startStroke(details.localPosition),
+                      onPanUpdate: (details) =>
+                          _updateStroke(details.localPosition),
+                      onPanEnd: (details) => _endStroke(),
+                      child: ValueListenableBuilder<List<Offset>>(
+                        valueListenable: _currentPointsNotifier,
+                        builder: (context, currentPoints, _) {
+                          return CustomPaint(
+                            painter: _CanvasPainter(
+                              strokes: combinedStrokes,
+                              currentPoints: currentPoints,
+                              currentColor: _selectedColor,
+                              currentStrokeWidth: _strokeWidth,
+                            ),
+                            size: Size.infinite,
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                );
+                  );
+                });
               },
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, stack) => Center(child: Text('Error: $error')),
@@ -317,7 +326,8 @@ class _PaintCanvasState extends State<PaintCanvas> {
     );
   }
 
-  Widget _buildActions(List<PaintStroke> strokes, ShadThemeData theme) {
+  Widget _buildActions(List<PaintStroke> all, ShadThemeData theme) {
+    final strokes = _live(all);
     return Row(
       children: [
         ShadButton.ghost(
@@ -327,7 +337,7 @@ class _PaintCanvasState extends State<PaintCanvas> {
           child: const Icon(LucideIcons.undo2, size: 20),
         ),
         ShadButton.ghost(
-          onPressed: _redoStrokes.isNotEmpty ? _redo : null,
+          onPressed: _redoable(all).isNotEmpty ? _redo : null,
           child: const Icon(LucideIcons.redo2, size: 20),
         ),
         ShadButton.ghost(
@@ -378,11 +388,13 @@ class _CanvasPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Points are stored as fractions of the canvas width.
+    canvas.scale(size.width);
     // 1. Draw all completed (and optimistic) strokes
     for (final stroke in strokes) {
       final paint = Paint()
         ..color = stroke.color
-        ..strokeWidth = stroke.strokeWidth
+        ..strokeWidth = stroke.strokeWidth / size.width
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..isAntiAlias = true
@@ -406,7 +418,7 @@ class _CanvasPainter extends CustomPainter {
     if (currentPoints.isNotEmpty) {
       final paint = Paint()
         ..color = currentColor
-        ..strokeWidth = currentStrokeWidth
+        ..strokeWidth = currentStrokeWidth / size.width
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..isAntiAlias = true

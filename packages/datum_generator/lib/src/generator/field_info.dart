@@ -35,6 +35,7 @@ final class FieldInfo {
     this.fromGenerator,
     this.relationInfo,
     this.ignored = const {},
+    this.diff,
   });
 
   factory FieldInfo.of(dynamic field) {
@@ -49,6 +50,7 @@ final class FieldInfo {
       toGenerator: _readFieldString(field, 'toGenerator'),
       fromGenerator: _readFieldString(field, 'fromGenerator'),
       relationInfo: isRelation ? _relationInfoOf(field) : null,
+      diff: _readFieldBool(field, 'diff'),
       ignored: {
         for (final scope in IgnoreScope.values)
           if (_isIgnored(field, scope)) scope,
@@ -69,6 +71,9 @@ final class FieldInfo {
   /// Constructor expression for the relation object (relation fields only).
   final String? relationInfo;
   final Set<IgnoreScope> ignored;
+
+  /// `@DatumField(diff:)` override; null = the generator's default rule.
+  final bool? diff;
 
   bool get isNullable => type.endsWith('?');
 
@@ -235,6 +240,16 @@ String? _readFieldString(dynamic field, String property) {
     if (annotation == null) return null;
     final value = ConstantReader(annotation).read(property);
     if (!value.isNull) return value.stringValue;
+  } catch (_) {}
+  return null;
+}
+
+bool? _readFieldBool(dynamic field, String property) {
+  try {
+    final annotation = _fieldChecker.firstAnnotationOf(field);
+    if (annotation == null) return null;
+    final value = ConstantReader(annotation).read(property);
+    if (!value.isNull) return value.boolValue;
   } catch (_) {}
   return null;
 }

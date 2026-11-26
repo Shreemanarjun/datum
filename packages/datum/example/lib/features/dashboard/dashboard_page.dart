@@ -2,6 +2,7 @@ import 'package:example/features/home/view/home_page.dart';
 import 'package:example/features/paint/view/paint_page.dart';
 import 'package:example/features/settings/settings_page.dart';
 import 'package:example/features/tasks/presentation/views/simple_datum_page.dart';
+import 'package:example/shared/widget/parked_ops_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:responsive_framework/responsive_framework.dart';
@@ -35,7 +36,12 @@ class DashboardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return KaiselShell<TabRoute>(
-      branchInitials: const [OverviewTab(), TasksTab(), PaintTab(), SettingsTab()],
+      branchInitials: const [
+        OverviewTab(),
+        TasksTab(),
+        PaintTab(),
+        SettingsTab()
+      ],
       pageBuilder: (context, route) => switch (route) {
         OverviewTab() => const HomePage(),
         TasksTab() => const SimpleDatumPage(),
@@ -49,7 +55,16 @@ class DashboardPage extends StatelessWidget {
             children: [
               if (!isMobile)
                 _Sidebar(activeIndex: activeIndex, onNavItemTapped: switchTo),
-              Expanded(child: child),
+              Expanded(
+                child: Column(
+                  children: [
+                    Expanded(child: child),
+                    if (Supabase.instance.client.auth.currentUser?.id
+                        case final userId?)
+                      ParkedOpsBanner(key: ValueKey(userId), userId: userId),
+                  ],
+                ),
+              ),
             ],
           ),
           bottomNavigationBar: isMobile

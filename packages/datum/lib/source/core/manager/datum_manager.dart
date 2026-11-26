@@ -377,10 +377,23 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       dropRemovedColumns: config.autoMigrateDropColumns,
       logger: _logger,
     );
+    final watch = Stopwatch()..start();
     final outcome = await executor.execute();
     if (outcome.applied.isNotEmpty) {
       // A reconciliation rewrites raw rows / table shape wholesale.
       _metadataHashCache.invalidateAll();
+    }
+    if (outcome.applied.isNotEmpty || !outcome.success) {
+      final version = await localAdapter.getStoredSchemaVersion();
+      await localAdapter.recordMigration(MigrationRecord(
+        name: 'auto: ${outcome.applied.isEmpty ? 'reconcile ${schema.fingerprint}' : outcome.applied.join(', ')}',
+        fromVersion: version,
+        toVersion: version,
+        appliedAt: DateTime.now().toUtc(),
+        duration: watch.elapsed,
+        rowCount: (await localAdapter.getAllRawData()).length,
+        error: outcome.success ? null : '${outcome.error}',
+      ));
     }
     if (!outcome.success) {
       _logger.error('Auto-migration failed: ${outcome.error}', outcome.stackTrace);
@@ -395,6 +408,13 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
         );
       }
     }
+  }
+
+  /// The local store's migration history, oldest first: every versioned
+  /// migration step and auto-migration pass that was applied or failed.
+  Future<List<MigrationRecord>> getMigrationHistory() {
+    _ensureInitialized();
+    return localAdapter.getMigrationHistory();
   }
 
   Future<void> _setupAutoSyncIfEnabled() async {

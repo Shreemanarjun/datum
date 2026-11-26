@@ -1,5 +1,9 @@
 # Unreleased
 
+- A parked operation's `parkedError` holds the `DatumException` message
+  (readable in UI) instead of the full `toString()` dump.
+
+
 - **Expired sessions pause sync instead of parking writes**
   (`DatumConfig.authErrorPolicy`, default `AuthErrorPolicy.pauseSync`): an
   `AuthenticationException` leaves the queue untouched and pauses the

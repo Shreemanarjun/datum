@@ -41,6 +41,7 @@ export 'source/core/schema/datum_schema_reader.dart';
 export 'source/core/migration/migration.dart';
 export 'source/core/migration/migration_executor.dart';
 export 'source/core/migration/migration_plan.dart';
+export 'source/core/migration/migration_record.dart';
 export 'source/core/migration/schema_migration.dart';
 export 'source/core/migration/sql_schema_migration.dart';
 export 'source/core/models/cold_start_strategy.dart';

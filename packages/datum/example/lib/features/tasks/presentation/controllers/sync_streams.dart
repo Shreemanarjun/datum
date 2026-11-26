@@ -24,10 +24,12 @@ Stream<Set<String>> pendingTaskIds(String userId) {
     Stream.value(null),
     manager.eventStream,
     manager.watchAll(userId: userId, includeInitialData: false),
-  ]).asyncMap((_) async => {
-        for (final op in await manager.getPendingOperations(userId))
-          op.entityId,
-      }).distinct(const SetEquality<String>().equals);
+  ])
+      .asyncMap((_) async => {
+            for (final op in await manager.getPendingOperations(userId))
+              op.entityId,
+          })
+      .distinct(const SetEquality<String>().equals);
 }
 
 /// Last sync time for [userId], refreshed after every completed sync.

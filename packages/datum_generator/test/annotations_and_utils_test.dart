@@ -42,6 +42,8 @@ void main() {
       expect(annotation.name, isNull);
       expect(annotation.fromGenerator, isNull);
       expect(annotation.toGenerator, isNull);
+      expect(annotation.diff, isNull);
+      expect(const DatumField(diff: false).diff, isFalse);
 
       final custom = DatumField(
         name: 'a',

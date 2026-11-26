@@ -3,6 +3,9 @@
 /// You will create concrete implementations of this class for each schema
 /// change in your application.
 abstract class Migration {
+  /// Name written to the migration history. Defaults to the class name.
+  String get name => '$runtimeType';
+
   /// The schema version this migration starts from.
   int get fromVersion;
 

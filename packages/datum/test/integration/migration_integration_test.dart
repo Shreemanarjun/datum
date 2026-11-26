@@ -114,8 +114,9 @@ void main() {
       when(() => localAdapter.getAllRawData(userId: any(named: 'userId'))).thenAnswer((_) async => []);
       when(() => localAdapter.getAllRawData()).thenAnswer((_) async => []);
       when(() => localAdapter.overwriteAllRawData(any(), userId: any(named: 'userId'))).thenAnswer((_) async {});
-      when(() => localAdapter.transaction<MigrationResult>(any())).thenAnswer((invocation) async {
-        final action = invocation.positionalArguments.first as Future<MigrationResult> Function();
+      when(() => localAdapter.recordMigration(any())).thenAnswer((_) async {});
+      when(() => localAdapter.transaction<void>(any())).thenAnswer((invocation) async {
+        final action = invocation.positionalArguments.first as Future<void> Function();
         try {
           return await action();
         } catch (e) {
@@ -131,6 +132,7 @@ void main() {
     setUpAll(() {
       registerFallbackValue(DatumQueryBuilder<TestEntity>().build());
       registerFallbackValue(StackTrace.empty);
+      registerFallbackValue(MigrationRecord(name: 'fallback', fromVersion: 0, toVersion: 1, appliedAt: DateTime.utc(2026), duration: Duration.zero));
       // Fallback for the transaction action parameter used with `any()`.
       // This ensures mocktail can match the function argument when stubbing transaction(...)
       // and avoids runtime null-type issues.
@@ -401,6 +403,7 @@ void main() {
 
       // Stub the migration to throw an error.
       final mockMigration = MockMigration();
+      when(() => mockMigration.name).thenReturn('AddArchived');
       when(() => mockMigration.fromVersion).thenReturn(1);
       when(() => mockMigration.toVersion).thenReturn(2);
       when(() => mockMigration.migrate(any())).thenThrow(migrationException);
@@ -441,6 +444,13 @@ void main() {
           any(),
         ),
       ).called(1);
+
+      // The failed step is written to the migration history.
+      final failed = verify(() => localAdapter.recordMigration(captureAny())).captured.single as MigrationRecord;
+      expect(failed.name, 'AddArchived');
+      expect((failed.fromVersion, failed.toVersion), (1, 2));
+      expect(failed.succeeded, isFalse);
+      expect(failed.error, contains('Simulated migration failure'));
     });
   });
 }

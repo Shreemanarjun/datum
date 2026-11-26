@@ -51,6 +51,7 @@ const _expectedExports = <String>{
   'source/core/migration/migration_executor.dart',
   'source/core/migration/migration.dart',
   'source/core/migration/migration_plan.dart',
+  'source/core/migration/migration_record.dart',
   'source/core/migration/schema_migration.dart',
   'source/core/migration/sql_schema_migration.dart',
   'source/core/schema/datum_field_codec.dart',

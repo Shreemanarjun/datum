@@ -212,23 +212,18 @@ class SqlMigrationExecutor<T extends DatumEntityInterface> {
       return (success: false, migrationError: planError, migrationStack: planStack);
     }
 
-    try {
-      return await localAdapter.transaction(() async {
-        final rawCapable = localAdapter as RawQueryCapable;
-        for (final (migration, statements) in plannedSteps) {
-          logger.info('Running SQL migration from v${migration.fromVersion} to v${migration.toVersion} '
-              '(${statements.length} statements)...');
-          for (final statement in statements) {
-            await rawCapable.rawQuery(DatumRawQuery(sql: statement));
-          }
-          await localAdapter.setStoredSchemaVersion(migration.toVersion);
+    final rawCapable = localAdapter as RawQueryCapable;
+    final statementsOf = {for (final (step, statements) in plannedSteps) step: statements};
+    return runMigrationSteps<T, SchemaMigration>(
+      localAdapter: localAdapter,
+      steps: [for (final (step, _) in plannedSteps) step],
+      logger: logger,
+      apply: (migration) async {
+        for (final statement in statementsOf[migration]!) {
+          await rawCapable.rawQuery(DatumRawQuery(sql: statement));
         }
-        logger.info('SQL schema migration completed. Current version: $targetVersion');
-        return (success: true, migrationError: null, migrationStack: null);
-      });
-    } catch (migrationError, migrationStack) {
-      logger.error('SQL migration failed (adapter transaction rolled back): $migrationError', migrationStack);
-      return (success: false, migrationError: migrationError, migrationStack: migrationStack);
-    }
+        return null; // Rows are rewritten in place by the database.
+      },
+    );
   }
 }

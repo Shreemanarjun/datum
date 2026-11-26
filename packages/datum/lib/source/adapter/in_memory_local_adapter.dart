@@ -245,6 +245,14 @@ class InMemoryLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<
   @override
   Future<void> setStoredSchemaVersion(int version) async => _schemaVersion = version;
 
+  final List<MigrationRecord> _migrationHistory = [];
+
+  @override
+  Future<List<MigrationRecord>> getMigrationHistory() async => List.unmodifiable(_migrationHistory);
+
+  @override
+  Future<void> recordMigration(MigrationRecord record) async => _migrationHistory.add(record);
+
   @override
   Future<List<Map<String, dynamic>>> getAllRawData({String? userId}) async {
     final items = await readAll(userId: userId);

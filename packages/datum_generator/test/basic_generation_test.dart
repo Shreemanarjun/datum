@@ -25,6 +25,9 @@ class TestEntity extends DatumEntity {
 
   final DateTime customDate;
 
+  @DatumField(diff: false)
+  final int localViews;
+
   @DatumIgnore()
   final String ignoredField;
 
@@ -39,6 +42,7 @@ class TestEntity extends DatumEntity {
     required this.age,
     required this.customField,
     required this.customDate,
+    this.localViews = 0,
     this.ignoredField = '',
   });
 }
@@ -121,6 +125,12 @@ void main() {
       expect(output, contains('final old = oldVersion as TestEntity;'));
       expect(output, contains('if (name != old.name)'));
       expect(output, isNot(contains('if (id != old.id)')));
+      // A soft delete / restore pushed as an update must count as a change.
+      expect(output, contains('if (isDeleted != old.isDeleted)'));
+      expect(output, contains("changes['is_deleted'] = isDeleted;"));
+      // @DatumField(diff: false) keeps a field out of deltas but serialized.
+      expect(output, isNot(contains('localViews != old.localViews')));
+      expect(output, contains("'local_views': localViews"));
       expect(
         output,
         contains("changes['modified_at'] = modifiedAt.toUtc().toIso8601String();"),

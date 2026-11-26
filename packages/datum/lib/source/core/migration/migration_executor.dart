@@ -53,50 +53,82 @@ class MigrationExecutor<T extends DatumEntityInterface> {
     // Snapshot current adapter state so we can restore on failure.
     final originalData = await localAdapter.getAllRawData(userId: null);
     final originalStoredVersion = await localAdapter.getStoredSchemaVersion();
+    logger.info('Starting schema migration from version $originalStoredVersion to $targetVersion...');
 
-    try {
-      // Run the full migration sequence inside a transaction when possible.
-      return await localAdapter.transaction(() async {
-        var currentVersion = await localAdapter.getStoredSchemaVersion();
-        logger.info('Starting schema migration from version $currentVersion to $targetVersion...');
-
-        for (final migration in plannedSteps) {
-          logger.info('Running migration from v${migration.fromVersion} to v${migration.toVersion}...');
-
-          // Retrieve current raw data and produce migrated maps.
-          final rawData = await localAdapter.getAllRawData();
-          final migratedData = rawData.map(migration.migrate).toList();
-
-          // Persist migrated data and update stored schema version.
-          await localAdapter.overwriteAllRawData(migratedData);
-          await localAdapter.setStoredSchemaVersion(migration.toVersion);
-
-          currentVersion = migration.toVersion;
-          logger.info('Migration to v$currentVersion successful.');
-        }
-
-        logger.info('Schema migration completed. Current version: $currentVersion');
-        return (success: true, migrationError: null, migrationStack: null);
-      });
-    } catch (migrationError, migrationStack) {
-      logger.error('Migration failed, attempting to restore original state: $migrationError', migrationStack);
-      // Attempt to restore the adapter to its original state to ensure tests
-      // (and real environments without adapter-level transactional rollback)
-      // don't end up in a partially-migrated state.
-      // This block is now outside the transaction, as the transaction would have rolled back.
-      try {
+    return runMigrationSteps<T, Migration>(
+      localAdapter: localAdapter,
+      steps: plannedSteps,
+      logger: logger,
+      apply: (migration) async {
+        final rawData = await localAdapter.getAllRawData();
+        await localAdapter.overwriteAllRawData(rawData.map(migration.migrate).toList());
+        return rawData.length;
+      },
+      // Stores without transactional rollback need the snapshot put back.
+      restore: () async {
         await localAdapter.overwriteAllRawData(originalData);
         await localAdapter.setStoredSchemaVersion(originalStoredVersion);
-        logger.info('Restored original data and schema version after migration failure.');
-        // If restoration is successful, return the original migration error.
-        return (success: false, migrationError: migrationError, migrationStack: migrationStack);
-      } catch (restoreError, restoreStack) {
-        // If restoration fails, log both errors and rethrow the original error.
-        logger.error('Failed to restore original state after migration failure: $restoreError', restoreStack);
-        // Return a failure result containing both errors for the caller to inspect.
-        // We still prioritize the original migration error.
-        return (success: false, migrationError: migrationError, migrationStack: migrationStack);
-      }
-    }
+      },
+    );
   }
+}
+
+/// Runs [steps] in order inside the adapter's transaction. [apply] performs
+/// one step and returns the number of rows it rewrote (null if unknown); the
+/// stored schema version is stamped after each step.
+///
+/// The migration history gets one row per applied step once the whole chain
+/// has committed (a rolled-back chain leaves no "applied" rows), or one
+/// failed row for the step that threw, written after [restore] ran.
+Future<MigrationResult> runMigrationSteps<T extends DatumEntityInterface, M extends Migration>({
+  required LocalAdapter<T> localAdapter,
+  required List<M> steps,
+  required Future<int?> Function(M step) apply,
+  required DatumLogger logger,
+  Future<void> Function()? restore,
+}) async {
+  final applied = <MigrationRecord>[];
+  final watch = Stopwatch();
+  M? running;
+  MigrationRecord record(M step, int? rowCount, {String? error}) => MigrationRecord(
+        name: step.name,
+        fromVersion: step.fromVersion,
+        toVersion: step.toVersion,
+        appliedAt: DateTime.now().toUtc(),
+        duration: watch.elapsed,
+        rowCount: rowCount,
+        error: error,
+      );
+
+  try {
+    await localAdapter.transaction<void>(() async {
+      for (final step in steps) {
+        logger.info('Running migration ${step.name} (v${step.fromVersion} -> v${step.toVersion})...');
+        running = step;
+        watch
+          ..reset()
+          ..start();
+        final rowCount = await apply(step);
+        await localAdapter.setStoredSchemaVersion(step.toVersion);
+        applied.add(record(step, rowCount));
+      }
+    });
+  } catch (migrationError, migrationStack) {
+    logger.error('Migration failed, attempting to restore original state: $migrationError', migrationStack);
+    try {
+      await restore?.call();
+    } catch (restoreError, restoreStack) {
+      // The original migration error stays the one reported.
+      logger.error('Failed to restore original state after migration failure: $restoreError', restoreStack);
+    }
+    final failed = running;
+    if (failed != null) await localAdapter.recordMigration(record(failed, null, error: '$migrationError'));
+    return (success: false, migrationError: migrationError, migrationStack: migrationStack);
+  }
+
+  for (final entry in applied) {
+    await localAdapter.recordMigration(entry);
+  }
+  logger.info('Schema migration completed (${applied.length} step(s)).');
+  return (success: true, migrationError: null, migrationStack: null);
 }

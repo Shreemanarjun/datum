@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:datum/datum.dart';
 import 'package:test/test.dart';
+import '../mocks/mock_adapters.dart' show FakeMigrationHistory;
 
 /// Integration test for Datum persistence layer with DatumManager.
 ///
@@ -528,7 +529,7 @@ class TestEntity extends DatumEntity {
   String toString() => 'TestEntity(id: $id, name: $name)';
 }
 
-class TestLocalAdapter extends LocalAdapter<TestEntity> {
+class TestLocalAdapter extends LocalAdapter<TestEntity> with FakeMigrationHistory {
   final Map<String, TestEntity> _storage = {};
   final Map<String, DatumSyncMetadata> _syncMetadata = {};
   final Map<String, List<DatumSyncOperation<TestEntity>>> _pendingOperations = {};

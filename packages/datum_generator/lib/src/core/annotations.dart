@@ -79,7 +79,16 @@ class DatumField {
   /// Example: "%DATA_PROPERTY%.toJson()"
   final String? toGenerator;
 
-  const DatumField({this.name, this.fromGenerator, this.toGenerator});
+  /// Whether the generated `diff` compares this field.
+  ///
+  /// `null` (default) keeps the built-in rule: every serialized field is
+  /// compared except the identity and bookkeeping ones (`id`, `userId`,
+  /// `createdAt`, `modifiedAt`, `version`). Set `false` to keep a field out
+  /// of update deltas (e.g. a local-only counter that should never trigger
+  /// an upload on its own), or `true` to force a bookkeeping field in.
+  final bool? diff;
+
+  const DatumField({this.name, this.fromGenerator, this.toGenerator, this.diff});
 }
 
 /// Annotation to define a BelongsTo relationship.

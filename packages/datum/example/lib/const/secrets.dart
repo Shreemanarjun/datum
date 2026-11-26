@@ -5,6 +5,9 @@
 ///  --dart-define=SUPABASE_ANON_KEY=$PUBLISHABLE_KEY` (from `supabase status`).
 class Secrets {
   Secrets._();
-  static const String SUPABASE_URL = String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://zmozkivkhopoeutpnnum.supabase.co');
-  static const String SUPABASE_ANON_KEY = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: 'sb_publishable_Bvov34wsvt0zEON48tQzag_kQAPcPAp');
+  static const String SUPABASE_URL = String.fromEnvironment('SUPABASE_URL',
+      defaultValue: 'https://zmozkivkhopoeutpnnum.supabase.co');
+  static const String SUPABASE_ANON_KEY = String.fromEnvironment(
+      'SUPABASE_ANON_KEY',
+      defaultValue: 'sb_publishable_Bvov34wsvt0zEON48tQzag_kQAPcPAp');
 }

@@ -1,7 +1,7 @@
 import 'package:datum/datum.dart';
 import 'package:test/test.dart';
 
-import '../mocks/mock_adapters.dart' show applyQuery;
+import '../mocks/mock_adapters.dart' show FakeMigrationHistory, applyQuery;
 import '../mocks/test_entity.dart';
 import 'manager_coverage_helpers.dart' show OnlineConnectivity, makeEntity;
 
@@ -12,7 +12,7 @@ import 'manager_coverage_helpers.dart' show OnlineConnectivity, makeEntity;
 /// closures) so the whole object graph is sendable across the isolate
 /// boundary.
 
-class PlainLocalAdapter extends LocalAdapter<TestEntity> {
+class PlainLocalAdapter extends LocalAdapter<TestEntity> with FakeMigrationHistory {
   final Map<String, Map<String, TestEntity>> store = {};
   final Map<String, List<DatumSyncOperation<TestEntity>>> pendingOps = {};
   final Map<String, DatumSyncMetadata> metadataByUser = {};

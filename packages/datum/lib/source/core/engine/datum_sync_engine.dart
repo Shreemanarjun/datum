@@ -444,51 +444,62 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // operation has failed.
       throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
     } on Object catch (e, stackTrace) {
-      if (e is AuthenticationException && config.authErrorPolicy == AuthErrorPolicy.pauseSync) {
-        // Session expired: the op stays queued untouched and the manager
-        // pauses until the user signs in again.
-        _notifyPostOperationObservers(operation, success: false);
-        throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
-      }
-      final isRetryable = e is DatumException && operation.retryCount < config.errorRecoveryStrategy.maxRetries && await config.errorRecoveryStrategy.shouldRetry(e);
+      return _onOperationFailed(operation, e, stackTrace, generatedEvents);
+    }
+  }
 
-      if (isRetryable) {
-        final updatedOp = operation.copyWith(
-          retryCount: operation.retryCount + 1,
-        );
-        await queueManager.update(updatedOp);
-        // Later ops for this entity must not overtake the failed one.
-        _blockedEntityIds.add(operation.entityId);
-        logger.warn(
-          'Operation ${operation.id} failed. Will retry on next sync.',
-        );
-        return 0;
-      }
-
-      // Non-retryable (or out of retries): park it. It stays queued so the
-      // user's edit is never lost, but stops blocking other entities.
-      _emitStatus(
-        (s) => s.copyWith(
-          failedOperations: s.failedOperations + 1,
-          errors: [...s.errors, e],
-        ),
-      );
-      logger.error(
-        'Operation ${operation.id} failed permanently: $e',
-        stackTrace,
-      );
-      await queueManager.update(operation.copyWith(parkedError: '$e'));
-      _blockedEntityIds.add(operation.entityId);
-
-      // Re-throw the exception. This is crucial for allowing execution
-      // strategies (like `ParallelStrategy` with `failFast: true`) to
-      // stop processing and immediately propagate the failure up to the
-      // main `synchronize` method's `try...catch` block.
-      // IMPORTANT: Wrap the raw error in SyncExceptionWithEvents before re-throwing.
-      // This ensures that when this code runs in an isolate, the main isolate
-      // receives the correctly typed exception, not just the raw `e`.
+  /// Handles a failed send: pause on an expired session, schedule a retry,
+  /// or park. Returns 0 (bytes sent) or throws to stop the cycle.
+  Future<int> _onOperationFailed(
+    DatumSyncOperation<T> operation,
+    Object e,
+    StackTrace stackTrace,
+    List<DatumSyncEvent<T>> generatedEvents,
+  ) async {
+    if (e is AuthenticationException && config.authErrorPolicy == AuthErrorPolicy.pauseSync) {
+      // Session expired: the op stays queued untouched and the manager
+      // pauses until the user signs in again.
+      _notifyPostOperationObservers(operation, success: false);
       throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
     }
+    final isRetryable = e is DatumException && operation.retryCount < config.errorRecoveryStrategy.maxRetries && await config.errorRecoveryStrategy.shouldRetry(e);
+
+    if (isRetryable) {
+      final updatedOp = operation.copyWith(
+        retryCount: operation.retryCount + 1,
+      );
+      await queueManager.update(updatedOp);
+      // Later ops for this entity must not overtake the failed one.
+      _blockedEntityIds.add(operation.entityId);
+      logger.warn(
+        'Operation ${operation.id} failed. Will retry on next sync.',
+      );
+      return 0;
+    }
+
+    // Non-retryable (or out of retries): park it. It stays queued so the
+    // user's edit is never lost, but stops blocking other entities.
+    _emitStatus(
+      (s) => s.copyWith(
+        failedOperations: s.failedOperations + 1,
+        errors: [...s.errors, e],
+      ),
+    );
+    logger.error(
+      'Operation ${operation.id} failed permanently: $e',
+      stackTrace,
+    );
+    await queueManager.update(operation.copyWith(parkedError: e is DatumException ? e.message : '$e'));
+    _blockedEntityIds.add(operation.entityId);
+
+    // Re-throw the exception. This is crucial for allowing execution
+    // strategies (like `ParallelStrategy` with `failFast: true`) to
+    // stop processing and immediately propagate the failure up to the
+    // main `synchronize` method's `try...catch` block.
+    // IMPORTANT: Wrap the raw error in SyncExceptionWithEvents before re-throwing.
+    // This ensures that when this code runs in an isolate, the main isolate
+    // receives the correctly typed exception, not just the raw `e`.
+    throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
   }
 
   /// Sends a single (non-batched) operation to the remote adapter.

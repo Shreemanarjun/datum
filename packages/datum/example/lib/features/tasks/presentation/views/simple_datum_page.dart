@@ -120,6 +120,12 @@ class _SimpleDatumPageState extends State<SimpleDatumPage> with GlobalHelper {
     try {
       final (_, result) = await op();
       _handleSyncResult(result);
+    } on DatumException catch (e) {
+      // The write is saved on this device; only its upload was rejected
+      // (see the banner to retry).
+      if (mounted) {
+        showErrorSnack(child: Text('Saved here, but not synced: ${e.message}'));
+      }
     } catch (e) {
       if (mounted) showErrorSnack(child: Text('Error $action task: $e'));
     }

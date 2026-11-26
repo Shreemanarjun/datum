@@ -145,6 +145,10 @@ void main() {
     expect(pulled.failedCount, 0);
     expect((await b.manager.readAll(userId: userId)).map((t) => t.id).toSet(), created.map((t) => t.id).toSet());
 
+    // Sync metadata is one row per (user, entity table), never shared.
+    final meta = await a.client.from('sync_metadata').select('entity_table').eq('user_id', userId);
+    expect(meta.map((r) => r['entity_table']), ['tasks']);
+
     // 3. Realtime: A's edit reaches B's store with no sync call on B.
     final edited = (await a.manager.read(_id('live-0'), userId: userId))!.copyWith(title: 'edited on A', modifiedAt: DateTime.now());
     await a.manager.push(item: edited);

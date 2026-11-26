@@ -4,9 +4,11 @@
 -- entity's toDatumMap() keys (the adapter converts both ways). Ids are
 -- client-generated UUIDs: a global key that can't collide across accounts.
 
--- Per-user sync metadata (DatumSyncMetadata.toMap()).
+-- Sync metadata (DatumSyncMetadata.toMap()) per user and entity table, so
+-- each manager keeps its own hashes and counts.
 CREATE TABLE public.sync_metadata (
-    user_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    entity_table TEXT NOT NULL,
     last_sync_time TEXT,
     last_successful_sync_time TEXT,
     data_hash TEXT,
@@ -22,7 +24,8 @@ CREATE TABLE public.sync_metadata (
     retry_count INTEGER NOT NULL DEFAULT 0,
     sync_duration INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, entity_table)
 );
 
 CREATE TABLE public.tasks (

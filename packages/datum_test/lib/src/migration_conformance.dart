@@ -17,7 +17,9 @@ import 'conformance_entity.dart';
 /// - a partially-migrated store resumes from its stored version without
 ///   re-running earlier steps;
 /// - with [reopenLocal], a successful migration is run-once across a
-///   simulated app relaunch.
+///   simulated app relaunch;
+/// - the migration history (`getMigrationHistory`) lists every applied step
+///   in order, records a failing step as failed, and survives a relaunch.
 ///
 /// Every test receives a fresh adapter from [createLocal] (already
 /// initialized) seeded with two [ConformanceEntity] rows, and disposes it
@@ -251,6 +253,41 @@ void runMigrationConformanceTests({
       );
     });
 
+    test('migration history lists every applied step, in order', () async {
+      expect(await adapter.getMigrationHistory(), isEmpty);
+      final before = DateTime.now().toUtc().subtract(const Duration(seconds: 1));
+
+      final result = await executorFor(standardChain()).execute();
+      expect(result.success, isTrue, reason: '${result.migrationError}');
+
+      final history = await adapter.getMigrationHistory();
+      expect(
+        [for (final r in history) (r.fromVersion, r.toVersion, r.succeeded)],
+        [(0, 1, true), (1, 2, true)],
+      );
+      for (final record in history) {
+        expect(record.name, isNotEmpty);
+        expect(record.appliedAt.isAfter(before), isTrue);
+        expect(record.error, isNull);
+        if (!sqlPath) expect(record.rowCount, 2);
+      }
+
+      // A no-op re-run adds nothing.
+      await executorFor(standardChain()).execute();
+      expect(await adapter.getMigrationHistory(), hasLength(2));
+    });
+
+    test('a failed chain records only the failing step, as failed', () async {
+      final result = await executorFor(failingChain()).execute();
+      expect(result.success, isFalse);
+
+      final history = await adapter.getMigrationHistory();
+      expect(history, hasLength(1), reason: 'the rolled-back first step is not "applied"');
+      expect((history.single.fromVersion, history.single.toVersion), (1, 2));
+      expect(history.single.succeeded, isFalse);
+      expect(history.single.error, isNotEmpty);
+    });
+
     test('resume from stored version runs only the remaining steps', () async {
       // Simulate a store that already completed v0 -> v1 (values NOT yet
       // transformed by this run's chain — only steps >= 1 may execute).
@@ -296,6 +333,11 @@ void runMigrationConformanceTests({
           109,
         ], reason: 'a second launch must be a no-op, not another +100');
         expect(await adapter.getStoredSchemaVersion(), 2);
+        expect(
+          [for (final r in await adapter.getMigrationHistory()) r.toVersion],
+          [1, 2],
+          reason: 'the migration history must survive the relaunch',
+        );
       });
     }
   });

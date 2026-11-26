@@ -73,13 +73,15 @@ String toDatumMapCode(List<FieldInfo> fields) {
       .toString();
 }
 
+// Fields the generated diff skips unless `@DatumField(diff: true)` says
+// otherwise. `isDeleted` is NOT here: a soft delete or restore pushed as an
+// update must register as a change, or the manager skips the save as a no-op.
 const _diffExcluded = {
   'id',
   'userId',
   'createdAt',
   'modifiedAt',
   'version',
-  'isDeleted',
 };
 
 String diffCode(String className, List<FieldInfo> fields) {
@@ -87,7 +89,7 @@ String diffCode(String className, List<FieldInfo> fields) {
     ..writeln(
       '\n  Map<String, dynamic>? datumDiff(DatumEntityInterface oldVersion, {MapTarget target = MapTarget.local}) {',
     );
-  final diffable = fields.where((f) => !_diffExcluded.contains(f.name));
+  final diffable = fields.where((f) => f.diff ?? !_diffExcluded.contains(f.name));
   if (diffable.isNotEmpty) {
     b.writeln('    final old = oldVersion as $className;');
   }
