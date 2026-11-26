@@ -66,6 +66,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   bool _isSubscribedToRemoteChanges = true;
   DatumSyncStatus? _prePauseStatus;
   final Set<String> _pausedAutoSyncUserIds = {};
+
+  /// Each paused user's auto-sync interval, so resume keeps custom intervals.
+  final Map<String, Duration> _pausedAutoSyncIntervals = {};
   bool get isInitialized => _initialized;
 
   /// Whether the manager is currently subscribed to remote change events.
@@ -85,6 +88,13 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
 
   // Internal state management
   final Map<String, Timer> _autoSyncTimers = {};
+
+  /// Users with auto-sync ON, with the run's token and interval. A timer
+  /// removes itself while its sync is in flight, so this — not
+  /// [_autoSyncTimers] — is the source of truth: a stop/restart during that
+  /// window invalidates the token, and the in-flight run does not reschedule.
+  final Map<String, ({int token, Duration interval})> _autoSyncRuns = {};
+  int _autoSyncTokens = 0;
 
   /// A cache to track recently processed external change IDs to prevent echoes
   /// and de-duplicate events. The key is the entity ID.
@@ -2162,9 +2172,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     stopAutoSync(userId: userId);
 
     final syncInterval = interval ?? config.autoSyncInterval;
+    final token = ++_autoSyncTokens;
+    _autoSyncRuns[userId] = (token: token, interval: syncInterval);
 
-    // Schedule the first sync immediately, then schedule subsequent syncs after each completes
-    _scheduleNextAutoSync(userId, syncInterval);
+    // Schedule the first sync, then the next one after each completes.
+    _scheduleNextAutoSync(userId, token);
 
     _logger.info(
       'Auto-sync started for user $userId (interval: $syncInterval)',
@@ -2172,23 +2184,24 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   }
 
   /// Schedules the next auto-sync for the specified user after the given interval.
-  void _scheduleNextAutoSync(String userId, Duration interval) {
-    if (isDisposed || _isSyncPaused) {
+  void _scheduleNextAutoSync(String userId, int token) {
+    final run = _autoSyncRuns[userId];
+    if (isDisposed || _isSyncPaused || run?.token != token) {
       return;
     }
 
-    _autoSyncTimers[userId] = Timer(interval, () async {
+    _autoSyncTimers[userId] = Timer(run!.interval, () async {
       // Remove this timer from the map since it's fired
       _autoSyncTimers.remove(userId);
 
       try {
         await synchronize(userId);
         // After successful sync, schedule the next one
-        _scheduleNextAutoSync(userId, interval);
+        _scheduleNextAutoSync(userId, token);
       } catch (e, stack) {
         _logger.error('Auto-sync for user $userId failed: $e', stack);
         // Even on failure, schedule the next sync to maintain the schedule
-        _scheduleNextAutoSync(userId, interval);
+        _scheduleNextAutoSync(userId, token);
       }
     });
 
@@ -2201,27 +2214,31 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     if (userId != null) {
       final timer = _autoSyncTimers.remove(userId);
       timer?.cancel();
+      final wasOn = _autoSyncRuns.remove(userId) != null;
       // If we are stopping a specific user's timer, also ensure it's not
       // marked for resumption if the manager is paused.
       if (_isSyncPaused) {
         _pausedAutoSyncUserIds.remove(userId);
+        _pausedAutoSyncIntervals.remove(userId);
       }
 
       // Update the global next sync time after stopping this timer
       _updateNextSyncTime();
 
-      // Only log if a timer was actually stopped
-      if (timer != null) {
+      // Only log if auto-sync was actually on
+      if (wasOn) {
         _logger.info('Auto-sync stopped for user: $userId');
       }
       return;
     }
 
     _cancelAllAutoSyncTimers();
+    _autoSyncRuns.clear();
     // An explicit `stopAutoSync()` while paused means the caller does not want
     // these users' auto-sync restored on resume, so forget them.
     if (_isSyncPaused) {
       _pausedAutoSyncUserIds.clear();
+      _pausedAutoSyncIntervals.clear();
     }
   }
 
@@ -2487,7 +2504,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
     // WITHOUT going through stopAutoSync() (which would clear the very list we
     // just populated once _isSyncPaused is set). This makes pause/resume robust
     // regardless of statement ordering.
-    _pausedAutoSyncUserIds.addAll(_autoSyncTimers.keys);
+    // Includes users whose sync is in flight (their timer is not in the map).
+    _pausedAutoSyncIntervals.addAll({for (final MapEntry(:key, :value) in _autoSyncRuns.entries) key: value.interval});
+    _pausedAutoSyncUserIds.addAll(_autoSyncRuns.keys);
+    _autoSyncRuns.clear();
     _cancelAllAutoSyncTimers();
     _isSyncPaused = true;
     if (!_statusSubject.isClosed) {
@@ -2499,8 +2519,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
   /// Resumes synchronization activity for this manager.
   void resumeSync() {
     _isSyncPaused = false;
-    // Restore the status to what it was before being paused, or default to idle.
-    final statusToRestore = _prePauseStatus ?? DatumSyncStatus.idle;
+    // Restore the pre-pause status, or idle. Never `syncing`: a sync that was
+    // in flight at pause time was cancelled by it, and a restored `syncing`
+    // made every later sync skip itself as "already in progress".
+    final pre = _prePauseStatus;
+    final statusToRestore = pre == null || pre == DatumSyncStatus.syncing ? DatumSyncStatus.idle : pre;
     if (!_statusSubject.isClosed) {
       _statusSubject.add(currentStatus.copyWith(status: statusToRestore));
     }
@@ -2511,9 +2534,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable {
       'Resuming auto-sync for ${_pausedAutoSyncUserIds.length} user(s)...',
     );
     for (final userId in _pausedAutoSyncUserIds) {
-      startAutoSync(userId);
+      startAutoSync(userId, interval: _pausedAutoSyncIntervals[userId]);
     }
     _pausedAutoSyncUserIds.clear();
+    _pausedAutoSyncIntervals.clear();
     _logger.info('Sync resumed for manager $T.');
   }
 }

@@ -32,10 +32,15 @@ class DatumHashGenerator {
   /// the basis for incremental maintenance via [DatumRollingHash]: to update the
   /// set hash after one write, XOR the changed entity's digest in/out instead of
   /// re-hashing everything.
-  String hashEntitiesUnordered<T extends DatumEntityInterface>(List<T> entities) {
+  String hashEntitiesUnordered<T extends DatumEntityInterface>(List<T> entities) =>
+      hashMapsUnordered([for (final e in entities) e.toDatumMap(target: MapTarget.remote)]);
+
+  /// [hashEntitiesUnordered] over pre-serialized remote-target entity maps.
+  /// Pure function of plain data, so it can run on a background isolate.
+  static String hashMapsUnordered(List<Map<String, dynamic>> maps) {
     final acc = Uint8List(32);
-    for (final e in entities) {
-      final d = datumEntityDigest(e.toDatumMap(target: MapTarget.remote));
+    for (final map in maps) {
+      final d = datumEntityDigest(map);
       for (var i = 0; i < 32; i++) {
         acc[i] ^= d[i];
       }

@@ -847,17 +847,14 @@ class Datum {
         }
       }
 
-      switch (direction) {
-        case SyncDirection.pushThenPull:
-          accumulate(await _pushChanges(userId, options));
-          accumulate(await _pullChanges(userId, options));
-        case SyncDirection.pullThenPush:
-          accumulate(await _pullChanges(userId, options));
-          accumulate(await _pushChanges(userId, options));
-        case SyncDirection.pushOnly:
-          accumulate(await _pushChanges(userId, options));
-        case SyncDirection.pullOnly:
-          accumulate(await _pullChanges(userId, options));
+      // ONE cycle per manager, in registration (dependency) order, so parents
+      // still reach the remote before their children. Each manager pays a
+      // single metadata pre-check, rehash and beacon write — the old push-all
+      // then pull-all flow ran two full cycles per manager, and double-counted
+      // the remaining pending operations in the aggregate result.
+      final cycleOptions = (options ?? const DatumSyncOptions<DatumEntityInterface>()).copyWith(direction: direction);
+      for (final manager in _managers.allManagers) {
+        accumulate([await manager.synchronize(userId, options: cycleOptions)]);
       }
 
       final result = DatumSyncResult<DatumEntityInterface>(
@@ -880,35 +877,6 @@ class Datum {
       _updateSnapshot(userId, (s) => s.copyWith(status: DatumSyncStatus.failed, errors: [e]));
       return Future.error(e, stack);
     }
-  }
-
-  Future<List<DatumSyncResult<DatumEntityInterface>>> _pushChanges(String userId, DatumSyncOptions<DatumEntityInterface>? options) async {
-    logger.info('Starting global push phase for user $userId...');
-    final pushOnlyOptions = (options ?? const DatumSyncOptions<DatumEntityInterface>()).copyWith(
-      direction: SyncDirection.pushOnly,
-    );
-
-    final results = <DatumSyncResult<DatumEntityInterface>>[];
-    for (final manager in _managers.allManagers) {
-      results.add(await manager.synchronize(userId, options: pushOnlyOptions));
-    }
-    return results;
-  }
-
-  Future<List<DatumSyncResult<DatumEntityInterface>>> _pullChanges(
-    String userId,
-    DatumSyncOptions<DatumEntityInterface>? options,
-  ) async {
-    logger.info('Starting global pull phase for user $userId...');
-    final pullOnlyOptions = (options ?? const DatumSyncOptions<DatumEntityInterface>()).copyWith(
-      direction: SyncDirection.pullOnly,
-    );
-
-    final results = <DatumSyncResult<DatumEntityInterface>>[];
-    for (final manager in _managers.allManagers) {
-      results.add(await manager.synchronize(userId, options: pullOnlyOptions));
-    }
-    return results;
   }
 
   DatumSyncStatusSnapshot _getSnapshot(String userId) {

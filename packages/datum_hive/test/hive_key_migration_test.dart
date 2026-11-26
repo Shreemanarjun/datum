@@ -2,15 +2,14 @@ import 'dart:io';
 
 import 'package:datum_hive/datum_hive.dart';
 import 'package:datum_test/datum_test.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:test/test.dart';
+import 'package:hive_ce/hive_ce.dart';
 
 /// Boxes written before composite `(userId, id)` keying stored rows under the
 /// bare entity id. Opening the adapter must migrate them in place: every row
 /// survives, scoped reads find it, and a second user can then own the same id
 /// without clobbering the first.
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory dir;
 

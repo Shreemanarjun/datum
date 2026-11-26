@@ -1,3 +1,15 @@
+## Unreleased
+
+- **Pure Dart:** depends on `hive_ce` instead of `hive_ce_flutter`, so it runs
+  in CLI/server Dart and `dart test`. Flutter apps add `hive_ce_flutter`
+  themselves for `Hive.initFlutter()` (see README).
+- ⚡ Pending queue stored one entry per operation in `<box>_pending_queue`
+  (O(1) enqueue/dequeue instead of rewriting a per-user list; retries keep
+  their queue position). Legacy `<box>_pending_ops` data migrates on open.
+- ⚡ `watchAll`/`watchById` coalesce change bursts and ignore other users' /
+  other entities' writes.
+- ⚡ `IsolatedHiveLocalAdapter.readByIds` issues its reads concurrently.
+
 ## 1.1.0
 
 - **Fix — rows are keyed by `(userId, id)`**: the box was keyed by entity

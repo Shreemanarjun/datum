@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:datum/datum.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:hive_ce/hive_ce.dart';
 import 'package:meta/meta.dart';
 
 import 'hive_box_keys.dart';
@@ -26,9 +27,11 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
   @protected
   late final IsolatedBox<Map<dynamic, dynamic>> entityBox;
 
-  /// The Hive box for storing pending sync operations (`List<Map<String, dynamic>>`).
+  /// Pending sync operations keyed by operation id, each stored as
+  /// `{...op.toMap(), '_owner': userId, '_seq': int}`: add/replace/remove
+  /// are single-key writes; reads filter by owner and order by `_seq`.
   @protected
-  late final IsolatedBox<List<dynamic>> pendingOpsBox;
+  late final IsolatedBox<Map<dynamic, dynamic>> pendingOpsBox;
 
   /// The Hive box for storing metadata (`Map<String, dynamic>`).
   @protected
@@ -50,7 +53,8 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
   @override
   Future<void> initialize() async {
     entityBox = await IsolatedHive.openBox<Map<dynamic, dynamic>>(entityBoxName);
-    pendingOpsBox = await IsolatedHive.openBox<List<dynamic>>('${entityBoxName}_pending_ops');
+    pendingOpsBox = await IsolatedHive.openBox<Map<dynamic, dynamic>>('${entityBoxName}_pending_queue');
+    await _migrateLegacyPendingOps();
     metadataBox = await IsolatedHive.openBox<Map<dynamic, dynamic>>('${entityBoxName}_metadata');
     await _migrateLegacyKeys();
   }
@@ -130,14 +134,12 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
 
   @override
   Future<Map<String, T>> readByIds(List<String> ids, {required String userId}) async {
-    final results = <String, T>{};
-    for (final id in ids) {
-      final entity = await read(id, userId: userId);
-      if (entity != null) {
-        results[id] = entity;
-      }
-    }
-    return results;
+    // Issue every isolate round-trip at once instead of one after another.
+    final entities = await Future.wait([for (final id in ids) read(id, userId: userId)]);
+    return {
+      for (var i = 0; i < ids.length; i++)
+        if (entities[i] != null) ids[i]: entities[i]!,
+    };
   }
 
   @override
@@ -188,50 +190,56 @@ class IsolatedHiveLocalAdapter<T extends DatumEntityInterface> extends LocalAdap
     ];
     await Future.wait([
       entityBox.deleteAll(keysToDelete),
-      pendingOpsBox.delete(userId),
+      pendingOpsBox.deleteAll([for (final row in await pendingOpsBox.values) if (row[_ownerKey] == userId) row['id']]),
       metadataBox.delete(userId),
       metadataBox.delete('last_sync_result_$userId'),
     ]);
   }
 
+  static const _ownerKey = '_owner';
+  static const _seqKey = '_seq';
+  int _lastSeq = 0;
+
+  /// Queue position: wall-clock micros (so order survives restarts), bumped
+  /// on ties so it is strictly increasing within this instance.
+  int _nextSeq() => _lastSeq = max(_lastSeq + 1, DateTime.now().microsecondsSinceEpoch);
+
+  /// The queue used to be one `List` per user in `<box>_pending_ops`, so every
+  /// enqueue/dequeue rewrote the whole list (O(n²) for n queued ops). Move any
+  /// such ops, in order, into the keyed queue and drop the legacy box.
+  Future<void> _migrateLegacyPendingOps() async {
+    final legacyName = '${entityBoxName}_pending_ops';
+    if (!await IsolatedHive.boxExists(legacyName)) return;
+    final legacy = await IsolatedHive.openBox<List<dynamic>>(legacyName);
+    final moved = <dynamic, Map<dynamic, dynamic>>{
+      for (final userId in await legacy.keys)
+        for (final raw in await legacy.get(userId) ?? const [])
+          (raw as Map)['id']: {...raw, _ownerKey: userId, _seqKey: _nextSeq()},
+    };
+    if (moved.isNotEmpty) await pendingOpsBox.putAll(moved);
+    await legacy.deleteFromDisk();
+  }
+
   @override
   Future<void> addPendingOperation(String userId, DatumSyncOperation<T> operation) async {
-    final opsList = (await pendingOpsBox.get(userId) ?? []).cast<Map<dynamic, dynamic>>().toList();
-    final existingIndex = opsList.indexWhere((map) => map['id'] == operation.id);
-
-    if (existingIndex != -1) {
-      opsList[existingIndex] = operation.toMap();
-    } else {
-      opsList.add(operation.toMap());
-    }
-    await pendingOpsBox.put(userId, opsList);
+    // A re-queued op (e.g. a retry) keeps its original position.
+    final existing = await pendingOpsBox.get(operation.id);
+    await pendingOpsBox.put(operation.id, {
+      ...operation.toMap(),
+      _ownerKey: userId,
+      _seqKey: existing?[_seqKey] ?? _nextSeq(),
+    });
   }
 
   @override
   Future<List<DatumSyncOperation<T>>> getPendingOperations(String userId) async {
-    final opsList = await pendingOpsBox.get(userId);
-    if (opsList == null) return [];
-    return opsList.cast<Map<dynamic, dynamic>>().map((raw) {
-      return DatumSyncOperation.fromMap(_normalizeMap(raw), fromMap);
-    }).toList();
+    final rows = (await pendingOpsBox.values).where((row) => row[_ownerKey] == userId).toList()
+      ..sort((a, b) => (a[_seqKey] as int).compareTo(b[_seqKey] as int));
+    return [for (final row in rows) DatumSyncOperation.fromMap(_normalizeMap(row), fromMap)];
   }
 
   @override
-  Future<void> removePendingOperation(String operationId) async {
-    for (final userId in await pendingOpsBox.keys) {
-      final ops = (await pendingOpsBox.get(userId))?.toList();
-      if (ops == null) continue;
-
-      final initialLength = ops.length;
-      ops.removeWhere((op) => (op as Map)['id'] == operationId);
-
-      if (ops.length < initialLength) {
-        await pendingOpsBox.put(userId, ops);
-        // Assuming operation IDs are unique across users, we can break.
-        break;
-      }
-    }
-  }
+  Future<void> removePendingOperation(String operationId) => pendingOpsBox.delete(operationId);
 
   @override
   Future<List<String>> getAllUserIds() async {

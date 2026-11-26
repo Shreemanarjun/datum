@@ -29,7 +29,13 @@ dependencies:
   datum_hive: ^1.1.0
 ```
 
-Then, run `flutter pub get`.
+Then, run `dart pub get` (or `flutter pub get`).
+
+`datum_hive` is pure Dart: it depends on `hive_ce`, not Flutter.
+
+- **Dart** (CLI, server, tests): call `Hive.init(path)` / `IsolatedHive.init(path)`.
+- **Flutter**: also add `hive_ce_flutter` and call `Hive.initFlutter()` /
+  `IsolatedHive.initFlutter()`. It picks the app documents directory for you.
 
 ## Usage
 

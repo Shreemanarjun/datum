@@ -162,8 +162,12 @@ void main() {
       expect(server.requestLog, isNotEmpty, reason: 'auto-sync must have hit the server while running');
 
       manager.stopAutoSync();
-      // Let any in-flight cycle drain, then observe silence.
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      // Let any in-flight cycle drain (wait until the log stops growing — a
+      // fixed sleep flakes under parallel test load), then observe silence.
+      for (var last = -1; last != server.requestLog.length;) {
+        last = server.requestLog.length;
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
       server.requestLog.clear();
       await Future<void>.delayed(const Duration(milliseconds: 300));
       expect(server.requestLog, isEmpty, reason: 'a leaked timer would keep hitting the server after stop');

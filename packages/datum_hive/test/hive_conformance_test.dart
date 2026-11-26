@@ -1,13 +1,12 @@
 import 'dart:io';
 
 import 'package:datum_test/datum_test.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:test/test.dart';
+import 'package:hive_ce/hive_ce.dart';
 import 'package:datum_hive/datum_hive.dart';
 
 /// HiveLocalAdapter certified by the official datum_test conformance kit.
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory dir;
   var boxCounter = 0;

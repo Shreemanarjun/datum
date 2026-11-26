@@ -6,11 +6,12 @@ import 'package:mocktail/mocktail.dart';
 
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
+import '../mocks/forward_bulk_writes.dart';
 
 // This test focuses specifically on sync request strategy behavior
 // and should not require 100% coverage of the entire DatumManager
 
-class MockedLocalAdapter<T extends DatumEntityInterface> extends Mock implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntityInterface> extends Mock with ForwardBulkWrites<T> implements LocalAdapter<T> {}
 
 class MockedRemoteAdapter<T extends DatumEntityInterface> extends Mock implements RemoteAdapter<T> {}
 

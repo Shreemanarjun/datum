@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
+import '../mocks/forward_bulk_writes.dart';
 
 // A second entity type for multi-manager tests
 class TestEntity2 extends DatumEntity {
@@ -116,7 +117,7 @@ class UnregisteredEntity extends DatumEntity {
   Map<String, dynamic> toDatumMap({MapTarget target = MapTarget.local}) => {};
 }
 
-class MockedLocalAdapter<T extends DatumEntityInterface> extends Mock implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntityInterface> extends Mock with ForwardBulkWrites<T> implements LocalAdapter<T> {}
 
 class MockedSyncRequestStrategy extends Mock implements DatumSyncRequestStrategy {}
 

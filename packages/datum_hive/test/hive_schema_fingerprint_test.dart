@@ -3,13 +3,12 @@ import 'dart:io';
 import 'package:datum/datum.dart';
 import 'package:datum_hive/datum_hive.dart';
 import 'package:datum_test/src/conformance_entity.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:test/test.dart';
+import 'package:hive_ce/hive_ce.dart';
 
 /// SchemaFingerprintCapable on the Hive adapters: the auto-migration fast
 /// path persists across a simulated relaunch (same box reopened).
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory dir;
 

@@ -103,6 +103,21 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
 
     await checkForUserSwitch(userId);
 
+    final direction = options?.direction ?? config.defaultSyncDirection;
+    // Loaded once and reused by the pre-check and the start snapshot.
+    final pendingAtStart = (await queueManager.getPending(userId)).length;
+
+    // A push-only cycle with an empty queue has nothing to do — skip before
+    // the metadata round-trips and the end-of-cycle rehash/metadata write.
+    // (Datum.synchronize runs a push-only pass over every manager.)
+    if (direction == SyncDirection.pushOnly && pendingAtStart == 0 && options?.forceFullSync != true) {
+      logger.debug('Push-only sync for user $userId skipped: no pending operations.');
+      return (
+        DatumSyncResult<T>.skipped(userId, 0, reason: 'No pending operations to push'),
+        <DatumSyncEvent<T>>[],
+      );
+    }
+
     // If forceFullSync is true, bypass metadata comparison and proceed with sync.
     if (options?.forceFullSync == true) {
       logger.info('Sync for user $userId forced: forceFullSync option is true.');
@@ -120,14 +135,11 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         logger.warn('Metadata pre-check failed for user $userId ($e); proceeding with a full sync.');
       }
 
-      // Check if there are any pending local operations.
-      final pendingLocalOperations = await queueManager.getPendingCount(userId);
-
       // Compare relevant metadata fields for skipping.
       final metadataMatches = localMetadata != null && remoteMetadata != null && localMetadata.dataHash == remoteMetadata.dataHash && _deepCompareEntityCounts(localMetadata.entityCounts, remoteMetadata.entityCounts);
 
       // If metadata matches and there are no pending local operations, skip the sync.
-      if (metadataMatches && pendingLocalOperations == 0) {
+      if (metadataMatches && pendingAtStart == 0) {
         logger.info('Sync for user $userId skipped: No changes detected based on metadata and no pending local operations.');
         return (
           DatumSyncResult<T>.skipped(
@@ -149,7 +161,6 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     final stopwatch = Stopwatch()..start();
 
     // Reset the snapshot for the new sync cycle, preserving only the user ID.
-    final pendingAtStart = (await queueManager.getPending(userId)).length;
     statusSubject.add(
       DatumSyncStatusSnapshot.initial(userId).copyWith(
         status: DatumSyncStatus.syncing,
@@ -167,8 +178,6 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     _notifyObservers(startEvent);
 
     try {
-      final direction = options?.direction ?? config.defaultSyncDirection;
-
       switch (direction) {
         case SyncDirection.pushThenPull:
           bytesPushedThisCycle += await _pushChanges(userId, generatedEvents);
@@ -785,6 +794,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     int cumulativeBytesSoFar,
   ) async {
     int batchBytes = 0;
+    // Non-conflicting writes are applied in bulk after the loop so adapters
+    // with native batching (e.g. one SQLite transaction) commit once per batch.
+    final toCreate = <T>[];
+    final toUpdate = <T>[];
 
     // Get local items for this batch only
     final localItemsMap = await localAdapter.readByIds(
@@ -805,8 +818,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       if (context == null) {
         if (localItem == null) {
           // This is a new item from remote.
-          await localAdapter.create(remoteItem);
-          hashCache.invalidate(userId);
+          toCreate.add(remoteItem);
           final size = jsonEncode(remoteItem.toDatumMap()).length;
           batchBytes += size;
         } else {
@@ -818,8 +830,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
           // noise/loops. Concurrent edits are already routed to the conflict
           // resolver by the detector, so here we just need a strict newer-check.
           if (_isRemoteStrictlyNewer(localItem, remoteItem)) {
-            await localAdapter.update(remoteItem);
-            hashCache.invalidate(userId);
+            toUpdate.add(remoteItem);
             final size = jsonEncode(remoteItem.toDatumMap()).length;
             batchBytes += size;
           } else {
@@ -915,6 +926,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         );
       }
     }
+
+    if (toCreate.isNotEmpty) await localAdapter.createAll(toCreate);
+    if (toUpdate.isNotEmpty) await localAdapter.updateAll(toUpdate);
+    if (toCreate.isNotEmpty || toUpdate.isNotEmpty) hashCache.invalidate(userId);
 
     return batchBytes;
   }
@@ -1070,6 +1085,9 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     }
   }
 
+  /// Store size above which the metadata rehash runs on a background isolate.
+  static const _isolateHashThreshold = 500;
+
   Future<void> _updateMetadata(String userId, {bool pulledRemote = true}) async {
     try {
       // Reuse the cached content hash when no write chokepoint invalidated it
@@ -1083,7 +1101,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         itemCount = cached.count;
       } else {
         final items = await localAdapter.readAll(userId: userId);
-        contentHash = const DatumHashGenerator().hashEntitiesUnordered(items);
+        final maps = [for (final e in items) e.toDatumMap(target: MapTarget.remote)];
+        // Canonicalize + SHA-256 per entity is the heavy part: move large
+        // stores off the calling (UI) isolate.
+        contentHash = maps.length < _isolateHashThreshold ? DatumHashGenerator.hashMapsUnordered(maps) : await isolateHelper.run(() => DatumHashGenerator.hashMapsUnordered(maps));
         itemCount = items.length;
         hashCache.store(userId, hash: contentHash, count: itemCount);
       }

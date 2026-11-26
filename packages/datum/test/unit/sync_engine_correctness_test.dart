@@ -27,8 +27,9 @@ import 'package:test/test.dart';
 import '../mocks/mock_adapters.dart' as functional;
 import '../mocks/mock_connectivity_checker.dart';
 import '../test_utils/test_datum_entity.dart';
+import '../mocks/forward_bulk_writes.dart';
 
-class MockLocalAdapter extends Mock implements LocalAdapter<TestDatumEntity> {}
+class MockLocalAdapter extends Mock with ForwardBulkWrites<TestDatumEntity> implements LocalAdapter<TestDatumEntity> {}
 
 class MockRemoteAdapter extends Mock implements RemoteAdapter<TestDatumEntity> {}
 

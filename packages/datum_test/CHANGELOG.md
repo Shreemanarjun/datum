@@ -1,3 +1,8 @@
+## Unreleased
+
+- `bench()` / `runBenchSuite()` / `BenchStats`: multi-run benchmark helper
+  (mean, median, min, stdev; JIT/AOT aware) printing markdown tables.
+
 ## 1.1.0
 
 - Initial release.

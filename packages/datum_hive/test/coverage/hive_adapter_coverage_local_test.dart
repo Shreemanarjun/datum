@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:datum/datum.dart';
 import 'package:datum_hive/datum_hive.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:test/test.dart';
+import 'package:hive_ce/hive_ce.dart';
 import '../support/task.dart';
 
 Task _task(String id, {String user = 'u1', int priority = 1, String? title}) => Task(
@@ -45,7 +45,6 @@ Future<void> _waitUntil(bool Function() condition) async {
 }
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory dir;
   late HiveLocalAdapter<Task> adapter;

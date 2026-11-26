@@ -1,79 +1,75 @@
-# Datum Benchmarks
+# Benchmarks
 
-Performance benchmarks for the `datum` core engine. Use these to **catch
-regressions** between versions and to guide optimization — not as absolute
-guarantees (numbers depend on the machine, Dart version, and JIT/AOT mode).
+Pure-Dart benchmarks for `datum`, `datum_sqlite` and `datum_hive`. They run
+under the JIT VM (`dart run`) and as AOT executables (`dart compile exe`), with
+no Flutter.
 
-## Running
-
-```bash
-# From packages/datum
-dart run benchmark/datum_benchmark.dart            # default
-dart run benchmark/datum_benchmark.dart --scale=4  # 4x iterations (more stable)
-dart run benchmark/datum_benchmark.dart --json     # machine-readable (for CI diffing)
-
-# AOT is closer to release performance:
-dart compile exe benchmark/datum_benchmark.dart -o build/bench && ./build/bench
+```sh
+tool/bench.sh                         # working tree, 3 and 10 runs per case
+RUNS=3,5,10 tool/bench.sh main        # compare against a git ref
+PKGS="datum datum_sqlite" tool/bench.sh main
 ```
 
-## What is measured
+- Every case does one untimed warm-up run, then N timed runs. The report gives
+  the mean, median, min and sample stdev.
+- Each run builds its own fixtures, and only the code under test is timed.
+- `tool/bench.sh` checks each git ref out into a temporary worktree and copies
+  today's benchmark sources into it, so old code is measured with the same
+  harness.
 
-### Tier A — micro-benchmarks (`datum_benchmark.dart`, implemented)
+| Suite | Source |
+|---|---|
+| sync engine | [`sync_benchmark.dart`](sync_benchmark.dart) |
+| SQLite adapter (file database) | [`../../datum_sqlite/benchmark/sqlite_benchmark.dart`](../../datum_sqlite/benchmark/sqlite_benchmark.dart) |
+| Hive adapter (file boxes) | [`../../datum_hive/benchmark/hive_benchmark.dart`](../../datum_hive/benchmark/hive_benchmark.dart) |
 
-Isolated, CPU-bound hot paths the sync engine hits for every item. Pure Dart,
-no Flutter, no I/O, no new dependencies.
+## Results, 2026-11-26
 
-| Group | Cases | Why it matters |
-|-------|-------|----------------|
-| Serialization | `toDatumMap` (local/remote), `fromMap`, `jsonEncode` | Runs once per entity, per push/pull |
-| Change detection | `diff` (changed / no-change) | Runs on every update to compute the delta |
-| Causality | `VectorClock` increment / merge / isConcurrent | Runs per write + per conflict check |
-| Query | `DatumQueryBuilder.build`, `DatumQuery.toSql` (sqlite/postgres) | Runs per query against SQL adapters |
-| Integrity | `DatumHashGenerator.hashEntities` (n=10/100/1000) | Runs per sync cycle to detect drift |
-| Caching | `LRUCache` get/put | Relationship + query-result caching |
-| Migration | `SchemaMigration.migrate` (3 ops/row), `MigrationPlan.resolve` (10-step chain), `MigrationExecutor` end-to-end (1k / 10k rows, 3 steps) | Runs once at startup when the schema version advances; the executor case includes the adapter's serialize/deserialize round-trip per step |
-| Sequence CRDT | `RgaText` append / merge / value | Per-keystroke and per-sync cost in collaborative editors |
+Measured on an Apple Silicon Mac, Dart 3.13.4. Values are the mean of 10 runs,
+in ms. The before column is `main`.
 
-> **Observed hotspot (now addressed):** `hashEntities` is O(n) (sort + full
-> `jsonEncode`) and was recomputed over the entire dataset each sync cycle — at
-> n=1000, ~7.2 ms per cycle. The new `DatumRollingHash` maintains an
-> order-independent XOR accumulator so a single-entity update is **O(1)**
-> (~17 µs, ~420× faster) instead of a full rehash. `hashEntitiesUnordered` gives
-> the same set hash without sorting, enabling that incremental maintenance.
+### Sync engine (in-memory local adapter, mock remote)
 
-> **Migration baseline (Apple Silicon, scale=1):** the pure column-op pipeline
-> costs ~0.2 µs/row (~4.7M rows/sec), so migration time is dominated by the
-> adapter round-trip: a full 3-step executor pass over 10,000 rows takes ~72 ms
-> — acceptable one-off startup cost. `RgaText` inserts copy the node map
-> (~26 µs at 200 chars), which is fine for keystroke-sized edits on
-> document-sized texts but not for bulk-loading megabyte strings — build those
-> with a single `insert(0, wholeText)`, which is one `insertAll`.
+| Case | JIT before | JIT after | AOT before | AOT after |
+|---|---:|---:|---:|---:|
+| `push` ×500 | 50.6 | 8.1 | 29.0 | 9.0 |
+| `watchAll` during a 500-write burst | 230.6 | 3.3 | 348.0 | 2.5 |
+| Pull 2,000 remote items | 101.9 | 44.3 | 68.0 | 46.2 |
+| Longest isolate stall in a sync after 1 write (5,000-item store) | 30.2 | 13.1 | 33.9 | 15.0 |
+| Wall time of that same sync | 30.1 | 33.9 | 33.5 | 37.6 |
+| `Datum.synchronize`, 3 types ×1,000 items, 20 pending, 2 ms remote round-trip | 106.6 | 100.2 | 105.3 | 101.1 |
 
-### Tier B — end-to-end engine benchmarks (planned)
+### SQLite adapter
 
-Throughput and latency through the full `DatumManager` + adapter stack, using
-in-memory adapters so the numbers reflect engine overhead rather than disk/network.
-See the test plan for the full matrix. Target cases:
+| Case | JIT before | JIT after | AOT before | AOT after |
+|---|---:|---:|---:|---:|
+| `createAll` 3,000 | 1010.4 | 23.0 | 1038.7 | 26.8 |
+| `readAll(userId)` ×50 (user owns 10% of 20,000 rows) | 465.1 | 443.5 | 485.2 | 462.1 |
+| `watchCount` during a 200-write burst | 79.5 | 75.4 | 66.7 | 66.5 |
+| Enqueue 1,000 pending ops, then dequeue all | 762.2 | 770.9 | 691.8 | 730.6 |
 
-- `push` throughput (create vs update path) — single and `saveMany` batches.
-- `read` / `readAll` / `query` latency at 1k / 10k / 100k stored entities.
-- Full `synchronize()` cycle: push N pending ops, pull M remote changes, including
-  conflict detection + resolution (LWW vs CRDT vs merge).
-- Reactive `watchAll` / `watchQuery` re-emission cost as the dataset grows.
-- Cold-start hydration time vs entity count.
+### Hive adapter
 
-These reuse the in-memory `MockLocalAdapter` / `MockRemoteAdapter` in
-`test/mocks/` (add a `silent`/no-print mode before using them for timing).
+`datum_hive` became pure Dart in this change, so `main` can't run under the
+Dart VM. To compare like with like, the first two columns were both measured
+with `flutter test` (mean of 5 runs).
 
-## Adding a benchmark
+| Case | Before (`flutter test`) | After (`flutter test`) | After (Dart VM, JIT) | After (AOT) |
+|---|---:|---:|---:|---:|
+| Enqueue 1,000 ops | 2093.4 | 171.2 | 23.7 | 24.1 |
+| Dequeue 1,000 ops | 2034.8 | 131.2 | 24.5 | 24.8 |
 
-Add a `bench('name', iterations, () { ... })` call inside `run()` in
-`datum_benchmark.dart`. The harness warms up (~10% of iterations) before timing.
-Keep each case's body allocation-light and side-effect-free so repeated runs are
-comparable.
+### Reading the numbers
 
-## CI regression gate (planned)
-
-Run `--json` on a fixed runner, store the baseline, and fail CI if any case
-regresses beyond a threshold (e.g. >20% ns/op). Wire this into the workflow
-alongside the test suite.
+- **Stall versus wall time.** The content rehash for stores of 500 or more
+  items now runs on a background isolate. That halves the longest freeze of the
+  calling (UI) isolate. Copying the data to the isolate adds about 4 ms of wall
+  time, which is the deliberate trade.
+- **Global sync.** The saving is per-manager metadata round-trips: one cycle
+  per manager instead of two. It grows with real network latency and with the
+  number of registered types.
+- **AOT can be slower than JIT** here. Cases dominated by JSON and SHA-256
+  work benefit from the JIT's runtime-specialized code. Compare like with like.
+- **SQLite pending-queue cost** is dominated by JSON-encoding each op's payload.
+  Its slower AOT mean (691.8 → 730.6) is within the run-to-run spread for that
+  case (up to 54 ms stdev).

@@ -16,6 +16,9 @@ class IsolateHelper {
   /// payload, and copying the map into the isolate is already O(size).
   Future<String> computeJsonEncode(Object? object) async => jsonEncode(object);
 
+  /// Runs [computation] on a short-lived background isolate.
+  Future<R> run<R>(R Function() computation) => Isolate.run(computation);
+
   /// Initializes any platform-specific resources. (No-op for native)
   Future<void> initialize() async {}
 

@@ -4,8 +4,9 @@ import 'package:mocktail/mocktail.dart';
 import '../test_utils/test_datum_entity.dart';
 import 'dart:async';
 import 'package:rxdart/rxdart.dart';
+import '../mocks/forward_bulk_writes.dart';
 
-class MockLocalAdapter<T extends DatumEntityInterface> extends Mock implements LocalAdapter<T> {}
+class MockLocalAdapter<T extends DatumEntityInterface> extends Mock with ForwardBulkWrites<T> implements LocalAdapter<T> {}
 
 class MockRemoteAdapter<T extends DatumEntityInterface> extends Mock implements RemoteAdapter<T> {}
 

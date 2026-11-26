@@ -380,6 +380,34 @@ class SqliteLocalAdapter<T extends DatumEntityInterface> extends LocalAdapter<T>
   }
 
   @override
+  Future<void> createAll(List<T> entities) =>
+      _writeAll(entities, DatumOperationType.create);
+
+  @override
+  Future<void> updateAll(List<T> entities) =>
+      _writeAll(entities, DatumOperationType.update);
+
+  /// Writes [entities] in ONE transaction (one commit/fsync instead of one
+  /// per row), joining the caller's transaction if one is already open.
+  Future<void> _writeAll(List<T> entities, DatumOperationType type) async {
+    if (entities.isEmpty) return;
+    final owns = database.autocommit;
+    if (owns) database.execute('BEGIN IMMEDIATE');
+    try {
+      for (final entity in entities) {
+        _insertRow(entity.toDatumMap());
+      }
+      if (owns) database.execute('COMMIT');
+    } catch (_) {
+      if (owns) database.execute('ROLLBACK');
+      rethrow;
+    }
+    for (final entity in entities) {
+      _notify(entity.id, entity.userId, type, entity);
+    }
+  }
+
+  @override
   Future<T> patch({
     required String id,
     required Map<String, dynamic> delta,

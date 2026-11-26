@@ -192,11 +192,11 @@ class LocalSyncServer {
       final segments = req.uri.pathSegments;
       final userId = req.uri.queryParameters['userId'];
 
-      if (segments.isEmpty) return _respond(req, 404, {'error': 'not found'});
+      if (segments.isEmpty) return await _respond(req, 404, {'error': 'not found'});
 
       switch ((req.method, segments)) {
         case ('GET', ['health']):
-          return _respond(req, 200, {'ok': true});
+          return await _respond(req, 200, {'ok': true});
 
         case ('GET', ['entities']):
           var items = userId != null
@@ -214,13 +214,13 @@ class LocalSyncServer {
               return modifiedAt != null && !modifiedAt.isBefore(since);
             }).toList();
           }
-          return _respond(req, 200, items);
+          return await _respond(req, 200, items);
 
         case ('GET', ['entities', final id]):
           final found = _find(id, userId);
-          return found == null
+          return await (found == null
               ? _respond(req, 404, {'error': 'not found'})
-              : _respond(req, 200, found);
+              : _respond(req, 200, found));
 
         case ('POST', ['entities']):
           final body = await _readBody(req);
@@ -230,12 +230,12 @@ class LocalSyncServer {
             if (existing != null &&
                 (body['version'] as int? ?? 0) <=
                     (existing['version'] as int? ?? 0)) {
-              return _respond(req, 409, {'error': 'stale version'});
+              return await _respond(req, 409, {'error': 'stale version'});
             }
           }
           (storage[uid] ??= {})[body['id'] as String] = body;
           _touch(uid, body['id'] as String);
-          return _respond(req, 201, body);
+          return await _respond(req, 201, body);
 
         case ('PUT', ['entities', final id]):
           final body = await _readBody(req);
@@ -245,27 +245,27 @@ class LocalSyncServer {
             if (existing != null &&
                 (body['version'] as int? ?? 0) <=
                     (existing['version'] as int? ?? 0)) {
-              return _respond(req, 409, {'error': 'stale version'});
+              return await _respond(req, 409, {'error': 'stale version'});
             }
           }
           (storage[uid] ??= {})[id] = body;
           _touch(uid, id);
-          return _respond(req, 200, body);
+          return await _respond(req, 200, body);
 
         case ('PATCH', ['entities', final id]):
           final existing = _find(id, userId);
           if (existing == null) {
-            return _respond(req, 404, {'error': 'not found'});
+            return await _respond(req, 404, {'error': 'not found'});
           }
           final delta = await _readBody(req);
           if (enforceVersions &&
               (delta['version'] as int? ?? 1 << 62) <=
                   (existing['version'] as int? ?? 0)) {
-            return _respond(req, 409, {'error': 'stale version'});
+            return await _respond(req, 409, {'error': 'stale version'});
           }
           existing.addAll(delta);
           _touch(existing['userId'] as String? ?? userId ?? '', id);
-          return _respond(req, 200, existing);
+          return await _respond(req, 200, existing);
 
         case ('DELETE', ['entities', final id]):
           final uid =
@@ -278,7 +278,7 @@ class LocalSyncServer {
           // Hard deletes vanish from the change feed (documented limitation
           // of cursor pulls — use soft deletes).
           _seqByEntity.remove('$uid/$id');
-          return _respond(req, 200, {'deleted': removed});
+          return await _respond(req, 200, {'deleted': removed});
 
         case ('GET', ['changes']):
           // Cursor-based change feed: rows written after the cursor, plus
@@ -292,23 +292,23 @@ class LocalSyncServer {
               if ((_seqByEntity['$uid/$id'] ?? 0) > cursor) items.add(entity);
             }
           }
-          return _respond(req, 200, {
+          return await _respond(req, 200, {
             'items': items,
             'nextCursor': '$changeSeq',
           });
 
         case ('GET', ['metadata', final uid]):
           final meta = metadata[uid];
-          return meta == null
+          return await (meta == null
               ? _respond(req, 404, {'error': 'not found'})
-              : _respond(req, 200, meta);
+              : _respond(req, 200, meta));
 
         case ('PUT', ['metadata', final uid]):
           metadata[uid] = await _readBody(req);
-          return _respond(req, 200, {'ok': true});
+          return await _respond(req, 200, {'ok': true});
 
         default:
-          return _respond(req, 404, {
+          return await _respond(req, 404, {
             'error': 'no route for ${req.method} $path',
           });
       }

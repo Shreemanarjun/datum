@@ -1,3 +1,11 @@
+## Unreleased
+
+- ⚡ `createAll`/`updateAll` write in one transaction (joining an open one).
+- ⚡ Indexes on `userId` and the pending queue's `user_id`; `watchCount` uses
+  `COUNT(*)`, `watchFirst` uses `LIMIT 1`; watch streams coalesce bursts.
+- Fix: pending ops are returned in insertion order and a retried op keeps
+  its position (it used to move to the back via `INSERT OR REPLACE`).
+
 ## 1.1.0
 
 - Initial release.

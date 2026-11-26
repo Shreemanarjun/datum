@@ -1,7 +1,7 @@
 import 'package:datum/datum.dart';
 import 'package:datum_generator/datum_generator.dart';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 part 'advanced_types_test.g.dart';
 

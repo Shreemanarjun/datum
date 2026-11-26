@@ -4,7 +4,7 @@ import 'package:example/const/secrets.dart';
 import 'package:example/custom_connectivity_checker.dart';
 import 'package:example/persistence/hive_datum_persistence.dart';
 import 'package:example/sync/isolate_stratergy.dart';
-import 'package:example/features/tasks/data/adapters/hive_isolate_adapter.dart';
+import 'package:datum_hive/datum_hive.dart';
 import 'package:example/bootstrap.dart' as bootstrap;
 import 'package:example/features/tasks/data/entities/task.dart';
 import 'package:example/features/auth/data/adapters/supabase_adapter.dart';

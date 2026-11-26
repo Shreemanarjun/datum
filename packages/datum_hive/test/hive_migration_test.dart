@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:datum/datum.dart';
 import 'package:datum_hive/datum_hive.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:test/test.dart';
+import 'package:hive_ce/hive_ce.dart';
 import 'support/task.dart';
 
 Task _task(String id, int priority) => Task(
@@ -17,7 +17,6 @@ Task _task(String id, int priority) => Task(
 );
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory dir;
   var counter = 0;

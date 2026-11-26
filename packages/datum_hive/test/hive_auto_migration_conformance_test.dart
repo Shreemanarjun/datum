@@ -3,14 +3,13 @@ import 'dart:io';
 import 'package:datum_hive/datum_hive.dart';
 import 'package:datum_test/src/auto_migration_conformance.dart';
 import 'package:datum_test/src/conformance_entity.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:test/test.dart';
+import 'package:hive_ce/hive_ce.dart';
 
 /// HiveLocalAdapter certified by the auto-migration conformance suite —
 /// the schemaless raw-map reconciliation path, with fingerprint run-once
 /// across a simulated relaunch (same box reopened).
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory dir;
   var boxCounter = 0;

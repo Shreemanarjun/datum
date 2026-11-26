@@ -10,6 +10,27 @@
 - ⚡ In-memory `query`/`watchCount` filter before copying; query sorting
   serializes each entity once instead of per comparison. SQLite
   `watchCount` uses `COUNT(*)`, `watchFirst` uses `LIMIT 1`.
+- ⚡ Pull applies each remote batch's non-conflicting writes via
+  `createAll`/`updateAll`; SQLite runs them in one transaction (joining an
+  open one), so a pull commits once per batch instead of once per row.
+- ⚡ Sync loads the pending queue once for the pre-check and start snapshot,
+  and a push-only cycle with an empty queue returns immediately (no metadata
+  round-trips, no rehash) — `Datum.synchronize`'s push pass is ~free.
+- ⚡ The end-of-cycle content rehash runs on a background isolate for stores
+  of 500+ entities (inline on web). Dropped the unused `compute` dependency.
+- ⚡ datum_hive: the pending queue is keyed per operation (O(1) add/remove,
+  retries keep their position); the legacy `<box>_pending_ops` lists are
+  migrated on open. Isolated `readByIds` issues its reads concurrently.
+- ⚡ `Datum.synchronize` runs ONE cycle per manager (registration order)
+  instead of a push-only then a pull-only cycle each: half the metadata
+  round-trips and rehashes, and remaining pending ops are no longer counted
+  twice in the aggregate result.
+- Pure Dart: datum's own tests no longer need `flutter_test` (`dart test`
+  works); new `benchmark/` suites run JIT and AOT via `tool/bench.sh`.
+- Fix: `stopAutoSync()` during an in-flight auto-sync now ends the schedule
+  (the running cycle used to reschedule itself forever), and `pauseSync()`
+  mid-sync no longer forgets the user or restores a stuck `syncing` status on
+  `resumeSync()`; resumed auto-sync keeps its custom interval.
 - `DatumManager.push`: `userId` is optional and defaults to `item.userId`.
 - **Breaking:** `watchById(id, {userId, includeDeleted})` on `DatumManager`
   and `Datum` — `userId` is now named.

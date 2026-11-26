@@ -5,9 +5,10 @@ import 'package:test/test.dart';
 
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
+import '../mocks/forward_bulk_writes.dart';
 
 // Create mocktail-based mocks for this test file to allow `when()` stubs.
-class MockedLocalAdapter<T extends DatumEntityInterface> extends Mock implements LocalAdapter<T> {}
+class MockedLocalAdapter<T extends DatumEntityInterface> extends Mock with ForwardBulkWrites<T> implements LocalAdapter<T> {}
 
 class MockedSyncRequestStrategy extends Mock implements DatumSyncRequestStrategy {}
 

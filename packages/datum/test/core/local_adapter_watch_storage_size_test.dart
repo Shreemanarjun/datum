@@ -5,11 +5,12 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import '../mocks/test_entity.dart';
+import '../mocks/forward_bulk_writes.dart';
 
 /// A concrete implementation of LocalAdapter that uses mocktail for its methods.
 /// It intentionally does NOT override `watchStorageSize` so we can test the
 /// default implementation from the abstract class.
-class TestableLocalAdapter extends Mock implements LocalAdapter<TestEntity> {
+class TestableLocalAdapter extends Mock with ForwardBulkWrites<TestEntity> implements LocalAdapter<TestEntity> {
   // By not overriding watchStorageSize, calls to it will use the default
   // implementation in the `LocalAdapter` abstract class, which is what we want to test.
 }
