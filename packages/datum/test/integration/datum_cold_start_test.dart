@@ -60,12 +60,25 @@ void main() {
         expect(lastTime, isNull); // Should be null initially
       });
 
-      test('should get active users', () {
-        // First access to initialize the user
+      test('a user is active once a cold start ran for them, not when asked about', () async {
         Datum.instance.isColdStartForUser<TestEntity>('user1');
-        final activeUsers = Datum.instance.getColdStartActiveUsers<TestEntity>();
-        expect(activeUsers, contains('user1')); // Should contain user1 after first access
-      }, skip: 'This test needs to be run after other tests that initialize users');
+        expect(Datum.instance.getColdStartActiveUsers<TestEntity>(), isEmpty);
+
+        await Datum.instance.handleColdStartIfNeeded<TestEntity>(
+          'user1',
+          (options) async => const DatumSyncResult<TestEntity>(
+            userId: 'user1',
+            duration: Duration.zero,
+            syncedCount: 0,
+            failedCount: 0,
+            conflictsResolved: 0,
+            pendingOperations: [],
+          ),
+          synchronous: true,
+        );
+        expect(Datum.instance.getColdStartActiveUsers<TestEntity>(), {'user1'});
+        expect(Datum.instance.isColdStartForUser<TestEntity>('user1'), isFalse);
+      });
     });
 
     group('Cold Start State Management', () {

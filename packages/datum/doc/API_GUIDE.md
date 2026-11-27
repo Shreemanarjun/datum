@@ -142,6 +142,61 @@ DatumManager<CollabNote>(
   backend converge. Full walkthrough:
   `test/integration/collaborative_editor_test.dart`.
 
+## Sync state (signals)
+
+State is a `signals_core` signal; `package:datum/datum.dart` exports the
+library, so `effect`, `Watch` (with `signals_flutter`) and `.value` work
+with no other import.
+
+```dart
+final tasks = Datum.manager<Task>();
+
+// Read where it is shown; it rebuilds when the engine changes it.
+Watch((context) => Text(tasks.statusSignal.value.status.name));
+
+// Derive your own state from it.
+final busy = computed(() => tasks.statusSignal.value.status == DatumSyncStatus.syncing);
+
+// Or react outside the widget tree.
+final stop = effect(() => print(Datum.instance.healthsSignal.value));
+```
+
+| On | Signals |
+|---|---|
+| `DatumManager` | `statusSignal`, `healthSignal`, `metadataSignal`, `nextSyncTimeSignal` |
+| `Datum` | `statusesSignal` (per user), `metricsSignal`, `healthsSignal` (per entity type) |
+
+The stream getters (`statusStream`, `health`, `allHealths`, `metrics`) are
+views of the same signals. Things that happen (`onSyncCompleted`,
+`onLiveChangesApplied`, `onDataChange`, ...) are streams. `signal`,
+`computed`, `readonly` and `lazySignal` are not in the export, because
+`signals_flutter` has its own: a Flutter app imports `signals_flutter`, a
+Dart-only app `signals_core`.
+
+In debug builds `signals_core` reports every signal write to DevTools, which
+costs about a microsecond per write; `signalsDevToolsEnabled = false` turns
+it off. Release builds do not have it.
+
+## Device-only fields
+
+A value that must stay on the device (a draft, a "seen" flag, a local file
+path) is a normal field whose key is named in `deviceOnlyFields`:
+
+```dart
+@DatumField(deviceOnly: true)   // datum_generator; the field must be nullable
+final String? draft;
+
+// Without the generator: put the key in the local map only, and name it.
+@override
+Set<String> get deviceOnlyFields => const {'draft'};
+```
+
+It is stored locally, never uploaded, kept when a remote row replaces the
+rest of the row, and not compared: changing only that field saves and
+notifies watchers but queues no upload and cannot conflict. Another device
+gets the row without it. A local adapter with a fixed schema needs a column
+for it.
+
 ## Results & errors
 
 ### Result-returning (`tryX`) API — no try/catch

@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:signals_core/signals_core.dart';
+
 /// A mixin to provide disposable behavior to a class.
 ///
 /// It manages a disposed state, and can automatically handle closing
-/// [StreamController]s and cancelling [StreamSubscription]s upon disposal.
+/// [StreamController]s, disposing signals and cancelling
+/// [StreamSubscription]s upon disposal.
 mixin Disposable {
   bool _disposed = false;
 
@@ -12,6 +15,12 @@ mixin Disposable {
 
   final List<StreamController> _managedControllers = [];
   final List<StreamSubscription> _managedSubscriptions = [];
+  final List<ReadonlySignal<Object?>> _managedSignals = [];
+
+  /// Registers a signal to be disposed on dispose.
+  void manageSignal(ReadonlySignal<Object?> signal) {
+    _managedSignals.add(signal);
+  }
 
   /// Registers a [StreamController] to be automatically closed on dispose.
   void manageController(StreamController controller) {
@@ -27,6 +36,11 @@ mixin Disposable {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    // First and at once: a disposed signal is how work in flight sees that
+    // its owner is gone.
+    for (final signal in _managedSignals) {
+      signal.dispose();
+    }
     await Future.wait([
       ..._managedControllers.map((c) async => await c.close()),
       ..._managedSubscriptions.map((s) async => await s.cancel()),

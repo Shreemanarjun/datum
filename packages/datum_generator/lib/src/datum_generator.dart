@@ -48,6 +48,7 @@ class DatumGenerator extends GeneratorForAnnotation<DatumSerializable> {
       ..writeln("  static const String tableName = '$tableName';")
       ..write(toDatumMapCode(serializable))
       ..write(diffCode(className, serializable))
+      ..write(deviceOnlyKeysCode(serializable))
       ..write(copyWithCode(className))
       ..write(copyWithAllCode(className, fields, ctorParams))
       ..write(equalityCode(className, equatable))

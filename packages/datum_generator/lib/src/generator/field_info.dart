@@ -36,6 +36,7 @@ final class FieldInfo {
     this.relationInfo,
     this.ignored = const {},
     this.diff,
+    this.deviceOnly = false,
   });
 
   factory FieldInfo.of(dynamic field) {
@@ -51,12 +52,16 @@ final class FieldInfo {
       fromGenerator: _readFieldString(field, 'fromGenerator'),
       relationInfo: isRelation ? _relationInfoOf(field) : null,
       diff: _readFieldBool(field, 'diff'),
+      deviceOnly: _readFieldBool(field, 'deviceOnly') ?? false,
       ignored: {
         for (final scope in IgnoreScope.values)
           if (_isIgnored(field, scope)) scope,
       },
     );
   }
+
+  /// `@DatumField(deviceOnly: true)`: in the local map only.
+  final bool deviceOnly;
 
   final String name;
 

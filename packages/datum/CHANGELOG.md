@@ -1,5 +1,39 @@
 # Unreleased
 
+- **State is held in signals (`signals_core`), and the package exports
+  them.** `DatumManager` has `statusSignal`, `healthSignal`,
+  `metadataSignal` and `nextSyncTimeSignal`; `Datum` has `statusesSignal`,
+  `metricsSignal` and `healthsSignal`. Read `.value` inside a `computed`, an
+  `effect` or a `Watch` (`signals_flutter`) and it follows the engine with no
+  subscription to manage. The stream getters (`statusStream`, `health`,
+  `allHealths`, `metrics`, ...) stay: they are views of the same signals, give
+  the current value first, and end when the manager is disposed.
+  - `package:datum/datum.dart` exports `signals_core`, except `signal`,
+    `computed`, `readonly` and `lazySignal`: `signals_flutter` defines its
+    own, and both imports must work side by side. A Dart-only app that
+    creates signals imports `package:signals_core/signals_core.dart`.
+  - A status written again with equal content notifies nobody (a stream
+    listener used to get it twice).
+  - rxdart is no longer a dependency, and the package is still pure Dart.
+  - **Breaking** for code that builds a `DatumSyncEngine` itself:
+    `statusSubject` / `metadataSubject` are now `statusSignal` /
+    `metadataSignal`.
+  - Cost: see "State in signals" in `benchmark/README.md`.
+- **Device-only fields.** `DatumEntityInterface.deviceOnlyFields` names keys
+  of the local map that never leave the device (a draft, a "seen" flag, a
+  cached thumbnail path). They are stored locally, kept when a pulled or
+  live remote row replaces the rest, left out of uploads, and ignored when
+  two rows are compared, so changing one neither queues an upload nor makes
+  a conflict. With `datum_generator`: `@DatumField(deviceOnly: true)`.
+  `ExcludableEntity.localOnlyFields` keys count as device-only.
+- Initialization log, three wrong lines:
+  - `Targeting initial user` printed the callback (`Closure: () =>
+    Future<String?> ...`) when `initialUserId` was a function; it now prints
+    the id the callback returned.
+  - `Total Data` and the sync counts came from the first entity type only;
+    they are the sum over all types.
+  - the tree marks (`├─` / `└─`) closed a branch before its last line.
+
 - `LiveChangesAppliedEvent` / `DatumManager.onLiveChangesApplied`: fired
   when changes received over the remote adapter's change stream (a realtime
   feed) were saved: how many, how long it took, and when the latest was
@@ -63,7 +97,9 @@
   used; a forgotten scope is read in full again), stored in the local sync
   metadata under `DatumSyncEngine.syncScopesKey`.
 - A sync started while a debounced `syncAfterWriteDelay` sync is waiting
-  uploads the write; the debounced one no longer runs for nothing.
+  uploads the write; the debounced one no longer runs for nothing, also when
+  that sync takes longer than the delay (the debounced sync waits for a
+  running sync and starts only if something is still queued).
 - Fixes, all from comparing timestamps as text or finer than the local store
   keeps them (now compared as instants, in milliseconds):
   - the remote feed's echo of a local write was saved a second time;

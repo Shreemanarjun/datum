@@ -6,7 +6,8 @@
 #   PKGS=datum tool/bench.sh main     # only some packages (space-separated)
 #
 # Each ref is checked out into a temporary worktree; the current benchmark
-# sources are copied in, so old code is measured with today's harness.
+# sources and pubspec.lock are copied in, so old code is measured with
+# today's harness and dependency versions.
 # Packages that are not pure Dart at a ref (datum_hive before hive_ce) are
 # skipped there. Output is markdown on stdout.
 set -euo pipefail
@@ -51,5 +52,8 @@ for ref in "$@"; do
     cp "$ROOT/packages/$pkg/$file" "$wt/packages/$pkg/$file"
   done
   cp "$ROOT/packages/datum_test/lib/src/bench.dart" "$wt/packages/datum_test/lib/src/bench.dart"
+  # Same dependency versions as the working tree (the lock file is not in
+  # git): otherwise a ref is measured with whatever resolves today.
+  cp "$ROOT/pubspec.lock" "$wt/pubspec.lock" 2>/dev/null || true
   run_tree "$wt" "$ref"
 done

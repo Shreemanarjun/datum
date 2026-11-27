@@ -103,6 +103,8 @@ const _expectedExports = <String>{
   'source/utils/datum_logger.dart',
   'source/utils/duration_formatter.dart',
   'source/core/utils/hash_generator.dart',
+  // State management: the engine's state is exposed as signals.
+  'package:signals_core/signals_core.dart',
 };
 
 Set<String> _actualExports() {

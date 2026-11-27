@@ -91,3 +91,13 @@ export 'source/core/sync/datum_sync_request_strategy.dart';
 export 'package:datum/source/core/errors/datum_exception.dart';
 export 'source/core/models/datum_either.dart';
 export 'source/core/errors/datum_error.dart';
+
+// The engine's state is exposed as signals (`statusSignal`, `healthSignal`,
+// ...). Re-exported so an app can read and combine them (`effect`, `batch`,
+// `Signal`, `Computed`, ...) without adding the dependency itself.
+//
+// The four factory functions are left out because `signals_flutter` defines
+// its own: exporting them here would make every `signal(...)` call in a
+// Flutter app ambiguous. In pure Dart, write `Signal(0)` / `Computed(...)`,
+// or import `package:signals_core/signals_core.dart`.
+export 'package:signals_core/signals_core.dart' hide computed, lazySignal, readonly, signal;

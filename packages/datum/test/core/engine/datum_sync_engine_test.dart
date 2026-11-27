@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
+import 'package:signals_core/signals_core.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:rxdart/rxdart.dart';
 import 'package:test/test.dart';
 
 import '../../mocks/mock_connectivity_checker.dart';
@@ -54,16 +54,16 @@ void main() {
   late QueueManager<TestEntity> queueManager;
   late DatumSyncEngine<TestEntity> syncEngine;
   late StreamController<DatumSyncEvent<TestEntity>> eventController;
-  late BehaviorSubject<DatumSyncStatusSnapshot> statusSubject;
-  late BehaviorSubject<DatumSyncMetadata> metadataSubject;
+  late Signal<DatumSyncStatusSnapshot> statusSubject;
+  late Signal<DatumSyncMetadata?> metadataSubject;
 
   setUp(() async {
     localAdapter = MockLocalAdapter<TestEntity>();
     remoteAdapter = MockRemoteAdapter<TestEntity>();
     connectivityChecker = MockConnectivityChecker();
     eventController = StreamController<DatumSyncEvent<TestEntity>>.broadcast();
-    statusSubject = BehaviorSubject.seeded(DatumSyncStatusSnapshot.initial('test_user'));
-    metadataSubject = BehaviorSubject<DatumSyncMetadata>();
+    statusSubject = signal(DatumSyncStatusSnapshot.initial('test_user'));
+    metadataSubject = signal<DatumSyncMetadata?>(null);
 
     when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
 
@@ -106,16 +106,16 @@ void main() {
       ),
       connectivityChecker: connectivityChecker,
       eventController: eventController,
-      statusSubject: statusSubject,
-      metadataSubject: metadataSubject,
+      statusSignal: statusSubject,
+      metadataSignal: metadataSubject,
       isolateHelper: const IsolateHelper(),
     );
   });
 
   tearDown(() {
     eventController.close();
-    statusSubject.close();
-    metadataSubject.close();
+    statusSubject.dispose();
+    metadataSubject.dispose();
   });
 
   group('DatumSyncEngine batch processing', () {
@@ -172,8 +172,8 @@ void main() {
         ),
         connectivityChecker: connectivityChecker,
         eventController: eventController,
-        statusSubject: statusSubject,
-        metadataSubject: metadataSubject,
+        statusSignal: statusSubject,
+        metadataSignal: metadataSubject,
         isolateHelper: const IsolateHelper(),
       );
 

@@ -23,7 +23,6 @@ import 'package:example/core/theme/theme_controller.dart';
 import 'package:example/shared/translations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/widgets.dart';
-import 'package:signals_flutter/signals_flutter.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 

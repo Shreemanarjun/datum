@@ -20,8 +20,8 @@ library;
 import 'dart:async';
 
 import 'package:datum/datum.dart';
+import 'package:signals_core/signals_core.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:rxdart/rxdart.dart';
 import 'package:test/test.dart';
 
 import '../mocks/mock_adapters.dart' as functional;
@@ -90,8 +90,8 @@ void main() {
           config: const DatumConfig(),
           connectivityChecker: connectivity,
           eventController: StreamController<DatumSyncEvent<TestDatumEntity>>.broadcast(),
-          statusSubject: BehaviorSubject.seeded(DatumSyncStatusSnapshot.initial('u1')),
-          metadataSubject: BehaviorSubject.seeded(const DatumSyncMetadata(userId: 'u1')),
+          statusSignal: signal(DatumSyncStatusSnapshot.initial('u1')),
+          metadataSignal: signal<DatumSyncMetadata?>(const DatumSyncMetadata(userId: 'u1')),
           isolateHelper: const IsolateHelper(),
           localObservers: [],
           globalObservers: [],

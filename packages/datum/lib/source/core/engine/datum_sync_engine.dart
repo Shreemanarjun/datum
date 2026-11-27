@@ -32,7 +32,7 @@ import 'package:datum/source/utils/connectivity_checker.dart';
 import 'package:datum/source/utils/datum_logger.dart';
 import 'package:datum/source/core/engine/metadata_hash_cache.dart';
 
-import 'package:rxdart/rxdart.dart';
+import 'package:signals_core/signals_core.dart';
 
 /// The core engine that orchestrates the synchronization process.
 class DatumSyncEngine<T extends DatumEntityInterface> {
@@ -45,8 +45,12 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   final DatumConfig config;
   final DatumConnectivityChecker connectivityChecker;
   final StreamController<DatumSyncEvent<T>> eventController;
-  final BehaviorSubject<DatumSyncStatusSnapshot> statusSubject;
-  final BehaviorSubject<DatumSyncMetadata> metadataSubject;
+  /// The sync status this engine writes as it works. Disposing it is how the
+  /// manager tells a running cycle to stop.
+  final Signal<DatumSyncStatusSnapshot> statusSignal;
+
+  /// The sync metadata of the last completed cycle; null before the first.
+  final Signal<DatumSyncMetadata?> metadataSignal;
   final IsolateHelper isolateHelper;
   final List<DatumObserver<T>> localObservers;
   final List<GlobalDatumObserver> globalObservers;
@@ -57,7 +61,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   String? get lastActiveUserId => _lastActiveUserId;
 
   /// Returns true if a synchronization process is currently active.
-  bool get isSyncing => statusSubject.value.status == DatumSyncStatus.syncing;
+  bool get isSyncing => statusSignal.peek().status == DatumSyncStatus.syncing;
 
   String get entityName => T.toString();
 
@@ -71,8 +75,8 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     required this.config,
     required this.connectivityChecker,
     required this.eventController,
-    required this.statusSubject,
-    required this.metadataSubject,
+    required this.statusSignal,
+    required this.metadataSignal,
     required this.isolateHelper,
     this.localObservers = const [],
     this.globalObservers = const [],
@@ -111,7 +115,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     DatumSyncScope? scope,
   }) async {
     final generatedEvents = <DatumSyncEvent<T>>[];
-    final snapshot = statusSubject.value;
+    final snapshot = statusSignal.peek();
     if (!await connectivityChecker.isConnected && !force) {
       logger.warn('Sync skipped for user $userId: No internet connection.');
       return (
@@ -142,7 +146,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     final stopwatch = Stopwatch()..start();
 
     // Reset the snapshot for the new sync cycle, preserving only the user ID.
-    statusSubject.add(
+    statusSignal.set(
       DatumSyncStatusSnapshot.initial(userId).copyWith(
         status: DatumSyncStatus.syncing,
         health: const DatumHealth(status: DatumSyncHealth.syncing),
@@ -167,19 +171,19 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // as fully synced, the caller's `paused` status was overwritten with
       // `idle`, and a DatumSyncCompletedEvent was emitted for a truncated
       // cycle.
-      if (statusSubject.isClosed) {
+      if (statusSignal.disposed) {
         logger.warn(
           'Sync for user $userId was cancelled mid-process due to manager disposal.',
         );
         _discardStagedPullState(userId);
         return (
-          DatumSyncResult<T>.cancelled(userId, statusSubject.value.syncedCount),
+          DatumSyncResult<T>.cancelled(userId, statusSignal.peek().syncedCount),
           generatedEvents,
         );
       }
-      if (statusSubject.value.status != DatumSyncStatus.syncing) {
+      if (statusSignal.peek().status != DatumSyncStatus.syncing) {
         logger.warn(
-          'Sync for user $userId was interrupted (status: ${statusSubject.value.status.name}); reporting a cancelled result.',
+          'Sync for user $userId was interrupted (status: ${statusSignal.peek().status.name}); reporting a cancelled result.',
         );
         _discardStagedPullState(userId);
         return (await _cycleResult(userId, stopwatch, totals, wasCancelled: true), generatedEvents);
@@ -306,7 +310,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     bool wasCancelled = false,
   }) async {
     final pending = await queueManager.getPending(userId);
-    final status = statusSubject.value;
+    final status = statusSignal.peek();
     return DatumSyncResult<T>(
       userId: userId,
       duration: stopwatch.elapsed,
@@ -342,8 +346,8 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       Error.throwWithStackTrace(e, stack);
     }
 
-    statusSubject.add(
-      statusSubject.value.copyWith(
+    statusSignal.set(
+      statusSignal.peek().copyWith(
         status: DatumSyncStatus.failed, // The sync cycle failed
         health: const DatumHealth(status: DatumSyncHealth.error),
         errors: [e],
@@ -366,7 +370,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
 
   /// Applies [update] to the status snapshot unless the subject is closed.
   void _emitStatus(DatumSyncStatusSnapshot Function(DatumSyncStatusSnapshot current) update) {
-    if (!statusSubject.isClosed) statusSubject.add(update(statusSubject.value));
+    if (!statusSignal.disposed) statusSignal.set(update(statusSignal.peek()));
   }
 
   /// Entities whose op failed retryably THIS cycle. Later queued ops for the
@@ -418,14 +422,14 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         cumulativeBytesPushed += size;
         bytesPushed += size;
       },
-      () => statusSubject.value.status != DatumSyncStatus.syncing,
+      () => statusSignal.peek().status != DatumSyncStatus.syncing,
       (completed, total) {
-        if (!statusSubject.isClosed && !eventController.isClosed) {
+        if (!statusSignal.disposed && !eventController.isClosed) {
           // The status should remain 'syncing' while progress is being reported.
           // Only the progress value within the snapshot is updated.
           final progress = total > 0 ? completed / total : 1.0;
-          statusSubject.add(
-            statusSubject.value.copyWith(progress: progress),
+          statusSignal.set(
+            statusSignal.peek().copyWith(progress: progress),
           );
           final progressEvent = DatumSyncProgressEvent<T>(
             userId: userId,
@@ -449,7 +453,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     required List<DatumSyncEvent<T>> generatedEvents,
   }) async {
     // The manager was disposed mid-cycle: leave the rest queued.
-    if (statusSubject.isClosed) return 0;
+    if (statusSignal.disposed) return 0;
     if (operation is DatumSyncBatchOperation<T>) {
       return await _processBatchOperation(operation, generatedEvents: generatedEvents);
     }
@@ -471,10 +475,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     try {
       await _sendToRemote(operation);
       await queueManager.dequeue(operation.id);
-      if (statusSubject.isClosed) return 0;
-      statusSubject.add(
-        statusSubject.value.copyWith(
-          syncedCount: statusSubject.value.syncedCount + 1,
+      if (statusSignal.disposed) return 0;
+      statusSignal.set(
+        statusSignal.peek().copyWith(
+          syncedCount: statusSignal.peek().syncedCount + 1,
         ),
       );
       _notifyPostOperationObservers(operation, success: true);
@@ -745,12 +749,12 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         remoteBatch.clear();
 
         // Check if sync was cancelled
-        if (statusSubject.value.status != DatumSyncStatus.syncing) break;
+        if (statusSignal.peek().status != DatumSyncStatus.syncing) break;
       }
     }
 
     // Process remaining items in the last batch
-    if (remoteBatch.isNotEmpty && statusSubject.value.status == DatumSyncStatus.syncing) {
+    if (remoteBatch.isNotEmpty && statusSignal.peek().status == DatumSyncStatus.syncing) {
       final batchBytes = await _processRemoteBatch(
         remoteBatch,
         userId,
@@ -764,7 +768,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     }
 
     // After a full pull, reconcile local entities that no longer exist remotely.
-    if (seenRemoteIds != null && statusSubject.value.status == DatumSyncStatus.syncing) {
+    if (seenRemoteIds != null && statusSignal.peek().status == DatumSyncStatus.syncing) {
       await _detectRemoteDeletions(userId, seenRemoteIds, options, generatedEvents);
     }
 
@@ -835,10 +839,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       );
       generatedEvents.add(resolvedEvent);
       _notifyObservers(resolvedEvent);
-      if (!statusSubject.isClosed) {
-        statusSubject.add(
-          statusSubject.value.copyWith(
-            conflictsResolved: statusSubject.value.conflictsResolved + 1,
+      if (!statusSignal.disposed) {
+        statusSignal.set(
+          statusSignal.peek().copyWith(
+            conflictsResolved: statusSignal.peek().conflictsResolved + 1,
           ),
         );
       }
@@ -1289,9 +1293,9 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         resolution: resolution,
       ),
     );
-    statusSubject.add(
-      statusSubject.value.copyWith(
-        conflictsResolved: statusSubject.value.conflictsResolved + 1,
+    statusSignal.set(
+      statusSignal.peek().copyWith(
+        conflictsResolved: statusSignal.peek().conflictsResolved + 1,
       ),
     );
   }
@@ -1506,8 +1510,8 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         // broken local storage is a real error.
         logger.warn('Remote metadata beacon update failed for user $userId ($e); continuing — the next successful sync will rewrite it.');
       }
-      if (!metadataSubject.isClosed) {
-        metadataSubject.add(localMetadata);
+      if (!metadataSignal.disposed) {
+        metadataSignal.set(localMetadata);
       }
     } on Object catch (e, stack) {
       logger.error(
@@ -1561,7 +1565,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     );
 
     // Update the health status in the main status snapshot.
-    statusSubject.add(statusSubject.value.copyWith(health: health));
+    statusSignal.set(statusSignal.peek().copyWith(health: health));
 
     return health;
   }
@@ -1644,10 +1648,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         _notifyPostOperationObservers(op, success: true);
       }
 
-      if (!statusSubject.isClosed) {
-        statusSubject.add(
-          statusSubject.value.copyWith(
-            syncedCount: statusSubject.value.syncedCount + batch.operations.length - refused.length,
+      if (!statusSignal.disposed) {
+        statusSignal.set(
+          statusSignal.peek().copyWith(
+            syncedCount: statusSignal.peek().syncedCount + batch.operations.length - refused.length,
           ),
         );
       }

@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
+import 'package:signals_core/signals_core.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:rxdart/rxdart.dart';
 import 'package:test/test.dart';
 
 import '../mocks/mock_adapters.dart';
@@ -111,8 +111,8 @@ class _EngineHarness {
       config: config ?? const DatumConfig(),
       connectivityChecker: connectivity,
       eventController: eventController,
-      statusSubject: statusSubject,
-      metadataSubject: metadataSubject,
+      statusSignal: statusSubject,
+      metadataSignal: metadataSubject,
       isolateHelper: const IsolateHelper(),
     );
   }
@@ -121,14 +121,14 @@ class _EngineHarness {
   final MockRemoteAdapter<TestEntity> remoteAdapter;
   late final QueueManager<TestEntity> queueManager;
   final StreamController<DatumSyncEvent<TestEntity>> eventController = StreamController<DatumSyncEvent<TestEntity>>.broadcast();
-  final BehaviorSubject<DatumSyncStatusSnapshot> statusSubject = BehaviorSubject<DatumSyncStatusSnapshot>.seeded(DatumSyncStatusSnapshot.initial('u1'));
-  final BehaviorSubject<DatumSyncMetadata> metadataSubject = BehaviorSubject<DatumSyncMetadata>();
+  final Signal<DatumSyncStatusSnapshot> statusSubject = signal<DatumSyncStatusSnapshot>(DatumSyncStatusSnapshot.initial('u1'));
+  final Signal<DatumSyncMetadata?> metadataSubject = signal<DatumSyncMetadata?>(null);
   late final DatumSyncEngine<TestEntity> engine;
 
   Future<void> dispose() async {
     if (!eventController.isClosed) await eventController.close();
-    if (!statusSubject.isClosed) await statusSubject.close();
-    if (!metadataSubject.isClosed) await metadataSubject.close();
+    if (!statusSubject.disposed) statusSubject.dispose();
+    if (!metadataSubject.disposed) metadataSubject.dispose();
     await local.dispose();
     await remoteAdapter.dispose();
   }

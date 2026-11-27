@@ -361,6 +361,15 @@ void main() {
     await device.pushAndSync(item: TestEntity.create('own', 'u1', 'synced by the app'), userId: 'u1');
     await Future<void>.delayed(const Duration(milliseconds: 300));
     expect(cycles.where((c) => !c.result.wasSkipped), hasLength(1), reason: 'the debounced sync had nothing left to upload');
+    // Nor when that sync outlasts the quiet period, as on a real network:
+    // the debounced sync lets it finish and then has nothing left to upload.
+    cycles.clear();
+    server.latency = const Duration(milliseconds: 150);
+    await device.pushAndSync(item: TestEntity.create('slow', 'u1', 'on a slow network'), userId: 'u1');
+    server.latency = Duration.zero;
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(server.storage['u1']?['slow']?['name'], 'on a slow network');
+    expect(cycles.map((c) => (c.result.wasSkipped, c.result.syncedCount)), [(false, 1)], reason: 'one cycle, the one that uploaded the write');
     // A write made during a sync still gets its own debounced sync.
     final running = device.synchronize('u1');
     await device.push(item: TestEntity.create('late', 'u1', 'written during a sync'), userId: 'u1');

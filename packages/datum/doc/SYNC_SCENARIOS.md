@@ -198,6 +198,7 @@ Suite: `datum/test/unit/live_changes_test.dart`
 
 - `changes applied from the remote change stream are reported per batch, without a sync cycle`
 - `a live change follows the pull rules: stale rows are ignored and a row competing with an unsynced edit goes to the resolver`
+- `a live change keeps the device-only fields of the row it updates`
 
 ## sync.clock: Vector clocks
 
@@ -319,6 +320,7 @@ Suite: `datum_test/lib/src/key_naming_conformance.dart`
 - `snake_case maps are read, scoped, listed and cleared per user`
 - `soft delete, tombstone filtering and restore work through a manager`
 - `a timestamp finer than the local store keeps is not a conflict on every pull`
+- `a device-only field stays on the device and survives whatever the remote sends`
 
 ## store.migration: Schema migrations
 
@@ -331,6 +333,23 @@ Suite: `datum_test/lib/src/migration_conformance.dart`
 - `a failed chain records only the failing step, as failed`
 - `resume from stored version runs only the remaining steps`
 - `a successful migration runs once across an app relaunch`
+
+## state.signals: State an app reads (signals)
+
+Suite: `datum/test/unit/state_signals_test.dart`
+
+Sync status, health, metadata, next sync time and metrics are `signals_core` signals; see section 5 of the audit.
+
+- `the status, health, metadata and next sync time of a manager are signals that follow the engine`
+- `Datum exposes its metrics, the statuses of its users and the health of every manager as signals`
+
+## state.streams: The same state as streams
+
+Suite: `datum/test/unit/event_stream_test.dart`
+
+- `watchSignal gives every listener the current value, then each change, and ends with the signal`
+- `batchedEvery emits what each window collected, and nothing for an empty one`
+- `startWith and whereType`
 
 ## ui.strip: The sync timing strip of the example app
 
@@ -366,23 +385,24 @@ Needs the local Supabase stack: `flutter test test/live/supabase_local_sync_test
 Not automated, and not needed to trust the rules above: every item has an
 automated counterpart (named in brackets). Done on 2026-11-27 with the
 example app on an iOS simulator and two Android emulators (one phone, one
-foldable), signed in to one account on the local Supabase stack, after
-upgrading the installed apps in place (existing local data and queued state
-kept):
+foldable) against the local Supabase stack. The simulator's app was upgraded
+in place and kept its data (2 tasks, 6 paintings); the emulators got a fresh
+install. All three then signed in to one new account.
 
-- An edit on any one device shows on the other two without a manual sync,
-  and the timing strip moves on all three (`sync … ↑1` on the editing
-  device, `live ↓1 …` on the receivers). Checked from an emulator and from
-  the simulator. [`ui.strip`, `backend.supabase`]
-- Conflict while offline: one emulator's network was switched off and a task
-  ticked there (queued, marked as waiting to upload). The same task was then
-  changed twice on the simulator. The offline emulator took the newer row,
-  its own edit left the queue, and after reconnecting nothing was uploaded
-  over it: the server row did not change again, and all three devices
-  showed its state. [`backend.supabase`, step 6 of its second test]
-- The paintings list shows the real stroke count on all three devices.
-  [`ui.paintings`]
-- A drawing made on the phone is whole on the foldable (fixed 2:3 sheet).
-  [`ui.sheet`]
-- After an app restart no row is reported as a conflict (it was one or two
-  per restart before the timestamp precision fix). [`store.keys`]
+- A task created on the phone shows on the other two without a manual sync,
+  and so does ticking it on the foldable. The timing strip moves on all
+  three: `Task sync 36 ms ↑1` on the editing device, `Task live ↓1 · 8 ms to
+  apply · 246 ms after the edit` on a receiver. [`ui.strip`,
+  `backend.supabase`]
+- One edit is one sync cycle. The app log of the editing device shows a
+  single cycle (`Synced: 1`), started 4 ms after the tap. This check found
+  two faults, both fixed: the debounced after-write sync ran a second, empty
+  cycle whenever the first one took longer than its delay, and the app
+  probed the internet for about 400 ms before every sync. [`sync.http`,
+  "syncAfterWriteDelay"]
+- Offline, then back: with the phone's network switched off, an edit there
+  is saved, marked as waiting to upload, and no sync runs. Switching the
+  network on uploads it without a tap (`Task sync 61 ms ↑1`), and the other
+  two devices show it. [`sync.reconnect`, `backend.supabase`]
+- Signing out and in as another user on the simulator shows that user's
+  data only. [`sync.isolation`]

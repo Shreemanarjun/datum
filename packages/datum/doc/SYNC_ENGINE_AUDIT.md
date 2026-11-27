@@ -253,6 +253,16 @@ edits of one row without seeing each other" (rows one, three and four), and
   single authoritative device whose peers use `RemotePriorityResolver`.
 - **Server-requested backoff, forced refetch, fail-on-conflict save, sync
   reason, sync priorities.** Added or confirmed; see §1.
+- **Device-only fields** (listed here as "not a goal" before). An entity
+  names the keys of its local map that never leave the device
+  (`deviceOnlyFields`, or `@DatumField(deviceOnly: true)` with the
+  generator). The rule has four parts, each with a test in the key-naming
+  conformance suite and `live_changes_test.dart`:
+  the value is stored locally; it is never uploaded (it is in the local map
+  only, and it is not part of the diff); a remote row that replaces the
+  local one, pulled or live, keeps it; and it is not compared, so changing
+  only that field queues nothing and can never be a conflict. A second
+  device gets the row without it.
 
 Not goals, with the reason:
 
@@ -265,9 +275,6 @@ Not goals, with the reason:
   function.
 - **Attachments.** Files belong in object storage. Sync the reference (URL,
   digest) as a normal field.
-- **Device-only fields.** A field must exist in both maps. A value that
-  should never leave the device belongs in the app's own storage: a pulled
-  remote update replaces the whole local row.
 
 Every item of this audit is implemented. One property depends on the
 backend rather than on the engine: a backend that accepts every write, with
@@ -302,6 +309,28 @@ barrel from inside `lib`. There are no exceptions.
 Code below the facade reaches sibling managers through `ManagerLocator`
 (manager layer) and relation objects through `RelatedSources` (model
 layer); the facade installs both when it starts.
+
+## 5. State
+
+State the engine holds or exposes is a signal from `signals_core`; streams
+are only for events (something happened), never for "what is it now".
+
+| Owner | Signals |
+|---|---|
+| `DatumManager` | `statusSignal`, `healthSignal` (computed), `metadataSignal`, `nextSyncTimeSignal` |
+| `Datum` | `statusesSignal`, `metricsSignal`, `healthsSignal` (computed over the managers) |
+
+- The sync engine writes the manager's status and metadata signals; inside
+  `lib` a signal is read with `peek()`, so engine code never subscribes
+  itself to its own state.
+- The stream getters that existed before (`statusStream`, `health`,
+  `allHealths`, `metrics`, ...) are views of these signals (`watchSignal`):
+  current value first, then each change, closed when the owner is disposed.
+- The package exports `signals_core` and stays pure Dart: no Flutter import,
+  no rxdart.
+
+`test/architecture_test.dart` enforces this too: nothing in `lib` imports
+rxdart or Flutter, or declares a subject or a notifier.
 
 ## Sources
 

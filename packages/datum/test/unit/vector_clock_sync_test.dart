@@ -1,9 +1,9 @@
 import 'package:datum/datum.dart';
+import 'package:signals_core/signals_core.dart';
 import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 import '../test_utils/test_datum_entity.dart';
 import 'dart:async';
-import 'package:rxdart/rxdart.dart';
 import '../mocks/forward_bulk_writes.dart';
 
 class MockLocalAdapter<T extends DatumEntityInterface> extends Mock with ForwardBulkWrites<T> implements LocalAdapter<T> {}
@@ -53,8 +53,8 @@ void main() {
         config: const DatumConfig<TestDatumEntity>(),
         connectivityChecker: connectivity,
         eventController: StreamController<DatumSyncEvent<TestDatumEntity>>.broadcast(),
-        statusSubject: BehaviorSubject.seeded(DatumSyncStatusSnapshot.initial('user-1')),
-        metadataSubject: BehaviorSubject.seeded(const DatumSyncMetadata(userId: 'user-1')),
+        statusSignal: signal(DatumSyncStatusSnapshot.initial('user-1')),
+        metadataSignal: signal<DatumSyncMetadata?>(const DatumSyncMetadata(userId: 'user-1')),
         isolateHelper: const IsolateHelper(),
         localObservers: [],
         globalObservers: [],

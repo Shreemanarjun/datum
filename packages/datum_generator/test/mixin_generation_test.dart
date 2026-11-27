@@ -52,7 +52,55 @@ class Article extends RelationalDatumEntity {
 }
 ''';
 
+const String _deviceOnlyEntity = '''
+import 'package:datum/datum.dart';
+import 'package:datum_generator/annotations.dart';
+
+part 'example.g.dart';
+
+@DatumSerializable()
+class Memo extends DatumEntity {
+  final String id;
+  final String title;
+
+  @DatumField(deviceOnly: true)
+  final String? draft;
+
+  @DatumField(deviceOnly: true, name: 'seen')
+  final bool? wasSeen;
+
+  const Memo({required this.id, required this.title, this.draft, this.wasSeen});
+}
+''';
+
 void main() {
+  group('device-only fields', () {
+    test('stay out of the remote map and the diff, and are named to the engine', () async {
+      final result = await generate(_deviceOnlyEntity);
+      expect(result.succeeded, isTrue, reason: result.errors.join('\n'));
+      final output = result.output!;
+      expect(output, containsCode("if (target == MapTarget.local) 'draft': draft,"));
+      expect(output, containsCode("if (target == MapTarget.local) 'seen': wasSeen,"));
+      expect(output, containsCode("'title': title,"));
+      expect(output, isNot(contains('draft != old.draft')));
+      expect(output, isNot(contains('wasSeen != old.wasSeen')));
+      expect(output, containsCode("static const Set<String> deviceOnlyKeys = {'draft', 'seen'};"));
+      expect(output, containsCode(r'Set<String> get deviceOnlyFields => $MemoDatum.deviceOnlyKeys;'));
+    });
+
+    test('an entity without any gets neither the key set nor the override', () async {
+      final output = (await generate(_plainMixinEntity)).output!;
+      expect(output, isNot(contains('deviceOnlyKeys')));
+      expect(output, isNot(contains('deviceOnlyFields')));
+    });
+
+    test('a device-only field that cannot be null is refused', () async {
+      final result = await generate(_deviceOnlyEntity.replaceFirst('final String? draft;', 'final String draft;').replaceFirst('this.draft,', 'required this.draft,'));
+      expect(result.succeeded, isFalse);
+      expect(result.errors.join('\n') + result.logMessages.join('\n'), contains('Device-only field `draft` must be nullable'));
+    });
+  });
+
   group('mixin generation (default generateMixin: true)', () {
     late String output;
     late Iterable<String> logMessages;

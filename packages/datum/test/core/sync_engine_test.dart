@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:datum/datum.dart';
+import 'package:signals_core/signals_core.dart';
 
 import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:rxdart/rxdart.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 import 'auto_start_sync_test.dart';
@@ -29,8 +29,8 @@ void main() {
     late QueueManager<TestEntity> queueManager;
     late MockConnectivityChecker connectivity;
     late StreamController<DatumSyncEvent<TestEntity>> eventController;
-    late BehaviorSubject<DatumSyncStatusSnapshot> statusSubject;
-    late BehaviorSubject<DatumSyncMetadata> metadataSubject;
+    late Signal<DatumSyncStatusSnapshot> statusSubject;
+    late Signal<DatumSyncMetadata?> metadataSubject;
     late MockIsolateHelper isolateHelper;
     late MockLogger logger;
     late DatumSyncEngine<TestEntity> syncEngine;
@@ -84,11 +84,11 @@ void main() {
       );
       connectivity = MockConnectivityChecker();
       eventController = StreamController<DatumSyncEvent<TestEntity>>.broadcast();
-      statusSubject = BehaviorSubject<DatumSyncStatusSnapshot>.seeded(
+      statusSubject = signal<DatumSyncStatusSnapshot>(
         DatumSyncStatusSnapshot.initial(''),
       );
       logger = MockLogger();
-      metadataSubject = BehaviorSubject<DatumSyncMetadata>();
+      metadataSubject = signal<DatumSyncMetadata?>(null);
       isolateHelper = MockIsolateHelper();
 
       syncEngine = DatumSyncEngine<TestEntity>(
@@ -101,8 +101,8 @@ void main() {
         config: const DatumConfig(),
         connectivityChecker: connectivity,
         eventController: eventController,
-        statusSubject: statusSubject,
-        metadataSubject: metadataSubject,
+        statusSignal: statusSubject,
+        metadataSignal: metadataSubject,
         isolateHelper: isolateHelper,
       );
 
@@ -187,8 +187,8 @@ void main() {
 
     tearDown(() async {
       await eventController.close();
-      await statusSubject.close();
-      await metadataSubject.close();
+      statusSubject.dispose();
+      metadataSubject.dispose();
     });
 
     test(
@@ -521,8 +521,8 @@ void main() {
           config: const DatumConfig(),
           connectivityChecker: connectivity,
           eventController: eventController,
-          statusSubject: statusSubject,
-          metadataSubject: metadataSubject,
+          statusSignal: statusSubject,
+          metadataSignal: metadataSubject,
           isolateHelper: isolateHelper,
         );
 
@@ -558,8 +558,8 @@ void main() {
             config: const DatumConfig(),
             connectivityChecker: connectivity,
             eventController: eventController,
-            statusSubject: statusSubject,
-            metadataSubject: metadataSubject,
+            statusSignal: statusSubject,
+            metadataSignal: metadataSubject,
             isolateHelper: isolateHelper,
           );
 
@@ -601,8 +601,8 @@ void main() {
           config: const DatumConfig(),
           connectivityChecker: connectivity,
           eventController: eventController,
-          statusSubject: statusSubject,
-          metadataSubject: metadataSubject,
+          statusSignal: statusSubject,
+          metadataSignal: metadataSubject,
           isolateHelper: isolateHelper,
         );
 
@@ -630,7 +630,13 @@ void main() {
       ).thenAnswer((_) async {});
       when(() => localAdapter.create(any())).thenAnswer((_) async {});
 
-      final futureMetadata = metadataSubject.stream.first;
+      // The first metadata the cycle writes (the signal starts as null).
+      final written = Completer<DatumSyncMetadata>();
+      final stopWatching = metadataSubject.subscribe((m) {
+        if (m != null && !written.isCompleted) written.complete(m);
+      });
+      addTearDown(stopWatching);
+      final futureMetadata = written.future;
 
       // Act
       await syncEngine.synchronize('user-1');
@@ -728,8 +734,8 @@ void main() {
     late QueueManager<TestEntity> queueManager;
     late MockConnectivityChecker connectivity;
     late StreamController<DatumSyncEvent<TestEntity>> eventController;
-    late BehaviorSubject<DatumSyncStatusSnapshot> statusSubject;
-    late BehaviorSubject<DatumSyncMetadata> metadataSubject;
+    late Signal<DatumSyncStatusSnapshot> statusSubject;
+    late Signal<DatumSyncMetadata?> metadataSubject;
     late MockIsolateHelper isolateHelper;
     late MockLogger logger;
     late MockDatumObserver<TestEntity> localObserver;
@@ -787,11 +793,11 @@ void main() {
       );
       connectivity = MockConnectivityChecker();
       eventController = StreamController<DatumSyncEvent<TestEntity>>.broadcast();
-      statusSubject = BehaviorSubject<DatumSyncStatusSnapshot>.seeded(
+      statusSubject = signal<DatumSyncStatusSnapshot>(
         DatumSyncStatusSnapshot.initial(''),
       );
       logger = MockLogger();
-      metadataSubject = BehaviorSubject<DatumSyncMetadata>();
+      metadataSubject = signal<DatumSyncMetadata?>(null);
       isolateHelper = MockIsolateHelper();
 
       syncEngine = DatumSyncEngine<TestEntity>(
@@ -804,8 +810,8 @@ void main() {
         config: const DatumConfig(),
         connectivityChecker: connectivity,
         eventController: eventController,
-        statusSubject: statusSubject,
-        metadataSubject: metadataSubject,
+        statusSignal: statusSubject,
+        metadataSignal: metadataSubject,
         isolateHelper: isolateHelper,
         localObservers: [localObserver],
         globalObservers: [globalObserver],
@@ -858,8 +864,8 @@ void main() {
 
     tearDown(() async {
       await eventController.close();
-      await statusSubject.close();
-      await metadataSubject.close();
+      statusSubject.dispose();
+      metadataSubject.dispose();
     });
 
     test('notifies observers on create operation start', () async {

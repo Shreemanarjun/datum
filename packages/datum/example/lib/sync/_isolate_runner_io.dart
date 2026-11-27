@@ -141,6 +141,9 @@ class _ProxyEntity extends Equatable implements DatumEntityInterface {
   VectorClock? get vectorClock => null;
   @override
   bool get isRelational => false;
+
+  @override
+  Set<String> get deviceOnlyFields => const {};
   Map<String, Relation> get relations => {};
 
   @override

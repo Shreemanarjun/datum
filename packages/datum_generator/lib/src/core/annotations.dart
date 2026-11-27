@@ -92,7 +92,16 @@ class DatumField {
   /// change (e.g. to sync an edited `createdAt`).
   final bool? diff;
 
-  const DatumField({this.name, this.fromGenerator, this.toGenerator, this.diff});
+  /// Keeps the field on this device: it is stored locally and never
+  /// uploaded, and a row arriving from the remote (a pull, a live change, a
+  /// conflict the remote wins) leaves its value as it is. A change to it
+  /// alone is saved without queueing an upload.
+  ///
+  /// The field must be nullable: a row first received from the remote has no
+  /// value for it. Fixed-schema local stores need a column for it.
+  final bool deviceOnly;
+
+  const DatumField({this.name, this.fromGenerator, this.toGenerator, this.diff, this.deviceOnly = false});
 }
 
 /// Annotation to define a BelongsTo relationship.

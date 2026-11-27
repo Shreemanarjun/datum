@@ -32,7 +32,7 @@ final config = DatumConfig<Task>(
   deleteBehavior: DeleteBehavior.softDelete, // or hardDelete (default)
 
   // Sync behavior
-  defaultSyncDirection: SyncDirection.pushThenPull,
+  defaultSyncDirection: SyncDirection.pullThenPush, // the default
   syncTimeout: Duration(seconds: 30),
   defaultSyncOptions: DatumSyncOptions<Task>(
     forceFullSync: false,
@@ -175,8 +175,8 @@ final config = DatumConfig<Task>(
 
 Control the order and type of synchronization:
 
-- **`SyncDirection.pushThenPull`**: Push local changes first, then pull remote changes (default)
-- **`SyncDirection.pullThenPush`**: Pull remote changes first, then push local changes
+- **`SyncDirection.pullThenPush`**: Pull remote changes first, then push local changes (default). The device looks at the remote before it uploads, so conflicting edits reach the resolver.
+- **`SyncDirection.pushThenPull`**: Push local changes first, then pull remote changes (the last upload wins)
 - **`SyncDirection.pushOnly`**: Only push local changes to remote
 - **`SyncDirection.pullOnly`**: Only pull remote changes to local
 

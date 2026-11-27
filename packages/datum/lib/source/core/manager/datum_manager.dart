@@ -51,7 +51,8 @@ import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
 import 'package:datum/source/utils/connectivity_checker.dart';
 import 'package:datum/source/utils/datum_logger.dart';
 
-import 'package:rxdart/rxdart.dart';
+import 'package:datum/source/utils/signal_stream.dart';
+import 'package:signals_core/signals_core.dart';
 import 'package:uuid/uuid.dart';
 
 import '../engine/error_boundary.dart';
@@ -200,8 +201,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
       config: config,
       connectivityChecker: _connectivity,
       eventController: _eventController,
-      statusSubject: _statusSubject,
-      metadataSubject: _metadataSubject,
+      statusSignal: _status,
+      metadataSignal: _metadata,
       isolateHelper: _isolateHelper,
       localObservers: _localObservers.map((w) => w.target).whereType<DatumObserver<T>>().toList(),
       globalObservers: _globalObservers.map((w) => w.target).whereType<GlobalDatumObserver>().toList(),
@@ -211,9 +212,25 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   }
 
   late final StreamController<DatumSyncEvent<T>> _eventController;
-  late final BehaviorSubject<DatumSyncStatusSnapshot> _statusSubject;
-  late final BehaviorSubject<DatumSyncMetadata> _metadataSubject;
-  late final BehaviorSubject<DateTime?> _nextSyncTimeSubject;
+  // The manager's state lives in signals; the stream getters below are
+  // views of them for callers that consume streams.
+  final _status = signal(DatumSyncStatusSnapshot.initial(''));
+  final _metadata = signal<DatumSyncMetadata?>(null);
+  final _nextSyncTime = signal<DateTime?>(null);
+
+  /// The sync status as a signal: read `.value` inside an effect, a computed
+  /// or a signals-aware widget to follow it.
+  ReadonlySignal<DatumSyncStatusSnapshot> get statusSignal => _status;
+
+  /// The health of this manager, derived from [statusSignal].
+  late final ReadonlySignal<DatumHealth> healthSignal = computed(() => _status.value.health);
+
+  /// The sync metadata written by the last completed cycle; null before the
+  /// first one.
+  ReadonlySignal<DatumSyncMetadata?> get metadataSignal => _metadata;
+
+  /// When the next automatic sync is due; null when none is scheduled.
+  ReadonlySignal<DateTime?> get nextSyncTimeSignal => _nextSyncTime;
 
   /// Exposes the queue manager for central orchestration.
   QueueManager<T> get queueManager => _queueManager;
@@ -239,38 +256,44 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   /// Reactive queries can listen to this to refresh their data when users switch.
   Stream<String?> get onUserChanged => onUserSwitched.map((event) => event.newUserId);
 
-  /// A stream of the manager's current health status.
-  Stream<DatumHealth> get health => _statusSubject.stream.map((s) => s.health);
+  /// A stream of the manager's current health status ([healthSignal]).
+  Stream<DatumHealth> get health => watchSignal(_status).map((s) => s.health);
 
-  /// A stream of the manager's sync status snapshots.
-  Stream<DatumSyncStatusSnapshot> get statusStream => _statusSubject.stream;
+  /// A stream of the manager's sync status snapshots ([statusSignal]).
+  Stream<DatumSyncStatusSnapshot> get statusStream => watchSignal(_status);
 
-  /// The most recent snapshot of the manager's sync status.
-  DatumSyncStatusSnapshot get currentStatus => _statusSubject.value;
+  /// The sync status right now. A plain read: it does not subscribe an
+  /// effect that calls it; use [statusSignal] for that.
+  DatumSyncStatusSnapshot get currentStatus => _status.peek();
 
-  /// The most recent snapshot of the manager's sync status.
+  /// When the next automatic sync is due ([nextSyncTimeSignal]).
   ///
   /// Emits `null` if no auto-sync is scheduled.
-  Stream<DateTime?> get watchNextSyncTime => _nextSyncTimeSubject.stream;
+  Stream<DateTime?> get watchNextSyncTime => watchSignal(_nextSyncTime);
 
   /// A stream that emits the [Duration] until the next scheduled auto-sync.
   ///
   /// Emits `null` if no auto-sync is scheduled. The duration will decrease
   /// over time and the stream will emit new values periodically.
-  Stream<Duration?> get watchNextSyncDuration {
-    return watchNextSyncTime.switchMap((nextSync) {
-      if (nextSync == null) {
-        return Stream.value(null);
-      }
-      // Emit the duration every second until the sync time is reached.
-      return Stream.periodic(const Duration(seconds: 1), (_) {
-        final remaining = nextSync.difference(DateTime.now());
-        return remaining.isNegative ? Duration.zero : remaining;
-      }).startWith(nextSync.difference(DateTime.now()));
-    });
-  }
+  Stream<Duration?> get watchNextSyncDuration => Stream<Duration?>.multi((listener) {
+        Timer? ticker;
+        final stop = _nextSyncTime.subscribe((nextSync) {
+          ticker?.cancel();
+          if (nextSync == null) return listener.add(null);
+          listener.add(nextSync.difference(DateTime.now()));
+          // Emit the duration every second until the sync time is reached.
+          ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+            final remaining = nextSync.difference(DateTime.now());
+            listener.add(remaining.isNegative ? Duration.zero : remaining);
+          });
+        });
+        listener.onCancel = () {
+          ticker?.cancel();
+          stop();
+        };
+      });
 
-  Stream<DateTime?> get onNextSyncTimeChanged => _nextSyncTimeSubject.stream;
+  Stream<DateTime?> get onNextSyncTimeChanged => watchSignal(_nextSyncTime);
 
   DatumManager({
     required this.localAdapter,
@@ -326,13 +349,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   void _initializeInternalComponents() {
     // Initialize controllers and manage them for automatic disposal.
     _eventController = StreamController.broadcast();
-    _statusSubject = BehaviorSubject.seeded(DatumSyncStatusSnapshot.initial(''));
-    _metadataSubject = BehaviorSubject();
-    _nextSyncTimeSubject = BehaviorSubject.seeded(null);
     manageController(_eventController);
-    manageController(_statusSubject);
-    manageController(_metadataSubject);
-    manageController(_nextSyncTimeSubject);
+    manageSignal(_status);
+    manageSignal(_metadata);
+    manageSignal(_nextSyncTime);
 
     _conflictDetector = DatumConflictDetector<T>();
     _isolateHelper = const IsolateHelper();
@@ -538,7 +558,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
 
     // If a debounce time is configured, buffer events for performance.
     if (config.remoteEventDebounceTime > Duration.zero) {
-      remoteSub = remoteStream.bufferTime(config.remoteEventDebounceTime).where((batch) => batch.isNotEmpty).listen(
+      remoteSub = remoteStream.batchedEvery(config.remoteEventDebounceTime).listen(
             (changeList) => _handleExternalChange(changeList, DataSource.remote),
             onError: (e, s) => _logger.error('Error in remote change stream', s),
           );
@@ -1617,7 +1637,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   /// Debounced sync after a local write ([DatumConfig.syncAfterWriteDelay]).
   void _scheduleSyncAfterWrite(String userId) {
     final delay = config.syncAfterWriteDelay;
-    if (delay != null) _deferSync(_syncAfterWriteTimers, userId, delay, 'after-write');
+    if (delay != null) _deferSync(_syncAfterWriteTimers, userId, delay, 'after-write', onlyIfPending: true);
   }
 
   /// Operations that failed retryably stay queued; re-sync after the
@@ -1627,8 +1647,6 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     // Disposed during the sync: dispose already cancelled every timer.
     if (isDisposed) return;
     _backoffRetryTimers.remove(userId)?.cancel();
-    // The write a debounced sync was armed for is already uploaded.
-    if (await getPendingCount(userId) == 0) _syncAfterWriteTimers.remove(userId)?.cancel();
     final attempts = [
       for (final op in result.pendingOperations)
         if (!op.isParked && op.retryCount > 0) op.retryCount
@@ -1646,15 +1664,28 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   /// starts itself.
   DatumSyncOptions<T> _because(String reason) => (config.defaultSyncOptions ?? DatumSyncOptions<T>()).copyWith(reason: reason);
 
-  /// (Re)arms [timers]' one-shot sync for [userId] after [delay].
-  void _deferSync(Map<String, Timer> timers, String userId, Duration delay, String why) {
+  /// (Re)arms [timers]' one-shot sync for [userId] after [delay]. With
+  /// [onlyIfPending], a sync that is running when the time comes finishes
+  /// first, and none is started when it left nothing to upload.
+  void _deferSync(Map<String, Timer> timers, String userId, Duration delay, String why, {bool onlyIfPending = false}) {
     if (isDisposed) return;
     timers.remove(userId)?.cancel();
     timers[userId] = Timer(delay, () {
       timers.remove(userId);
-      unawaited(synchronize(userId, options: _because(why)).then<void>((_) {}, onError: (Object e) => _logger.warn('Sync ($why) failed for $userId: $e')));
+      unawaited(_syncDeferred(userId, why, onlyIfPending).then<void>((_) {}, onError: (Object e) => _logger.warn('Sync ($why) failed for $userId: $e')));
     });
   }
+
+  Future<void> _syncDeferred(String userId, String why, bool onlyIfPending) async {
+    if (onlyIfPending) {
+      await _runningSyncs();
+      if (isDisposed || await getPendingCount(userId) == 0) return;
+    }
+    await synchronize(userId, options: _because(why));
+  }
+
+  /// Completes when every sync that is running now has ended, however.
+  Future<void> _runningSyncs() => Future.wait([for (final s in _inFlightSyncs) s.then<void>((_) {}, onError: (_) {})]);
 
   /// Deletes an entity locally and immediately triggers a synchronization.
   ///
@@ -2311,8 +2342,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     // Silence the still-running engine future (its loops halt once the status
     // leaves `syncing`) and surface a typed timeout.
     unawaited(engineFuture.then((_) {}, onError: (_, __) {}));
-    if (!_statusSubject.isClosed) {
-      _statusSubject.add(currentStatus.copyWith(
+    if (!_status.disposed) {
+      _status.set(currentStatus.copyWith(
         status: DatumSyncStatus.failed,
         health: const DatumHealth(status: DatumSyncHealth.error),
       ));
@@ -2541,10 +2572,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   /// If no timers are active, sets the next sync time to null.
   /// If timers are active, calculates the earliest next sync time.
   void _updateNextSyncTime() {
-    if (_nextSyncTimeSubject.isClosed) return;
+    if (_nextSyncTime.disposed) return;
 
     if (_autoSyncTimers.isEmpty) {
-      _nextSyncTimeSubject.add(null);
+      _nextSyncTime.set(null);
       return;
     }
 
@@ -2554,7 +2585,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     final syncInterval = config.autoSyncInterval;
     final nextSyncTime = now.add(syncInterval);
 
-    _nextSyncTimeSubject.add(nextSyncTime);
+    _nextSyncTime.set(nextSyncTime);
   }
 
   /// Unsubscribes from remote change events.
@@ -2635,7 +2666,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     // before its next operation); wait for it to unwind before the adapters
     // close, so nothing touches them or the network after dispose returns.
     await super.dispose();
-    await Future.wait([for (final s in _inFlightSyncs) s.then<void>((_) {}, onError: (_) {})]);
+    await _runningSyncs();
     clearCaches();
     await _queueManager.dispose();
     _syncRequestStrategy.dispose();
@@ -2784,9 +2815,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   /// queued and, unlike [pauseSync], later syncs run normally. Has no effect
   /// on a cycle running in a background isolate ([DatumConfig.useIsolateSync]).
   void cancelSync() {
-    if (currentStatus.status != DatumSyncStatus.syncing || _statusSubject.isClosed) return;
+    if (currentStatus.status != DatumSyncStatus.syncing || _status.disposed) return;
     _logger.info('Cancelling the running sync for manager $T.');
-    _statusSubject.add(currentStatus.copyWith(status: DatumSyncStatus.idle));
+    _status.set(currentStatus.copyWith(status: DatumSyncStatus.idle));
   }
 
   /// Operations sync gave up on (see [DatumSyncOperation.parkedError]), e.g.
@@ -2886,8 +2917,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     _autoSyncRuns.clear();
     _cancelAllAutoSyncTimers();
     _isSyncPaused = true;
-    if (!_statusSubject.isClosed) {
-      _statusSubject.add(currentStatus.copyWith(status: DatumSyncStatus.paused));
+    if (!_status.disposed) {
+      _status.set(currentStatus.copyWith(status: DatumSyncStatus.paused));
     }
     _logger.info('Sync paused for manager $T.');
   }
@@ -2901,8 +2932,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     // made every later sync skip itself as "already in progress".
     final pre = _prePauseStatus;
     final statusToRestore = pre == null || pre == DatumSyncStatus.syncing ? DatumSyncStatus.idle : pre;
-    if (!_statusSubject.isClosed) {
-      _statusSubject.add(currentStatus.copyWith(status: statusToRestore));
+    if (!_status.disposed) {
+      _status.set(currentStatus.copyWith(status: statusToRestore));
     }
     _prePauseStatus = null;
 
@@ -2924,7 +2955,7 @@ extension DatumManagerAutoSyncInfo<T extends DatumEntityInterface> on DatumManag
   ///
   /// Returns `null` if no auto-sync is currently scheduled.
   Future<DateTime?> getNextSyncTime() async {
-    return _nextSyncTimeSubject.value;
+    return _nextSyncTime.peek();
   }
 
   /// Gets the [Duration] until the next scheduled auto-sync as a `Future`.
@@ -3137,8 +3168,8 @@ Future<(DatumSyncResult<T>, List<DatumSyncEvent<T>>)> _runSyncInIsolate<T extend
   // Create dummy controllers for the isolated engine since we only care about the return values
   // and the side effects on the adapters.
   final dummyEventController = StreamController<DatumSyncEvent<T>>();
-  final dummyStatusSubject = BehaviorSubject<DatumSyncStatusSnapshot>.seeded(DatumSyncStatusSnapshot.initial(userId));
-  final dummyMetadataSubject = BehaviorSubject<DatumSyncMetadata>();
+  final isolateStatus = signal(DatumSyncStatusSnapshot.initial(userId));
+  final isolateMetadata = signal<DatumSyncMetadata?>(null);
 
   try {
     final engine = DatumSyncEngine<T>(
@@ -3151,8 +3182,8 @@ Future<(DatumSyncResult<T>, List<DatumSyncEvent<T>>)> _runSyncInIsolate<T extend
         config: config,
         connectivityChecker: connectivityChecker,
         eventController: dummyEventController,
-        statusSubject: dummyStatusSubject,
-        metadataSubject: dummyMetadataSubject,
+        statusSignal: isolateStatus,
+        metadataSignal: isolateMetadata,
         isolateHelper: isolateHelper,
         deviceId: deviceId);
 
@@ -3163,7 +3194,7 @@ Future<(DatumSyncResult<T>, List<DatumSyncEvent<T>>)> _runSyncInIsolate<T extend
     );
   } finally {
     dummyEventController.close();
-    dummyStatusSubject.close();
-    dummyMetadataSubject.close();
+    isolateStatus.dispose();
+    isolateMetadata.dispose();
   }
 }

@@ -139,7 +139,7 @@ mixin _\$${className}Mixin on $baseClass {
   Map<String, dynamic>? diff(covariant DatumEntityInterface oldVersion) {
     return (this as $className).datumDiff(oldVersion);
   }
-${isRelational ? '\n  @override' : '\n'}
+${fields.any((f) => f.deviceOnly && !f.isRelation) ? '\n  @override\n  Set<String> get deviceOnlyFields => \$${className}Datum.deviceOnlyKeys;\n' : ''}${isRelational ? '\n  @override' : '\n'}
   $baseClass copyWith({
     DateTime? modifiedAt,
     int? version,

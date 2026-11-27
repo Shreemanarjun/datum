@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Key-naming conformance: a device-only field (`SnakeKeyedEntity.note`) is
+  stored locally, never uploaded, survives a pulled update of its row, and
+  changing it queues nothing. A local adapter's test table needs a `note`
+  column.
+
 - **Conflict matrix** in the sync-stack suite: 14 situations (each side
   untouched, created, edited once, edited twice or deleted) x 4 resolver
   policies x both sync directions, on three devices. Every row must end the

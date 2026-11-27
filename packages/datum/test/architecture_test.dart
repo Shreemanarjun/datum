@@ -79,4 +79,38 @@ void main() {
     expect(violations.difference(_baseline), isEmpty, reason: 'new upward imports');
     expect(_baseline.difference(violations), isEmpty, reason: 'fixed: remove these from _baseline');
   });
+
+  // The engine keeps its state in `signals_core` signals and stays pure
+  // Dart. Events are plain streams; no other state-management library and
+  // no hand-rolled state holder.
+  test('state lives in signals: lib uses signals_core, not subjects or notifiers, and no Flutter', () {
+    final banned = {
+      'package:rxdart': RegExp(r'''import\s+['"]package:rxdart/'''),
+      'a Flutter import': RegExp(r'''import\s+['"](package:flutter/|dart:ui)'''),
+      'signals_flutter': RegExp(r'''import\s+['"]package:signals_flutter/'''),
+      'BehaviorSubject': RegExp(r'\bBehaviorSubject\b'),
+      'ValueNotifier / ChangeNotifier': RegExp(r'\b(ValueNotifier|ChangeNotifier)\b'),
+    };
+    final found = <String>[];
+    var signalFiles = 0;
+    for (final file in Directory('lib').listSync(recursive: true).whereType<File>()) {
+      if (!file.path.endsWith('.dart')) continue;
+      final source = file.readAsStringSync();
+      if (source.contains("import 'package:signals_core/signals_core.dart'")) signalFiles++;
+      for (final MapEntry(key: what, value: pattern) in banned.entries) {
+        if (pattern.hasMatch(source)) found.add('${file.path}: $what');
+      }
+    }
+    expect(found, isEmpty);
+    expect(signalFiles, greaterThanOrEqualTo(4), reason: 'the engine, the manager and the facade hold their state in signals');
+
+    // The package itself: signals_core is a dependency (and re-exported);
+    // rxdart, if present at all, is for tests only.
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final dependencies = pubspec.substring(pubspec.indexOf('\ndependencies:'), pubspec.indexOf('\ndev_dependencies:'));
+    expect(dependencies, contains('signals_core:'));
+    expect(dependencies, isNot(contains('rxdart')));
+    expect(dependencies, isNot(contains('flutter')));
+    expect(File('lib/datum.dart').readAsStringSync(), contains("export 'package:signals_core/signals_core.dart'"));
+  });
 }

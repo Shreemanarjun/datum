@@ -28,6 +28,9 @@ class TestEntity extends DatumEntity {
   @DatumField(diff: false)
   final int localViews;
 
+  @DatumField(deviceOnly: true)
+  final String? draftNote;
+
   @DatumIgnore()
   final String ignoredField;
 
@@ -43,6 +46,7 @@ class TestEntity extends DatumEntity {
     required this.customField,
     required this.customDate,
     this.localViews = 0,
+    this.draftNote,
     this.ignoredField = '',
   });
 }
@@ -131,6 +135,11 @@ void main() {
       // @DatumField(diff: false) keeps a field out of deltas but serialized.
       expect(output, isNot(contains('localViews != old.localViews')));
       expect(output, contains("'local_views': localViews"));
+      // @DatumField(deviceOnly: true): in the local map only, never in a
+      // delta, and named to the engine so a pull does not wipe it.
+      expect(output, contains("if (target == MapTarget.local) 'draft_note': draftNote,"));
+      expect(output, isNot(contains('draftNote != old.draftNote')));
+      expect(output, contains("static const Set<String> deviceOnlyKeys = {'draft_note'};"));
       expect(
         output,
         contains("changes['modified_at'] = modifiedAt.toUtc().toIso8601String();"),

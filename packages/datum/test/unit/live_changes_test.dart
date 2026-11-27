@@ -1,4 +1,5 @@
 import 'package:datum/datum.dart';
+import 'package:datum_test/datum_test.dart' show SnakeKeyedEntity;
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
@@ -190,5 +191,33 @@ void main() {
     expect(twiceConflicts, ['theirs']);
     expect(await shown(twice), 'theirs');
     expect(await twice.getPendingCount('u1'), 0);
+  });
+
+  test('a live change keeps the device-only fields of the row it updates', () async {
+    final online = MockConnectivityChecker();
+    when(() => online.isConnected).thenAnswer((_) async => true);
+    when(() => online.onStatusChange).thenAnswer((_) => const Stream.empty());
+    final remote = MockRemoteAdapter<SnakeKeyedEntity>(fromJson: SnakeKeyedEntity.fromMap);
+    final manager = DatumManager<SnakeKeyedEntity>(
+      localAdapter: InMemoryLocalAdapter<SnakeKeyedEntity>(fromMap: SnakeKeyedEntity.fromMap),
+      remoteAdapter: remote,
+      connectivity: online,
+      datumConfig: const DatumConfig<SnakeKeyedEntity>(enableLogging: false, remoteEventDebounceTime: Duration.zero),
+    );
+    await manager.initialize();
+    addTearDown(manager.dispose);
+    final t = DateTime.utc(2030);
+    SnakeKeyedEntity row(String name, int version, {String? note}) => SnakeKeyedEntity('x', 'u1', name, version: version, modifiedAt: t.add(Duration(minutes: version)), note: note);
+
+    await manager.push(item: row('mine', 1, note: 'unsent draft'), userId: 'u1');
+    await manager.synchronize('u1');
+
+    // Another device's edit arrives over the feed; it carries no note.
+    final theirs = row('theirs', 2);
+    remote.emitChange(DatumChangeDetail(type: DatumOperationType.update, entityId: 'x', userId: 'u1', timestamp: theirs.modifiedAt, data: theirs));
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    final stored = (await manager.read('x', userId: 'u1'))!;
+    expect((stored.name, stored.version, stored.note), ('theirs', 2, 'unsent draft'));
+    expect(await manager.getPendingCount('u1'), 0);
   });
 }

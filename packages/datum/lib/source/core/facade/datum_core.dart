@@ -34,7 +34,8 @@ import 'package:datum/source/utils/connectivity_checker.dart';
 import 'package:datum/source/utils/datum_logger.dart';
 import 'package:datum/source/utils/duration_formatter.dart';
 import 'package:meta/meta.dart';
-import 'package:rxdart/rxdart.dart';
+import 'package:datum/source/utils/signal_stream.dart';
+import 'package:signals_core/signals_core.dart';
 import 'package:datum/source/core/manager/manager_locator.dart';
 
 /// The central engine for the Datum framework, managing data synchronization,
@@ -305,30 +306,33 @@ class Datum {
   final StreamController<String?> _userChangeController = StreamController.broadcast();
   Stream<String?> get userChangeStream => _userChangeController.stream;
 
-  final BehaviorSubject<Map<String, DatumSyncStatusSnapshot>> _statusSubject = BehaviorSubject.seeded({});
-  Stream<DatumSyncStatusSnapshot?> statusForUser(String userId) => _statusSubject.stream.map((map) => map[userId]);
+  // State lives in signals; the stream getters are views of them.
+  final _statuses = signal<Map<String, DatumSyncStatusSnapshot>>(const {});
+  final _metrics = signal(const DatumMetrics());
+
+  /// The sync status of every user this instance has synced, by user id.
+  ReadonlySignal<Map<String, DatumSyncStatusSnapshot>> get statusesSignal => _statuses;
+
+  /// Counters of what the engine has done since it started.
+  ReadonlySignal<DatumMetrics> get metricsSignal => _metrics;
+
+  /// The health of every registered manager, by entity type.
+  late final ReadonlySignal<Map<Type, DatumHealth>> healthsSignal = computed(() => {
+        for (final MapEntry(key: type, value: manager) in _managers.entries) type: (manager as DatumManager<DatumEntityInterface>).healthSignal.value,
+      });
+
+  Stream<DatumSyncStatusSnapshot?> statusForUser(String userId) => watchSignal(_statuses).map((map) => map[userId]);
 
   final Map<String, DatumSyncStatusSnapshot> _snapshots = {};
 
-  // Stream controller for metrics
-  final BehaviorSubject<DatumMetrics> _metricsSubject = BehaviorSubject.seeded(
-    const DatumMetrics(),
-  );
-  Stream<DatumMetrics> get metrics => _metricsSubject.stream;
-  DatumMetrics get currentMetrics => _metricsSubject.value;
+  Stream<DatumMetrics> get metrics => watchSignal(_metrics);
 
-  /// A stream that aggregates the health status of all registered managers.
-  Stream<Map<Type, DatumHealth>> get allHealths {
-    if (_managers.isEmpty) {
-      return Stream.value({});
-    }
-    final healthStreams = _managers.allManagers.map((m) => m.health).toList();
-    final types = _managers.keys.toList();
+  /// The metrics right now; a plain read ([metricsSignal] is the reactive one).
+  DatumMetrics get currentMetrics => _metrics.peek();
 
-    return CombineLatestStream.list(healthStreams).map((healthList) {
-      return Map.fromIterables(types, healthList);
-    });
-  }
+  /// A stream that aggregates the health status of all registered managers
+  /// ([healthsSignal]).
+  Stream<Map<Type, DatumHealth>> get allHealths => _managers.isEmpty ? Stream.value({}) : watchSignal(healthsSignal);
 
   Datum._({
     required this.config,
@@ -733,7 +737,7 @@ class Datum {
 
   void _listenToEventsForMetrics() {
     events.listen((event) {
-      final current = _metricsSubject.value;
+      final current = _metrics.peek();
       DatumMetrics next;
 
       switch (event) {
@@ -776,7 +780,7 @@ class Datum {
         case _:
           return;
       }
-      _metricsSubject.add(next);
+      _metrics.set(next);
     });
   }
 
@@ -944,8 +948,9 @@ class Datum {
     final current = _getSnapshot(userId);
     final updated = updater(current);
     _snapshots[userId] = updated;
-    if (!_statusSubject.isClosed) {
-      _statusSubject.add(_snapshots);
+    if (!_statuses.disposed) {
+      // A copy: the same map set again would not count as a change.
+      _statuses.set(Map.unmodifiable(_snapshots));
     }
   }
 
@@ -1347,8 +1352,8 @@ class Datum {
 
       await _eventController.close();
       await _userChangeController.close();
-      await _metricsSubject.close();
-      await _statusSubject.close();
+      _metrics.dispose();
+      _statuses.dispose();
     }
 
     if (_instance == this) {

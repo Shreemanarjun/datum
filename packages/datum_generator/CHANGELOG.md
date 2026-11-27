@@ -1,5 +1,12 @@
 ## Unreleased
 
+- `@DatumField(deviceOnly: true)`: the field is written to the local map
+  only, is not part of the remote map or the diff, and its key is listed in
+  the generated `deviceOnlyFields`, so the sync engine keeps its value when
+  a remote row replaces the rest. A device-only field must be nullable (the generator
+  rejects it otherwise): a row that arrives from the remote has no value for
+  it.
+
 - `@DatumField(diff: false)` makes a field set-once, like `id` or
   `createdAt`: written at creation, ignored by later updates. `diff: true`
   makes a bookkeeping field count as a change. Default rule unchanged.

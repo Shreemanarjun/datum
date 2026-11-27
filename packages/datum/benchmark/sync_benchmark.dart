@@ -147,6 +147,44 @@ Future<void> main(List<String> args) async {
         await m.dispose();
         return d;
       },
+      // The two cases below load the engine's state holders (sync status,
+      // health, progress) the way a screen that shows them would.
+      'sync 500 queued creates, state watched': () async {
+        final m = await newManager();
+        for (var i = 0; i < 500; i++) {
+          await m.push(item: Item('id$i', 'n$i'), userId: 'u1');
+        }
+        var seen = 0;
+        final subs = [
+          m.statusStream.listen((_) => seen++),
+          m.health.listen((_) => seen++),
+          m.onSyncProgress.listen((_) => seen++),
+        ];
+        final d = await timed(() => m.synchronize('u1'));
+        for (final sub in subs) {
+          await sub.cancel();
+        }
+        await m.dispose();
+        if (seen == 0) throw StateError('nothing observed the sync');
+        return d;
+      },
+      'status written 10000 times, watched': () async {
+        final m = await newManager();
+        var seen = 0;
+        final sub = m.statusStream.listen((_) => seen++);
+        final d = await timed(() async {
+          for (var i = 0; i < 5000; i++) {
+            m.pauseSync();
+            m.resumeSync();
+          }
+          // Let the watcher drain what it was sent.
+          await Future<void>.delayed(Duration.zero);
+        });
+        await sub.cancel();
+        await m.dispose();
+        if (seen == 0) throw StateError('nothing observed the status');
+        return d;
+      },
       'watchAll, 500-write burst': () async {
         final a = InMemoryLocalAdapter<Item>(fromMap: Item.fromMap);
         final sub = a.watchAll(userId: 'u1')!.listen((_) {});

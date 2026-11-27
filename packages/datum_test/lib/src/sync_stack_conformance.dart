@@ -1404,19 +1404,9 @@ void _conflictTests(_Stack s) {
     expect((await s.remoteRow('x'))?.name, 'mine');
   });
 
-  for (final (label, resolver, expected, bug) in [
-    (
-      'local wins',
-      LocalPriorityResolver<ConformanceEntity>(),
-      'local-edit',
-      null,
-    ),
-    (
-      'remote wins',
-      RemotePriorityResolver<ConformanceEntity>(),
-      'remote-edit',
-      null,
-    ),
+  for (final (label, resolver, expected) in [
+    ('local wins', LocalPriorityResolver<ConformanceEntity>(), 'local-edit'),
+    ('remote wins', RemotePriorityResolver<ConformanceEntity>(), 'remote-edit'),
   ]) {
     test('pullThenPush conflict with $label converges on both sides', () async {
       final d = await s.device(resolver: resolver);
@@ -1435,7 +1425,7 @@ void _conflictTests(_Stack s) {
       expect((await d.$2.read('x', userId: _u1))?.name, expected);
       expect((await s.remoteRow('x'))?.name, expected);
       expect(await d.$1.getPendingOperations(_u1), isEmpty);
-    }, skip: bug);
+    });
   }
 }
 

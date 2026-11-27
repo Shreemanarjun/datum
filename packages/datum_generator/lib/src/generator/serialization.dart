@@ -1,3 +1,5 @@
+import 'package:source_gen/source_gen.dart';
+
 import 'field_info.dart';
 
 /// How a field's value is turned into a map value (toDatumMap / datumDiff).
@@ -55,7 +57,9 @@ String toDatumMapCode(List<FieldInfo> fields) {
   for (final f in fields) {
     // Timestamps are encoded per target below.
     if (f.name == 'createdAt' || f.name == 'modifiedAt') continue;
-    b.writeln("      '${f.mapKey}': ${_serializedValue(f, forDiff: false)},");
+    // A device-only field is in the local map and nowhere else.
+    final onlyLocal = f.deviceOnly ? 'if (target == MapTarget.local) ' : '';
+    b.writeln("      $onlyLocal'${f.mapKey}': ${_serializedValue(f, forDiff: false)},");
   }
   return (b
         ..writeln('    };')
@@ -89,7 +93,8 @@ String diffCode(String className, List<FieldInfo> fields) {
     ..writeln(
       '\n  Map<String, dynamic>? datumDiff(DatumEntityInterface oldVersion, {MapTarget target = MapTarget.local}) {',
     );
-  final diffable = fields.where((f) => f.diff ?? !_diffExcluded.contains(f.name));
+  // A diff is what gets uploaded: device-only fields are never in it.
+  final diffable = fields.where((f) => !f.deviceOnly && (f.diff ?? !_diffExcluded.contains(f.name)));
   if (diffable.isNotEmpty) {
     b.writeln('    final old = oldVersion as $className;');
   }
@@ -122,6 +127,24 @@ String diffCode(String className, List<FieldInfo> fields) {
         ..writeln('    return changes.isEmpty ? null : changes;')
         ..writeln('  }'))
       .toString();
+}
+
+/// `deviceOnlyKeys`: the map keys of the `@DatumField(deviceOnly: true)`
+/// fields, for the entity's `deviceOnlyFields`. Empty when there are none.
+String deviceOnlyKeysCode(List<FieldInfo> fields) {
+  final keys = [
+    for (final f in fields)
+      if (f.deviceOnly) "'${f.mapKey}'",
+  ];
+  if (keys.isEmpty) return '';
+  for (final f in fields.where((f) => f.deviceOnly && !f.isNullable)) {
+    throw InvalidGenerationSourceError(
+      'Device-only field `${f.name}` must be nullable: a row received from '
+      'the remote has no value for it.',
+    );
+  }
+  return '\n  /// Map keys kept on this device (`@DatumField(deviceOnly: true)`).\n'
+      '  static const Set<String> deviceOnlyKeys = {${keys.join(', ')}};\n';
 }
 
 /// Top-level `_<entity>ListEquals` helper used by `datumEquals`.
