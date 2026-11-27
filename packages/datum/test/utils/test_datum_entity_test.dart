@@ -395,6 +395,9 @@ class _MockDatumEntity implements DatumEntityInterface {
   bool get isRelational => false;
 
   @override
+  Set<String> get deviceOnlyFields => const {};
+
+  @override
   VectorClock? get vectorClock => null;
 
   @override

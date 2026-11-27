@@ -74,13 +74,6 @@ abstract interface class DatumEntityInterface {
   Set<String> get deviceOnlyFields;
 }
 
-/// [entity]'s local map without its device-only fields: what the local and
-/// the remote copy of a row have in common.
-Map<String, dynamic> sharedLocalMap(DatumEntityInterface entity) {
-  final map = entity.toDatumMap();
-  final deviceOnly = entity.deviceOnlyFields;
-  return deviceOnly.isEmpty ? map : (map..removeWhere((key, _) => deviceOnly.contains(key)));
-}
 
 /// The **base sealed class** for all entities managed by the Datum framework.
 ///

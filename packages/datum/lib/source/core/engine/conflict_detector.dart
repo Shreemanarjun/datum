@@ -92,7 +92,10 @@ class DatumConflictDetector<T extends DatumEntityInterface> {
     // and a UTC DateTime of the same instant, and a local store that keeps
     // epoch milliseconds reads a row back coarser than the server returns
     // it. Either one flagged every pulled row.
-    if (localItem.modifiedAt.millisecondsSinceEpoch != remoteItem.modifiedAt.millisecondsSinceEpoch || !const DeepCollectionEquality().equals(localItem.toDatumMap(), remoteItem.toDatumMap())) {
+    // Device-only fields exist on one side only: they are not compared.
+    final deviceOnly = {...localItem.deviceOnlyFields, ...remoteItem.deviceOnlyFields};
+    Map<String, dynamic> shared(T item) => item.toDatumMap()..removeWhere((key, _) => deviceOnly.contains(key));
+    if (localItem.modifiedAt.millisecondsSinceEpoch != remoteItem.modifiedAt.millisecondsSinceEpoch || !const DeepCollectionEquality().equals(shared(localItem), shared(remoteItem))) {
       return DatumConflictContext(
         userId: userId,
         entityId: localItem.id,

@@ -803,6 +803,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
       // This is an update. The entity's diff says what changed.
       final delta = transformed.diff(existing);
       if (delta == null) {
+        // Nothing to upload. A change to a device-only field is still saved.
+        final deviceOnly = source == DataSource.local ? _deviceOnlyDelta(transformed, existing) : null;
+        if (deviceOnly != null) return _saveDeviceOnly(existing, deviceOnly);
         _logger.debug(
           'No changes detected for entity ${item.id}, skipping save.',
         );
@@ -824,6 +827,26 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
 
       return result;
     }
+  }
+
+  /// What [next] changes in [existing]'s device-only fields (see
+  /// `DatumEntityInterface.deviceOnlyFields`), in local keys; null when
+  /// nothing.
+  Map<String, dynamic>? _deviceOnlyDelta(T next, T existing) {
+    final deviceOnly = {...existing.deviceOnlyFields, ...next.deviceOnlyFields};
+    if (deviceOnly.isEmpty) return null;
+    final delta = diffDatumMaps(next.toDatumMap(), existing.toDatumMap())?..removeWhere((key, _) => !deviceOnly.contains(key));
+    return delta == null || delta.isEmpty ? null : delta;
+  }
+
+  /// Saves a change that touches only device-only fields: stored here,
+  /// announced to watchers, never queued for upload.
+  Future<T> _saveDeviceOnly(T existing, Map<String, dynamic> delta) async {
+    final patched = await localAdapter.patch(id: existing.id, delta: delta, userId: existing.userId);
+    _recordLocalEcho(existing.id, patched);
+    _cacheCoordinator.invalidateCachesForEntity(patched);
+    _eventController.add(DataChangeEvent<T>(userId: existing.userId, data: patched, changeType: ChangeType.updated, source: DataSource.local));
+    return patched;
   }
 
   Future<T> _performCreate(T transformed, DataSource source, bool forceRemoteSync) async {
@@ -897,7 +920,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     // would leave the local row different from the remote one, which the
     // next pull reports as a conflict.
     final remoteKeys = transformed.toDatumMap(target: MapTarget.remote).keys.toSet();
-    final localDelta = diffDatumMaps(transformed.toDatumMap(), existing.toDatumMap())?..removeWhere((key, _) => remoteKeys.contains(key) && !delta.containsKey(key));
+    // A row received from the remote carries no device-only fields: the
+    // ones stored here stay.
+    final kept = source == DataSource.remote ? existing.deviceOnlyFields : const <String>{};
+    final localDelta = diffDatumMaps(transformed.toDatumMap(), existing.toDatumMap())?..removeWhere((key, _) => kept.contains(key) || (remoteKeys.contains(key) && !delta.containsKey(key)));
     _recordLocalEcho(transformed.id, transformed);
     final patched = localDelta == null || localDelta.isEmpty ? existing : await localAdapter.patch(id: transformed.id, delta: localDelta, userId: userId);
     _recordLocalEcho(transformed.id, patched);

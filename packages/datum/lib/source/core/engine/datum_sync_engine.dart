@@ -1096,13 +1096,13 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     int cumulativeBytesSoFar,
   ) async {
     final sorted = await _sortRemoteBatch(remoteBatch, userId, options, generatedEvents, processedCount, cumulativeBytesSoFar);
-    await _applyPulledWrites(userId, sorted.toCreate, sorted.toUpdate);
+    await _applyPulledWrites(userId, sorted.toCreate, sorted.toUpdate, sorted.deviceOnly);
     return sorted.bytes;
   }
 
   /// Decides what each remote row means for the local store: resolves the
   /// conflicts, and returns the rows to create or update as they are.
-  Future<({List<T> toCreate, List<T> toUpdate, int bytes})> _sortRemoteBatch(
+  Future<({List<T> toCreate, List<T> toUpdate, Map<String, Set<String>> deviceOnly, int bytes})> _sortRemoteBatch(
     List<T> remoteBatch,
     String userId,
     DatumSyncOptions<T>? options,
@@ -1180,14 +1180,39 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       }
     }
 
-    return (toCreate: toCreate, toUpdate: toUpdate, bytes: batchBytes);
+    return (toCreate: toCreate, toUpdate: toUpdate, deviceOnly: _deviceOnlyOf(toUpdate, localItemsMap), bytes: batchBytes);
   }
 
+  /// id -> the device-only fields of the local row each update will replace.
+  Map<String, Set<String>> _deviceOnlyOf(List<T> toUpdate, Map<String, T> locals) => {
+        for (final item in toUpdate)
+          if (locals[item.id]?.deviceOnlyFields case final fields? when fields.isNotEmpty) item.id: fields,
+      };
+
   /// Commits a pull batch's non-conflicting writes in bulk.
-  Future<void> _applyPulledWrites(String userId, List<T> toCreate, List<T> toUpdate) async {
+  Future<void> _applyPulledWrites(String userId, List<T> toCreate, List<T> toUpdate, Map<String, Set<String>> deviceOnly) async {
     if (toCreate.isNotEmpty) await localAdapter.createAll(toCreate);
-    if (toUpdate.isNotEmpty) await localAdapter.updateAll(toUpdate);
+    final replaced = [
+      for (final item in toUpdate)
+        if (!deviceOnly.containsKey(item.id)) item
+    ];
+    if (replaced.isNotEmpty) await localAdapter.updateAll(replaced);
+    for (final item in toUpdate) {
+      final keep = deviceOnly[item.id];
+      if (keep != null) await _patchShared(item, keep);
+    }
     if (toCreate.isNotEmpty || toUpdate.isNotEmpty) hashCache.invalidate(userId);
+  }
+
+  /// Saves [remote] over the local row, leaving the [keep] fields (the local
+  /// row's device-only ones, which a remote row never carries) as they are.
+  Future<void> _patchShared(T remote, Set<String> keep) =>
+      localAdapter.patch(id: remote.id, delta: remote.toDatumMap()..removeWhere((key, _) => keep.contains(key)), userId: remote.userId);
+
+  /// Saves [remote] over [local], keeping [local]'s device-only fields.
+  Future<void> _replaceLocal(T remote, T? local) async {
+    final keep = local?.deviceOnlyFields ?? const <String>{};
+    keep.isEmpty ? await localAdapter.update(remote) : await _patchShared(remote, keep);
   }
 
   /// Routes a pulled item's conflict through the resolver and applies the
@@ -1230,7 +1255,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         // Honor a resolver-transformed value (`useRemote(tweaked)`); the raw
         // remoteItem was previously written unconditionally, silently
         // discarding resolvedData.
-        await localAdapter.update(resolution.resolvedData ?? remoteItem);
+        await _replaceLocal(resolution.resolvedData ?? remoteItem, localItem);
         hashCache.invalidate(pull.userId);
         // The losing local ops must not push over the winner afterwards.
         await _dropQueued(pull, context.entityId);
