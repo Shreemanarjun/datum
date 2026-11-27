@@ -40,14 +40,23 @@ List<PaintStroke> _redoable(List<PaintStroke> all) {
 class PaintCanvas extends SignalStatefulWidget {
   final String canvasId;
 
-  const PaintCanvas({super.key, required this.canvasId});
+  /// The strokes to show: the signed-in user's synced strokes of [canvasId]
+  /// unless a test supplies its own.
+  final Stream<List<PaintStroke>> Function(String canvasId) watchStrokes;
+
+  const PaintCanvas({
+    super.key,
+    required this.canvasId,
+    this.watchStrokes = _watchStrokes,
+  });
 
   @override
   State<PaintCanvas> createState() => _PaintCanvasState();
 }
 
 class _PaintCanvasState extends State<PaintCanvas> with GlobalHelper {
-  late final _strokes = streamSignal(() => _watchStrokes(widget.canvasId));
+  late final _strokes =
+      streamSignal(() => widget.watchStrokes(widget.canvasId));
 
   /// High-performance notifier for the active stroke being drawn
   final ValueNotifier<List<Offset>> _currentPointsNotifier = ValueNotifier([]);
@@ -200,53 +209,68 @@ class _PaintCanvasState extends State<PaintCanvas> with GlobalHelper {
           ),
         ),
         // Canvas
+        // One paper shape on every device: a drawing made on a phone is whole
+        // on a tablet or an unfolded foldable, and the other way round.
         Expanded(
-          child: Container(
-            color: Colors.white,
-            child: strokesAsync.map(
-              data: (all) {
-                final strokes = _live(all);
-                // Sync optimistic cache: Remove strokes that have now safely
-                // arrived in the stream.
-                if (_optimisticStrokes.isNotEmpty) {
-                  final strokeIds = all.map((s) => s.id).toSet();
-                  _optimisticStrokes
-                      .removeWhere((s) => strokeIds.contains(s.id));
-                }
+          child: Center(
+            child: AspectRatio(
+                aspectRatio: 2 / 3,
+                child: ClipRect(
+                    child: DecoratedBox(
+                  // The edge shows where the paper ends on a light theme.
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: theme.colorScheme.border)),
+                  child: strokesAsync.map(
+                    data: (all) {
+                      final strokes = _live(all);
+                      // Sync optimistic cache: Remove strokes that have now safely
+                      // arrived in the stream.
+                      if (_optimisticStrokes.isNotEmpty) {
+                        final strokeIds = all.map((s) => s.id).toSet();
+                        _optimisticStrokes
+                            .removeWhere((s) => strokeIds.contains(s.id));
+                      }
 
-                // Combine stream data with remaining optimistic strokes
-                final combinedStrokes = [...strokes, ..._optimisticStrokes];
+                      // Combine stream data with remaining optimistic strokes
+                      final combinedStrokes = [
+                        ...strokes,
+                        ..._optimisticStrokes
+                      ];
 
-                return LayoutBuilder(builder: (context, constraints) {
-                  _canvasWidth = constraints.maxWidth;
-                  return RepaintBoundary(
-                    child: GestureDetector(
-                      onPanStart: (details) =>
-                          _startStroke(details.localPosition),
-                      onPanUpdate: (details) =>
-                          _updateStroke(details.localPosition),
-                      onPanEnd: (details) => _endStroke(),
-                      child: ValueListenableBuilder<List<Offset>>(
-                        valueListenable: _currentPointsNotifier,
-                        builder: (context, currentPoints, _) {
-                          return CustomPaint(
-                            painter: _CanvasPainter(
-                              strokes: combinedStrokes,
-                              currentPoints: currentPoints,
-                              currentColor: _selectedColor,
-                              currentStrokeWidth: _strokeWidth,
+                      return LayoutBuilder(builder: (context, constraints) {
+                        _canvasWidth = constraints.maxWidth;
+                        return RepaintBoundary(
+                          child: GestureDetector(
+                            onPanStart: (details) =>
+                                _startStroke(details.localPosition),
+                            onPanUpdate: (details) =>
+                                _updateStroke(details.localPosition),
+                            onPanEnd: (details) => _endStroke(),
+                            child: ValueListenableBuilder<List<Offset>>(
+                              valueListenable: _currentPointsNotifier,
+                              builder: (context, currentPoints, _) {
+                                return CustomPaint(
+                                  painter: _CanvasPainter(
+                                    strokes: combinedStrokes,
+                                    currentPoints: currentPoints,
+                                    currentColor: _selectedColor,
+                                    currentStrokeWidth: _strokeWidth,
+                                  ),
+                                  size: Size.infinite,
+                                );
+                              },
                             ),
-                            size: Size.infinite,
-                          );
-                        },
-                      ),
-                    ),
-                  );
-                });
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, stack) => Center(child: Text('Error: $error')),
-            ),
+                          ),
+                        );
+                      });
+                    },
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (error, stack) =>
+                        Center(child: Text('Error: $error')),
+                  ),
+                ))),
           ),
         ),
       ],

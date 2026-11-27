@@ -5,10 +5,15 @@ import 'package:meta/meta.dart';
 
 /// Defines the order of operations during a synchronization cycle.
 enum SyncDirection {
-  /// Push local changes first, then pull remote changes. This is the default.
+  /// Push local changes first, then pull remote changes. An unsynced edit is
+  /// uploaded before this device looks at the remote row, so it replaces an
+  /// edit another device uploaded meanwhile: the last push wins, and no
+  /// resolver is asked on this device.
   pushThenPull,
 
-  /// Pull remote changes first, then push local changes.
+  /// Pull remote changes first, then push local changes. This is the
+  /// default: an unsynced edit of a row that changed remotely is a conflict
+  /// the resolver decides before anything is overwritten.
   pullThenPush,
 
   /// Only push local changes to the remote.

@@ -75,6 +75,9 @@ const _u1 = 'u1';
 /// - [remotePullsByTimestamp]: the remote pulls incrementally by a
 ///   `modifiedSince` watermark (DeltaSyncCapable without a cursor feed);
 ///   skips the clock-skew cases that path is known to fail.
+/// - [remoteGuardsWrites]: the remote is [GuardedWriteCapable]. Conflicts
+///   then show at upload whatever the sync direction, and the tests that
+///   describe "the last upload wins" expect the first one to.
 ///
 /// [runSyncConformanceMatrix] wires this suite over every bundled remote.
 void runSyncStackConformanceTests({
@@ -88,6 +91,7 @@ void runSyncStackConformanceTests({
   ReopenLocal? reopenLocal,
   FailEntityWrites? failEntityWrites,
   bool remotePullsByTimestamp = false,
+  bool remoteGuardsWrites = false,
 }) {
   group('$name sync-stack conformance', () {
     final s = _Stack(
@@ -98,6 +102,7 @@ void runSyncStackConformanceTests({
       reopenLocal: reopenLocal,
       failEntityWrites: failEntityWrites,
       timestampPulls: remotePullsByTimestamp,
+      guardsWrites: remoteGuardsWrites,
     );
     setUp(() async => resetBackend?.call());
     tearDown(s.dispose);
@@ -112,9 +117,11 @@ void runSyncStackConformanceTests({
     _writeGuardTests(s);
     _crashAndReplayTests(s);
     _conflictTests(s);
+    _conflictMatrixTests(s);
     _deleteAndWatchTests(s);
     _isolationAndScaleTests(s);
     _pullTests(s);
+    _scopeTests(s);
     _queueHygieneTests(s);
   });
 }
@@ -129,6 +136,7 @@ class _Stack {
     required this.reopenLocal,
     required this.failEntityWrites,
     required this.timestampPulls,
+    required this.guardsWrites,
   });
 
   final Future<LocalAdapter<ConformanceEntity>> Function() createLocal;
@@ -138,6 +146,11 @@ class _Stack {
   final ReopenLocal? reopenLocal;
   final FailEntityWrites? failEntityWrites;
   final bool timestampPulls;
+
+  /// The remote refuses an edit of a row that changed since the edit started
+  /// (see [GuardedWriteCapable]): conflicts then show at upload, whatever the
+  /// sync direction, and edits are sent one by one.
+  final bool guardsWrites;
 
   final managers = <DatumManager<ConformanceEntity>>[];
   final locals = <LocalAdapter<ConformanceEntity>>[];
@@ -160,6 +173,7 @@ class _Stack {
     bool online = true,
     Stream<bool>? authState,
     AuthErrorPolicy authErrorPolicy = AuthErrorPolicy.pauseSync,
+    Duration? deltaSyncOverlap,
   }) async {
     final adapter = local ?? await createLocal();
     final remote = await createRemote();
@@ -177,6 +191,7 @@ class _Stack {
         errorRecoveryStrategy: recovery ?? defaults.errorRecoveryStrategy,
         authState: authState,
         authErrorPolicy: authErrorPolicy,
+        deltaSyncOverlap: deltaSyncOverlap ?? defaults.deltaSyncOverlap,
       ),
     );
     await manager.initialize();
@@ -262,9 +277,9 @@ ConformanceEntity _make(
 );
 
 /// Runs [sync], swallowing the error a permanently failed op surfaces.
-Future<Object?> _syncCatching(DatumManager<ConformanceEntity> m) async {
+Future<Object?> _syncCatching(DatumManager<ConformanceEntity> m, {DatumSyncOptions<ConformanceEntity>? options}) async {
   try {
-    await m.synchronize(_u1);
+    await m.synchronize(_u1, options: options);
     return null;
   } on Object catch (e) {
     return e;
@@ -297,6 +312,7 @@ Future<void> _seedSynced(_Device d, List<String> ids) async {
   expect(await d.$1.getPendingOperations(_u1), isEmpty);
 }
 
+// Scenarios: sync.roundtrip (packages/datum/doc/SYNC_SCENARIOS.md)
 void _roundTripTests(_Stack s) {
   test('push: a local save reaches the remote after sync', () async {
     final (manager, _, _) = await s.device();
@@ -395,6 +411,7 @@ void _roundTripTests(_Stack s) {
   });
 }
 
+// Scenarios: sync.order (packages/datum/doc/SYNC_SCENARIOS.md)
 void _directionAndOrderingTests(_Stack s) {
   test('pushOnly and pullOnly move data in one direction only', () async {
     final (manager, local, _) = await s.device();
@@ -483,6 +500,7 @@ void _directionAndOrderingTests(_Stack s) {
   });
 }
 
+// Scenarios: sync.failure (packages/datum/doc/SYNC_SCENARIOS.md)
 void _failureTests(_Stack s) {
   test(
     'a retryable failure defers later ops for that entity only, then succeeds',
@@ -606,7 +624,7 @@ void _failureTests(_Stack s) {
       expect(await s.remoteIds(), isEmpty);
       expect(await d.$1.getPendingOperations(_u1), isEmpty);
     },
-    skip: s.noFaults,
+    skip: s.guardsWrites ? 'a remote that guards writes gets deletes one by one, never as a batch' : s.noFaults,
   );
 
   test(
@@ -644,6 +662,7 @@ void _failureTests(_Stack s) {
   });
 }
 
+// Scenarios: sync.parked (packages/datum/doc/SYNC_SCENARIOS.md)
 void _parkingTests(_Stack s) {
   test('non-retryable 403 parks the op: kept, skipped with its successors, '
       'others sync, retry re-arms, discard drops', () async {
@@ -723,6 +742,7 @@ void _parkingTests(_Stack s) {
   }, skip: s.noFaults ?? s.noReopen);
 }
 
+// Scenarios: sync.auth (packages/datum/doc/SYNC_SCENARIOS.md)
 void _authPauseTests(_Stack s) {
   test('an expired session (401) pauses sync with the queue untouched; '
       'signing back in resumes and delivers on its own', () async {
@@ -774,6 +794,7 @@ void _authPauseTests(_Stack s) {
   }, skip: s.noFaults);
 }
 
+// Scenarios: sync.options (packages/datum/doc/SYNC_SCENARIOS.md)
 void _syncOptionTests(_Stack s) {
   test('a retryable failure is retried by itself after the backoff delay', () async {
     final d = await s.device(
@@ -848,6 +869,7 @@ void _syncOptionTests(_Stack s) {
   });
 }
 
+// Scenarios: sync.guard (packages/datum/doc/SYNC_SCENARIOS.md)
 void _writeGuardTests(_Stack s) {
   test('push(expectedVersion:) refuses a stale edit after a pull changed the row', () async {
     final a = await s.device();
@@ -897,10 +919,11 @@ void _writeGuardTests(_Stack s) {
   });
 
   test('RemotePriorityResolver decides concurrent edits without device '
-      'clocks: last push wins by default, first push wins when pulling first', () async {
-    // (sync direction of the second device, expected winner)
+      'clocks: first push wins when pulling first, last push wins when pushing first', () async {
+    // (sync direction of the second device, expected winner). A remote that
+    // guards writes refuses the second upload either way.
     for (final (direction, winner) in [
-      (SyncDirection.pushThenPull, 'second'),
+      (SyncDirection.pushThenPull, s.guardsWrites ? 'first' : 'second'),
       (SyncDirection.pullThenPush, 'first'),
     ]) {
       final id = 'k-${direction.name}';
@@ -944,6 +967,7 @@ void _writeGuardTests(_Stack s) {
   }, skip: s.noFaults);
 }
 
+// Scenarios: sync.queue.api (packages/datum/doc/SYNC_SCENARIOS.md)
 void _queueAndCompactionApiTests(_Stack s) {
   test('watchPendingCount / isPending / waitUntilSynced follow the queue live', () async {
     final d = await s.device();
@@ -1036,6 +1060,7 @@ void _queueAndCompactionApiTests(_Stack s) {
   });
 }
 
+// Scenarios: sync.replay (packages/datum/doc/SYNC_SCENARIOS.md)
 void _crashAndReplayTests(_Stack s) {
   test('an op whose remote write landed but was never dequeued (crash / lost '
       'ack) replays idempotently', () async {
@@ -1066,6 +1091,42 @@ void _crashAndReplayTests(_Stack s) {
     expect((u.name, u.value, u.version), ('u-v2', 2, 2));
     expect(await d.$1.getPendingOperations(_u1), isEmpty);
     expect((await d.$2.read('u', userId: _u1))?.version, 2);
+  });
+
+  test('the first of two queued edits landed but its ack was lost: the '
+      'second is still delivered, under every resolver and both directions', () async {
+    for (final resolver in <DatumConflictResolver<ConformanceEntity>>[
+      LastWriteWinsResolver<ConformanceEntity>(),
+      LocalPriorityResolver<ConformanceEntity>(),
+      RemotePriorityResolver<ConformanceEntity>(),
+    ]) {
+      for (final direction in [SyncDirection.pullThenPush, SyncDirection.pushThenPull]) {
+        final id = 'half-${resolver.name}-${direction.name}';
+        final d = await s.device(resolver: resolver, online: true);
+        await _seedSynced(d, [id]);
+        final conflicts = <String>[];
+        final sub = d.$1.onConflict.listen((e) => conflicts.add(e.context.entityId));
+        addTearDown(sub.cancel);
+        d.$3.setOnline(false);
+        await _edit(d, id, name: 'first edit');
+        final afterFirst = (await d.$2.read(id, userId: _u1))!;
+        await _edit(d, id, name: 'second edit');
+        // The remote applied the first edit; nothing told the device.
+        await (await s.probe()).update(afterFirst);
+        d.$3.setOnline(true);
+
+        final options = DatumSyncOptions<ConformanceEntity>(direction: direction, forceFullSync: true);
+        expect((await d.$1.synchronize(_u1, options: options)).failedCount, 0);
+        await d.$1.synchronize(_u1, options: options);
+        await Future<void>.delayed(Duration.zero);
+
+        final reason = '${resolver.name}, ${direction.name}';
+        expect((await s.remoteRow(id))?.name, 'second edit', reason: reason);
+        expect((await d.$2.read(id, userId: _u1))?.name, 'second edit', reason: reason);
+        expect(await d.$1.getPendingOperations(_u1), isEmpty, reason: reason);
+        expect(conflicts, isEmpty, reason: '$reason: the remote row is this device\'s own edit');
+      }
+    }
   });
 
   test(
@@ -1115,6 +1176,7 @@ Future<String?> _converge(List<_Device> devices, String id) async {
   return names.single;
 }
 
+// Scenarios: sync.conflict (packages/datum/doc/SYNC_SCENARIOS.md)
 void _conflictTests(_Stack s) {
   test(
     'concurrent same-version edits resolve by last-write-wins and converge',
@@ -1218,6 +1280,130 @@ void _conflictTests(_Stack s) {
     expect((await s.remoteRow('x'))?.name, 'skewed-ahead');
   });
 
+  test('an upload that fails leaves the edit in place for every resolver: the '
+      'unchanged remote row is not a competing version', () async {
+    for (final resolver in <DatumConflictResolver<ConformanceEntity>>[
+      LastWriteWinsResolver<ConformanceEntity>(),
+      LocalPriorityResolver<ConformanceEntity>(),
+      RemotePriorityResolver<ConformanceEntity>(),
+    ]) {
+      final id = 'kept-${resolver.name}';
+      final d = await s.device(
+        resolver: resolver,
+        recovery: DatumErrorRecoveryStrategy(
+          shouldRetry: (e) async => e is NetworkException && e.isRetryable,
+          backoffStrategy: const FixedBackoff(delay: Duration(minutes: 5)),
+        ),
+      );
+      await _seedSynced(d, [id]);
+      final conflicts = <String>[];
+      final sub = d.$1.onConflict.listen((e) => conflicts.add(e.context.entityId));
+      addTearDown(sub.cancel);
+      await _edit(d, id, name: 'edited');
+      await _edit(d, id, name: 'edited-again');
+
+      // The server is down for writes; the pull of the same cycle still
+      // returns the row as it was before the edits.
+      s.failEntityWrites!(id, status: 503, times: 2);
+      for (final direction in [SyncDirection.pushThenPull, SyncDirection.pullThenPush]) {
+        await _syncCatching(d.$1, options: DatumSyncOptions<ConformanceEntity>(direction: direction, forceFullSync: true));
+        await Future<void>.delayed(Duration.zero);
+        expect((await d.$2.read(id, userId: _u1))?.name, 'edited-again', reason: '${resolver.name}, ${direction.name}: the edit must survive');
+        expect(await d.$1.getPendingCount(_u1), 2, reason: '${resolver.name}, ${direction.name}: both edits stay queued');
+      }
+      expect(conflicts, isEmpty, reason: resolver.name);
+      expect((await s.remoteRow(id))?.name, '$id-v1');
+
+      // Back up: the edits are delivered.
+      s.failEntityWrites!(id, status: 503, times: 0);
+      expect((await d.$1.synchronize(_u1)).failedCount, 0);
+      expect((await s.remoteRow(id))?.name, 'edited-again');
+      expect(await d.$1.getPendingCount(_u1), 0);
+    }
+  }, skip: s.noFaults);
+
+  test('two devices upload edits of one row without seeing each other, one '
+      'of them twice: a remote that guards writes hands it to the resolver, '
+      'one that accepts every write keeps the last upload', () async {
+    // The first uploader insists on its own copy; the second defers.
+    final first = await s.device(resolver: LocalPriorityResolver<ConformanceEntity>());
+    final second = await s.device(resolver: RemotePriorityResolver<ConformanceEntity>());
+    await _seedSynced(first, ['x']);
+    await second.$1.synchronize(_u1);
+    final conflicts = <String>[];
+    for (final (name, d) in [('first', first), ('second', second)]) {
+      final sub = d.$1.onConflict.listen((e) => conflicts.add(name));
+      addTearDown(sub.cancel);
+    }
+
+    await _edit(first, 'x', name: 'first');
+    await _edit(second, 'x', name: 'second, once');
+    await _edit(second, 'x', name: 'second, twice');
+    // Overlapping syncs: each uploads before it has looked.
+    const upload = DatumSyncOptions<ConformanceEntity>(direction: SyncDirection.pushOnly);
+    expect((await first.$1.synchronize(_u1, options: upload)).failedCount, 0);
+    final overlapped = await second.$1.synchronize(_u1, options: upload);
+    expect(overlapped.failedCount, 0, reason: 'a refused upload is not a failure');
+    expect(await second.$1.getParkedOperations(_u1), isEmpty);
+    expect(
+      (await s.remoteRow('x'))?.name,
+      s.guardsWrites ? 'first' : 'second, twice',
+      reason: s.guardsWrites ? 'the stale upload was refused' : 'nothing stops the second upload',
+    );
+
+    for (var round = 0; round < 3; round++) {
+      await second.$1.synchronize(_u1);
+      await first.$1.synchronize(_u1);
+    }
+    await Future<void>.delayed(Duration.zero);
+
+    // Guarded: the second device, still holding its edits, met the first
+    // one's and its resolver gave way. Unguarded: the first device has
+    // nothing unsynced and sees a higher version, an ordinary update (only
+    // vector clocks could tell it otherwise).
+    final winner = s.guardsWrites ? 'first' : 'second, twice';
+    expect(await _converge([first, second], 'x'), winner);
+    expect((await s.remoteRow('x'))?.name, winner);
+    expect(conflicts, s.guardsWrites ? ['second'] : isEmpty);
+    expect(await first.$1.getPendingCount(_u1), 0);
+    expect(await second.$1.getPendingCount(_u1), 0);
+  });
+
+  test('a remote edit of a row this device never touched is taken as is, '
+      'whatever the resolver; an unsynced local edit of it is a conflict', () async {
+    final author = await s.device();
+    final reader = await s.device(resolver: LocalPriorityResolver<ConformanceEntity>());
+    await _seedSynced(author, ['x']);
+    await reader.$1.synchronize(_u1);
+    final conflicts = <String>[];
+    final sub = reader.$1.onConflict.listen((e) => conflicts.add(e.remoteData?.name ?? ''));
+    addTearDown(sub.cancel);
+
+    // Edited twice elsewhere. The reader has no edit of its own for "local
+    // wins" to keep, so the newer row simply replaces the one it has.
+    await _edit(author, 'x', name: 'first');
+    await _edit(author, 'x', name: 'second');
+    await author.$1.synchronize(_u1);
+    final caughtUp = await reader.$1.synchronize(_u1);
+    await Future<void>.delayed(Duration.zero);
+    expect((await reader.$1.read('x', userId: _u1))?.name, 'second');
+    expect(caughtUp.conflictsResolved, 0);
+    expect(conflicts, isEmpty);
+    expect(await reader.$1.getPendingCount(_u1), 0, reason: 'the old copy is not pushed back over the edit');
+    expect((await s.remoteRow('x'))?.name, 'second');
+
+    // Both edit it: the reader's unsynced edit is a real conflict, and its
+    // resolver decides.
+    await _edit(author, 'x', name: 'third');
+    await author.$1.synchronize(_u1);
+    await _edit(reader, 'x', name: 'mine');
+    await reader.$1.synchronize(_u1, options: const DatumSyncOptions(direction: SyncDirection.pullThenPush));
+    await Future<void>.delayed(Duration.zero);
+    expect(conflicts, ['third']);
+    expect((await reader.$1.read('x', userId: _u1))?.name, 'mine');
+    expect((await s.remoteRow('x'))?.name, 'mine');
+  });
+
   for (final (label, resolver, expected, bug) in [
     (
       'local wins',
@@ -1253,6 +1439,223 @@ void _conflictTests(_Stack s) {
   }
 }
 
+/// The policies the conflict matrix runs under. Every device follows the
+/// same policy, seen from its own side: where one device's resolver keeps
+/// its own edits, the others accept them. (Devices whose resolvers disagree
+/// about who wins push a row back and forth forever; no engine can settle
+/// that for them.) The observer never edits anything.
+typedef _Policy = ({
+  String label,
+  DatumConflictResolver<ConformanceEntity> Function() device,
+  DatumConflictResolver<ConformanceEntity> Function() author,
+  DatumConflictResolver<ConformanceEntity> Function() observer,
+  // What the eight rows changed on BOTH sides must end as, in matrix order;
+  // null = must only be the same everywhere.
+  List<String?> pullFirst,
+  List<String?> pushFirst,
+});
+
+/// One row of the matrix: the names each side gave it since both were in
+/// sync (null = deleted it), and what it must end as everywhere.
+typedef _Case = ({String id, List<String?> remote, List<String?> local, String? winner});
+
+const _deleted = '<deleted>';
+
+String _shown(ConformanceEntity? e) => e == null || e.isDeleted ? _deleted : e.name;
+
+/// Deterministic and symmetric, so two devices merging the same pair agree.
+ConformanceEntity _mergeBoth(ConformanceEntity local, ConformanceEntity remote) => ConformanceEntity(
+  id: local.id,
+  userId: local.userId,
+  name: ([_shown(local), _shown(remote)]..sort()).join('+'),
+  value: local.value,
+  createdAt: local.createdAt,
+  isDeleted: local.isDeleted && remote.isDeleted,
+  version: (local.version > remote.version ? local.version : remote.version) + 1,
+  modifiedAt: (local.modifiedAt.isAfter(remote.modifiedAt) ? local.modifiedAt : remote.modifiedAt).add(const Duration(seconds: 1)),
+);
+
+MergeResolver<ConformanceEntity> _merging() => MergeResolver<ConformanceEntity>(onMerge: (local, remote, _) => _mergeBoth(local, remote));
+
+// Rows changed on both sides, in this order: both created it; both edited
+// once; both edited twice; local once vs remote twice; local twice vs remote
+// once; local edit vs remote delete; local delete vs remote edit; both
+// deleted.
+final _policies = <_Policy>[
+  (
+    label: 'last write wins everywhere',
+    device: LastWriteWinsResolver<ConformanceEntity>.new,
+    author: LastWriteWinsResolver<ConformanceEntity>.new,
+    observer: LastWriteWinsResolver<ConformanceEntity>.new,
+    // The higher version, then the later write (deletes are the latest).
+    pullFirst: ['l1', 'l1', 'l2', 'r2', 'l2', _deleted, _deleted, _deleted],
+    pushFirst: ['l1', 'l1', 'l2', 'r2', 'l2', _deleted, _deleted, _deleted],
+  ),
+  (
+    label: 'this device wins (local priority here, remote priority elsewhere)',
+    device: LocalPriorityResolver<ConformanceEntity>.new,
+    author: RemotePriorityResolver<ConformanceEntity>.new,
+    observer: RemotePriorityResolver<ConformanceEntity>.new,
+    pullFirst: ['l1', 'l1', 'l2', 'l1', 'l2', 'l1', _deleted, _deleted],
+    pushFirst: ['l1', 'l1', 'l2', 'l1', 'l2', 'l1', _deleted, _deleted],
+  ),
+  (
+    label: 'the other device wins (remote priority here, local priority there)',
+    device: RemotePriorityResolver<ConformanceEntity>.new,
+    author: LocalPriorityResolver<ConformanceEntity>.new,
+    observer: RemotePriorityResolver<ConformanceEntity>.new,
+    pullFirst: ['r1', 'r1', 'r2', 'r2', 'r1', _deleted, 'r1', _deleted],
+    // Uploaded before looking, this device's two edits make a newer version
+    // than the other device's one: that device, which has nothing unsynced,
+    // takes it as an ordinary update. Pull first (the default) or vector
+    // clocks let its resolver decide instead.
+    pushFirst: ['r1', 'r1', 'r2', 'r2', null, _deleted, 'r1', _deleted],
+  ),
+  (
+    label: 'merge everywhere',
+    device: _merging,
+    author: _merging,
+    observer: _merging,
+    pullFirst: [null, null, null, null, null, null, null, _deleted],
+    pushFirst: [null, null, null, null, null, null, null, _deleted],
+  ),
+];
+
+List<_Case> _matrixCases(List<String?> both) => [
+  (id: 'remote-edit', remote: ['r1'], local: [], winner: 'r1'),
+  (id: 'remote-edit-twice', remote: ['r1', 'r2'], local: [], winner: 'r2'),
+  (id: 'remote-delete', remote: [null], local: [], winner: _deleted),
+  (id: 'local-edit', remote: [], local: ['l1'], winner: 'l1'),
+  (id: 'local-edit-twice', remote: [], local: ['l1', 'l2'], winner: 'l2'),
+  (id: 'local-delete', remote: [], local: [null], winner: _deleted),
+  (id: _bothCreate, remote: ['r1'], local: ['l1'], winner: both[0]),
+  (id: 'both-edit', remote: ['r1'], local: ['l1'], winner: both[1]),
+  (id: 'both-edit-twice', remote: ['r1', 'r2'], local: ['l1', 'l2'], winner: both[2]),
+  (id: 'local-edit-remote-twice', remote: ['r1', 'r2'], local: ['l1'], winner: both[3]),
+  (id: 'local-twice-remote-edit', remote: ['r1'], local: ['l1', 'l2'], winner: both[4]),
+  (id: 'local-edit-remote-delete', remote: [null], local: ['l1'], winner: both[5]),
+  (id: 'local-delete-remote-edit', remote: ['r1'], local: [null], winner: both[6]),
+  (id: 'both-delete', remote: [null], local: [null], winner: both[7]),
+];
+
+/// The one row nobody has at the start: each side creates it.
+const _bothCreate = 'both-create';
+
+/// Every combination of "untouched / edited once / edited twice / deleted"
+/// on the two sides that follows a different rule, for every resolver policy
+/// and both sync directions. For each row: all replicas and the server end
+/// the same, the documented side wins, a conflict is reported only when both
+/// sides changed, and nothing keeps being rewritten afterwards.
+// Scenarios: sync.conflict.matrix (packages/datum/doc/SYNC_SCENARIOS.md)
+void _conflictMatrixTests(_Stack s) {
+  for (final policy in _policies) {
+    for (final direction in [SyncDirection.pullThenPush, SyncDirection.pushThenPull]) {
+      test('conflict matrix: ${policy.label}, ${direction.name}', () => _runConflictMatrix(s, policy, direction));
+    }
+  }
+}
+
+Future<void> _runConflictMatrix(_Stack s, _Policy policy, SyncDirection direction) async {
+  // A device meets the other side's change before it overwrites anything
+  // when it pulls first, or when the remote refuses the stale upload.
+  final seesFirst = direction == SyncDirection.pullThenPush || s.guardsWrites;
+  final cases = _matrixCases(seesFirst ? policy.pullFirst : policy.pushFirst);
+  final author = await s.device(resolver: policy.author());
+  final device = await s.device(resolver: policy.device());
+  await _seedSynced(author, [
+    for (final c in cases)
+      if (c.id != _bothCreate) c.id,
+  ]);
+  await device.$1.synchronize(_u1);
+  final conflicts = <String, Set<String>>{'device': {}, 'author': {}};
+  for (final (name, d) in [('device', device), ('author', author)]) {
+    final sub = d.$1.onConflict.listen((e) => conflicts[name]!.add(e.context.entityId));
+    addTearDown(sub.cancel);
+  }
+
+  // Edits carry rising timestamps from an hour ago, so a later edit is the
+  // later write and a delete (stamped now) is later than any edit. The other
+  // device's changes are uploaded; this device's are not.
+  var at = DateTime.now().subtract(const Duration(hours: 1));
+  DateTime next() => at = at.add(const Duration(seconds: 1));
+  for (final c in cases) {
+    await _applyChanges(author, c.id, c.remote, next);
+  }
+  await author.$1.synchronize(_u1);
+  for (final c in cases) {
+    await _applyChanges(device, c.id, c.local, next);
+  }
+
+  final replicas = {'device': device, 'author': author, 'observer': await s.device(resolver: policy.observer())};
+  final options = DatumSyncOptions<ConformanceEntity>(direction: direction);
+  Future<void> everyoneSyncs() async {
+    for (final replica in replicas.values) {
+      await replica.$1.synchronize(_u1, options: options);
+    }
+  }
+
+  // A resolution travels one hop per round.
+  for (var round = 0; round < 6; round++) {
+    await everyoneSyncs();
+  }
+  await Future<void>.delayed(Duration.zero);
+
+  final reported = conflicts.values.expand((ids) => ids).toSet();
+  for (final c in cases) {
+    await _expectSameEverywhere(s, replicas, c);
+    if (c.local.isEmpty || c.remote.isEmpty) {
+      expect(reported, isNot(contains(c.id)), reason: '${c.id}: one side did not change, so nothing conflicts');
+    }
+  }
+  if (seesFirst) {
+    expect(
+      conflicts['device'],
+      containsAll([_bothCreate, 'both-edit', 'both-edit-twice', 'local-edit-remote-twice', 'local-twice-remote-edit', 'local-edit-remote-delete', 'local-delete-remote-edit']),
+      reason: 'an unsynced change against a changed row is reported before anything is overwritten',
+    );
+  }
+  await _expectSettled(replicas, everyoneSyncs);
+}
+
+/// Applies [changes] to [id] on [d]: a name edits it (or creates it when the
+/// device does not have it), null deletes it.
+Future<void> _applyChanges(_Device d, String id, List<String?> changes, DateTime Function() next) async {
+  for (final name in changes) {
+    if (name == null) {
+      await d.$1.delete(id: id, userId: _u1);
+    } else if (await d.$2.read(id, userId: _u1) == null) {
+      await d.$1.push(item: _make(id, name: name, modifiedAt: next()), userId: _u1);
+    } else {
+      await _edit(d, id, name: name, modifiedAt: next());
+    }
+  }
+}
+
+/// Every replica and the server show [c] the same, as its expected winner.
+Future<void> _expectSameEverywhere(_Stack s, Map<String, _Device> replicas, _Case c) async {
+  final states = {
+    for (final MapEntry(key: name, value: d) in replicas.entries) name: _shown(await d.$2.read(c.id, userId: _u1)),
+    'remote': _shown(await s.remoteRow(c.id)),
+  };
+  expect(states.values.toSet(), hasLength(1), reason: '${c.id} must be the same everywhere: $states');
+  if (c.winner != null) expect(states['remote'], c.winner, reason: c.id);
+}
+
+/// Nobody has anything left to send, and another round writes nothing
+/// anywhere.
+Future<void> _expectSettled(Map<String, _Device> replicas, Future<void> Function() everyoneSyncs) async {
+  final writes = <String>[];
+  for (final MapEntry(key: name, value: d) in replicas.entries) {
+    expect(await d.$1.getPendingCount(_u1), 0, reason: '$name still has uploads queued');
+    final changes = d.$1.onDataChange.listen((e) => writes.add('$name:${e.data?.id}'));
+    addTearDown(changes.cancel);
+  }
+  await everyoneSyncs();
+  await Future<void>.delayed(Duration.zero);
+  expect(writes, isEmpty, reason: 'replicas keep rewriting each other');
+}
+
+// Scenarios: sync.delete (packages/datum/doc/SYNC_SCENARIOS.md)
 void _deleteAndWatchTests(_Stack s) {
   test('soft deletes propagate local -> remote -> other device', () async {
     final a = await s.device();
@@ -1325,6 +1728,7 @@ void _deleteAndWatchTests(_Stack s) {
   });
 }
 
+// Scenarios: sync.isolation (packages/datum/doc/SYNC_SCENARIOS.md)
 void _isolationAndScaleTests(_Stack s) {
   test(
     'users are isolated end to end, across a mid-session user switch',
@@ -1453,13 +1857,19 @@ void _isolationAndScaleTests(_Stack s) {
   });
 }
 
+// Scenarios: sync.pull (packages/datum/doc/SYNC_SCENARIOS.md)
 void _pullTests(_Stack s) {
-  test('the metadata skip path only skips when nothing differs', () async {
+  test('an idle sync never hides a remote change: incremental remotes are '
+      'asked every time, others skip only while the metadata beacon matches', () async {
     final d = await s.device();
     await _seedSynced(d, ['x']);
+    final probe = await s.probe();
+    final incremental = probe is DeltaSyncCapable<ConformanceEntity> || probe is CursorSyncCapable<ConformanceEntity>;
+    Future<String?> local() async => (await d.$1.read('x', userId: _u1))?.name;
 
     final idle = await d.$1.synchronize(_u1);
-    expect(idle.wasSkipped, isTrue, reason: 'matching beacons skip');
+    expect(idle.wasSkipped, !incremental, reason: 'only a remote without incremental pulls relies on the beacon');
+    expect(idle.failedCount, 0);
 
     await _edit(d, 'x', name: 'local-change');
     final pushed = await d.$1.synchronize(_u1);
@@ -1467,23 +1877,23 @@ void _pullTests(_Stack s) {
     expect((await s.remoteRow('x'))?.name, 'local-change');
 
     final x = (await s.remoteRow('x'))!;
-    await (await s.probe()).update(x.copyWith(name: 'remote-change'));
+    await probe.update(x.copyWith(name: 'remote-change'));
     await s.bumpRemoteMeta();
     await d.$1.synchronize(_u1);
-    expect(
-      (await d.$1.read('x', userId: _u1))?.name,
-      'remote-change',
-      reason: 'a changed remote beacon defeats the skip',
-    );
+    expect(await local(), 'remote-change', reason: 'a changed remote beacon defeats the skip');
 
-    // A silent backend write (no beacon bump) is only seen by a forced sync.
+    // A silent backend write: another writer, or a client that was killed
+    // before it wrote the metadata beacon.
     final y = (await s.remoteRow('x'))!;
-    await (await s.probe()).update(y.copyWith(name: 'silent-change'));
-    await d.$1.synchronize(
-      _u1,
-      options: const DatumSyncOptions(forceFullSync: true),
-    );
-    expect((await d.$1.read('x', userId: _u1))?.name, 'silent-change');
+    await probe.update(y.copyWith(name: 'silent-change'));
+    await d.$1.synchronize(_u1);
+    if (incremental) {
+      expect(await local(), 'silent-change', reason: 'an incremental pull asks the server, not the beacon');
+    } else {
+      expect(await local(), 'remote-change', reason: 'a beacon-only remote cannot see it (documented limit)...');
+      await d.$1.synchronize(_u1, options: const DatumSyncOptions(forceFullSync: true));
+      expect(await local(), 'silent-change', reason: '...until a forced sync');
+    }
   });
 
   test(
@@ -1555,6 +1965,117 @@ void _pullTests(_Stack s) {
   });
 }
 
+// Scenarios: sync.scope (packages/datum/doc/SYNC_SCENARIOS.md)
+void _scopeTests(_Stack s) {
+  DatumSyncScope valued(int value) => DatumSyncScope(
+    query: DatumQuery(filters: [Filter('value', FilterOperator.equals, value)]),
+  );
+
+  test('scoped syncs pull their own rows; a different scope is never skipped '
+      'as "nothing changed", and rows outside the scope are left alone', () async {
+    final remote = await s.probe();
+    await remote.create(_make('a1', name: 'a1', value: 1));
+    await remote.create(_make('a2', name: 'a2', value: 1));
+    await remote.create(_make('b1', name: 'b1', value: 2));
+    await s.bumpRemoteMeta();
+    // The rows are older than any overlap: a pull that starts from another
+    // scope's position can no longer reach them by accident.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final device = await s.device(deltaSyncOverlap: const Duration(milliseconds: 1));
+    final (manager, local, _) = device;
+    Future<List<String>> localIds() async => [for (final e in await local.readAll(userId: _u1)) e.id]..sort();
+
+    await manager.synchronize(_u1, scope: valued(1));
+    expect(await localIds(), ['a1', 'a2']);
+
+    // Nothing changed on the server, but this scope was never synced.
+    final other = await manager.synchronize(_u1, scope: valued(2));
+    expect(other.wasSkipped, isFalse);
+    expect(await localIds(), ['a1', 'a2', 'b1'], reason: 'the first scope\'s rows stay');
+
+    // Idle, same scope: nothing is written again.
+    final writes = <DataChangeEvent<ConformanceEntity>>[];
+    final sub = manager.onDataChange.listen(writes.add);
+    addTearDown(sub.cancel);
+    await manager.synchronize(_u1, scope: valued(1));
+    await manager.synchronize(_u1, scope: valued(2));
+    await Future<void>.delayed(Duration.zero);
+    expect(writes, isEmpty);
+    expect(await localIds(), ['a1', 'a2', 'b1']);
+
+    // A change inside one scope arrives through that scope.
+    final a1 = (await remote.read('a1', userId: _u1))!;
+    await remote.update(_make('a1', name: 'a1-edited', value: 1, version: a1.version + 1));
+    await remote.create(_make('c1', name: 'c1', value: 3));
+    await s.bumpRemoteMeta();
+    await manager.synchronize(_u1, scope: valued(1));
+    expect((await local.read('a1', userId: _u1))?.name, 'a1-edited');
+    expect(await localIds(), ['a1', 'a2', 'b1'], reason: 'c1 is in no synced scope');
+
+    // A local edit uploads whatever scope the sync pulls.
+    await _edit(device, 'b1', name: 'b1-local');
+    await manager.synchronize(_u1, scope: valued(1));
+    expect((await s.remoteRow('b1'))?.name, 'b1-local');
+    expect(await manager.getPendingCount(_u1), 0);
+
+    // An unscoped sync brings the rest.
+    await manager.synchronize(_u1);
+    expect(await localIds(), ['a1', 'a2', 'b1', 'c1']);
+  });
+
+  test('devices syncing different scopes do not hide each other\'s changes', () async {
+    final all = await s.device();
+    final onlyOnes = await s.device();
+    await all.$1.push(item: _make('a1', name: 'a1', value: 1), userId: _u1);
+    await all.$1.push(item: _make('b1', name: 'b1', value: 2), userId: _u1);
+    await all.$1.synchronize(_u1);
+    await onlyOnes.$1.synchronize(_u1, scope: valued(1));
+    expect([for (final e in await onlyOnes.$2.readAll(userId: _u1)) e.id], ['a1']);
+
+    // Each keeps syncing its own way; an edit by either reaches the other.
+    for (var round = 1; round <= 3; round++) {
+      await _edit(all, 'a1', name: 'from-all-$round');
+      await all.$1.synchronize(_u1);
+      await onlyOnes.$1.synchronize(_u1, scope: valued(1));
+      expect((await onlyOnes.$2.read('a1', userId: _u1))?.name, 'from-all-$round');
+
+      await _edit(onlyOnes, 'a1', name: 'from-scoped-$round');
+      await onlyOnes.$1.synchronize(_u1, scope: valued(1));
+      await all.$1.synchronize(_u1);
+      expect((await all.$2.read('a1', userId: _u1))?.name, 'from-scoped-$round');
+    }
+    expect((await all.$2.read('b1', userId: _u1))?.name, 'b1', reason: 'untouched by the scoped device');
+    expect(await onlyOnes.$2.read('b1', userId: _u1), isNull);
+  });
+
+  test('pull positions are remembered for a bounded number of scopes; a '
+      'forgotten scope is simply read in full again', () async {
+    const scopes = 24;
+    final remote = await s.probe();
+    for (var value = 0; value < scopes; value++) {
+      await remote.create(_make('r$value', name: 'r$value', value: value));
+    }
+    await s.bumpRemoteMeta();
+    final (manager, local, _) = await s.device();
+    for (var value = 0; value < scopes; value++) {
+      await manager.synchronize(_u1, scope: valued(value));
+    }
+    expect(await local.readAll(userId: _u1), hasLength(scopes));
+    final tracked = (await local.getSyncMetadata(_u1))?.customMetadata?[DatumSyncEngine.syncScopesKey] as Map?;
+    expect(tracked, isNotNull);
+    expect(tracked!.length, lessThan(scopes), reason: 'a scope whose filter changes every sync must not grow the metadata forever');
+
+    // The first scope's position is long gone; a change in it still arrives.
+    await remote.update(_make('r0', name: 'r0-edited', value: 0, version: 2));
+    await s.bumpRemoteMeta();
+    await manager.synchronize(_u1, scope: valued(0));
+    expect((await local.read('r0', userId: _u1))?.name, 'r0-edited');
+    expect((await s.remoteRow('r0'))?.name, 'r0-edited');
+    expect(await manager.getPendingCount(_u1), 0);
+  });
+}
+
+// Scenarios: sync.queue.hygiene (packages/datum/doc/SYNC_SCENARIOS.md)
 void _queueHygieneTests(_Stack s) {
   test(
     'an entity held back by retryable failures does not grow the queue',

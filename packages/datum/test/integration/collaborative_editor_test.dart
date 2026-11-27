@@ -114,6 +114,7 @@ DatumManager<CollabNote> _device(String deviceId, MockRemoteAdapter<CollabNote> 
   );
 }
 
+// Scenarios: sync.clock (packages/datum/doc/SYNC_SCENARIOS.md)
 void main() {
   test('two devices edit the same document offline and converge via CRDT merge', () async {
     // Both devices share the same backend ("remote").
@@ -183,5 +184,67 @@ void main() {
     expect(mergedOnA!.body.value, 'the big cat sat', reason: 'A must hold both edits merged');
     expect(mergedOnB!.body.value, 'the big cat sat', reason: 'B must converge to the same text');
     expect(mergedOnRemote!.body.value, 'the big cat sat', reason: 'backend must converge too');
+  });
+
+  test('with vector clocks, an edit overwritten by a device that edited more often is still a conflict, not an update', () async {
+    // The one case version numbers cannot settle: both edits are already
+    // uploaded (push first, so nobody looked before writing) and the second
+    // uploader made two edits, so its row simply has the higher version.
+    const pushFirst = DatumSyncOptions<CollabNote>(direction: SyncDirection.pushThenPull);
+    final remote = MockRemoteAdapter<CollabNote>(fromJson: CollabNote.fromMap);
+    final deviceA = _device('device-a', remote);
+    final deviceB = _device('device-b', remote);
+    await deviceA.initialize();
+    await deviceB.initialize();
+    addTearDown(deviceA.dispose);
+    addTearDown(deviceB.dispose);
+    await deviceA.push(
+      item: CollabNote(id: 'doc1', userId: 'u1', body: RgaText(replicaId: 'device-a').insert(0, 'the cat'), version: 1),
+      userId: 'u1',
+    );
+    await deviceA.synchronize('u1', options: pushFirst);
+    await deviceB.synchronize('u1', options: pushFirst);
+
+    Future<void> edit(DatumManager<CollabNote> device, String replica, int version, int at, String text) async {
+      final current = (await device.read('doc1', userId: 'u1'))!;
+      await device.push(
+        item: CollabNote(
+          id: 'doc1',
+          userId: 'u1',
+          body: RgaText.fromMap(current.body.toMap(), replicaId: replica).insert(at, text),
+          version: version,
+          vectorClock: current.vectorClock,
+          at: DateTime(2030, version),
+        ),
+        userId: 'u1',
+      );
+    }
+
+    // A edits once and uploads.
+    await edit(deviceA, 'device-a', 2, 7, ' sat'); // 'the cat sat'
+    await deviceA.synchronize('u1', options: pushFirst);
+    // B has not seen that; it edits twice and uploads over it.
+    await edit(deviceB, 'device-b', 2, 4, 'big '); // 'the big cat'
+    await edit(deviceB, 'device-b', 3, 4, 'very '); // 'the very big cat'
+    await deviceB.synchronize('u1', options: pushFirst);
+    expect((await remote.read('doc1', userId: 'u1'))!.body.value, 'the very big cat', reason: 'the last upload replaced the row');
+
+    // A has nothing unsynced and the server row is two versions ahead: by
+    // version alone this is an ordinary update. The clocks say otherwise.
+    final conflictsOnA = <ConflictDetectedEvent<CollabNote>>[];
+    final sub = deviceA.onConflict.listen(conflictsOnA.add);
+    addTearDown(sub.cancel);
+    for (var round = 0; round < 3; round++) {
+      await deviceA.synchronize('u1', options: pushFirst);
+      await deviceB.synchronize('u1', options: pushFirst);
+    }
+    await Future<void>.delayed(Duration.zero);
+
+    expect(conflictsOnA, isNotEmpty, reason: 'A is told its uploaded edit was overwritten');
+    for (final copy in [await deviceA.read('doc1', userId: 'u1'), await deviceB.read('doc1', userId: 'u1'), await remote.read('doc1', userId: 'u1')]) {
+      expect(copy!.body.value, 'the very big cat sat', reason: 'both devices\' edits survive everywhere');
+    }
+    expect(await deviceA.getPendingCount('u1'), 0);
+    expect(await deviceB.getPendingCount('u1'), 0);
   });
 }

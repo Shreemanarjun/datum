@@ -20,7 +20,10 @@ void main() {
     const userId = 'user-conflict';
     final baseTime = DateTime(2023);
 
-    // Local is older, remote is newer
+    // The row as last synced; `editedLocally` and `remoteEntity` are two
+    // edits of it made on different devices (same version, different
+    // content): a real conflict. A remote row that is merely ahead of an
+    // unedited local row is not one.
     final localEntity = TestEntity(
       id: 'conflict-1',
       userId: userId,
@@ -37,6 +40,7 @@ void main() {
       modifiedAt: baseTime.add(const Duration(minutes: 5)),
       version: 2,
     );
+    final editedLocally = localEntity.copyWith(version: 2);
 
     setUpAll(() {
       registerFallbackValue(TestEntity.create('fb', 'fb', 'fb'));
@@ -95,7 +99,7 @@ void main() {
       // Stub methods for conflict resolution and sync process
       when(
         () => localAdapter.readByIds(any(), userId: any(named: 'userId')),
-      ).thenAnswer((_) async => {remoteEntity.id: localEntity});
+      ).thenAnswer((_) async => {remoteEntity.id: editedLocally});
       when(() => localAdapter.update(any())).thenAnswer((_) async {});
       when(
         () => localAdapter.patch(
@@ -242,7 +246,8 @@ void main() {
     group('Conflicts with pending local patches (diff updates)', () {
       // This group tests what happens when a local change (a patch/diff) is
       // queued, and a conflicting change is discovered during the pull phase
-      // of the same sync cycle. The SyncEngine's order is PUSH -> PULL.
+      // of the same sync cycle, with the order PUSH -> PULL.
+      const pushFirst = DatumSyncOptions<TestEntity>(direction: SyncDirection.pushThenPull);
 
       late TestEntity localPatch;
       final pendingOps = <DatumSyncOperation<TestEntity>>[];
@@ -322,7 +327,7 @@ void main() {
         });
 
         // Act: Sync
-        await manager.synchronize(userId);
+        await manager.synchronize(userId, options: pushFirst);
 
         // Assert: The local patch was sent first during the push phase.
         final capturedPatch = verify(
@@ -392,7 +397,7 @@ void main() {
         // When the pull phase happens, the conflict is detected.
         when(
           () => localAdapter.readByIds(any(), userId: userId),
-        ).thenAnswer((_) async => {remoteEntity.id: localEntity});
+        ).thenAnswer((_) async => {remoteEntity.id: localPatch});
 
         when(
           () => remoteAdapter.patch(
@@ -406,7 +411,7 @@ void main() {
           return localPatch;
         });
 
-        await manager.synchronize(userId);
+        await manager.synchronize(userId, options: pushFirst);
 
         // Assert
         // The local patch was sent first.

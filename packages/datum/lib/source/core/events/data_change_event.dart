@@ -37,3 +37,36 @@ enum ChangeType {
   /// Data was deleted.
   deleted,
 }
+
+/// Event fired after a batch of changes received from the remote adapter's
+/// change stream (e.g. a realtime feed) was applied to the local store. The
+/// echo of this device's own writes is not a received change and is not
+/// reported.
+///
+/// No sync cycle runs for these changes, so no `DatumSyncCompletedEvent`
+/// follows: this is how an app learns that live updates arrived, how many,
+/// and how fast.
+class LiveChangesAppliedEvent<T extends DatumEntityInterface> extends DatumSyncEvent<T> {
+  /// Creates a live-changes-applied event.
+  LiveChangesAppliedEvent({
+    required super.userId,
+    required this.count,
+    required this.duration,
+    this.lastChangedAt,
+    super.timestamp,
+  });
+
+  /// How many changes were applied.
+  final int count;
+
+  /// How long applying them to the local store took.
+  final Duration duration;
+
+  /// When the most recent of them was made, by its author's clock
+  /// (`DatumChangeDetail.timestamp`). `timestamp - lastChangedAt` is how long
+  /// the change took to get here, as far as the two devices' clocks agree.
+  final DateTime? lastChangedAt;
+
+  @override
+  String toString() => '${super.toString()}: LiveChangesAppliedEvent(count: $count, duration: $duration)';
+}

@@ -18,7 +18,6 @@ CREATE TABLE public.paint_canvases (
     title TEXT NOT NULL,
     description TEXT,
     thumbnail_stroke_data JSONB,
-    stroke_count INTEGER DEFAULT 0,
     is_deleted BOOLEAN DEFAULT FALSE,
     version INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -54,8 +53,6 @@ class PaintCanvas extends RelationalDatumEntity with _$PaintCanvasMixin {
 
   final List<Map<String, dynamic>>? thumbnailStrokeData;
 
-  final int strokeCount;
-
   // Define relationship using annotation - will be auto-generated
   @HasManyRelation<PaintStroke>('canvasId', cascadeDelete: 'cascade')
   final List<PaintStroke>? _strokes = null;
@@ -80,7 +77,6 @@ class PaintCanvas extends RelationalDatumEntity with _$PaintCanvasMixin {
     required this.title,
     this.description,
     this.thumbnailStrokeData,
-    this.strokeCount = 0,
     required this.createdAt,
     required this.modifiedAt,
     this.isDeleted = false,
@@ -101,7 +97,6 @@ class PaintCanvas extends RelationalDatumEntity with _$PaintCanvasMixin {
       userId: userId,
       title: title,
       description: description,
-      strokeCount: 0,
       createdAt: now,
       modifiedAt: now,
     );

@@ -30,6 +30,7 @@ TestEntity _entity(String id, {String name = 'n'}) => TestEntity(
       version: 1,
     );
 
+// Scenarios: sync.cursor (packages/datum/doc/SYNC_SCENARIOS.md)
 void main() {
   late LocalSyncServer server;
   late InMemoryLocalAdapter<TestEntity> local;

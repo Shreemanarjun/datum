@@ -13,6 +13,7 @@ import '../mocks/mock_adapters.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
+// Scenarios: sync.reconnect (packages/datum/doc/SYNC_SCENARIOS.md)
 void main() {
   late MockConnectivityChecker connectivityChecker;
   late MockLocalAdapter<TestEntity> localAdapter;
@@ -193,6 +194,40 @@ void main() {
       // Verify pending operations are cleared
       pendingCount = await Datum.manager<TestEntity>().getPendingCount(userId);
       expect(pendingCount, 0);
+    });
+
+    test('connectivity restoration catches up a user kept in sync who has nothing to upload', () async {
+      final connectivityController = StreamController<bool>();
+      when(() => connectivityChecker.onStatusChange).thenAnswer((_) => connectivityController.stream);
+      when(() => connectivityChecker.isConnected).thenAnswer((_) async => true);
+      remoteAdapter.isConnectedValue = true;
+
+      final result = await Datum.initialize(
+        config: config,
+        connectivityChecker: connectivityChecker,
+        registrations: [
+          DatumRegistration<TestEntity>(localAdapter: localAdapter, remoteAdapter: remoteAdapter),
+        ],
+      );
+      expect(result.isSuccess(), true);
+
+      // The app keeps this user in sync; the device has no local changes.
+      const active = 'user1', idle = 'user2';
+      Datum.instance.startAutoSync(active);
+      // While the device was offline, other devices wrote to the remote.
+      remoteAdapter.addRemoteItem(active, TestEntity.create('made-elsewhere', active, 'Missed while offline'));
+      remoteAdapter.addRemoteItem(idle, TestEntity.create('not-mine-to-fetch', idle, 'Other user'));
+      expect(await Datum.manager<TestEntity>().read('made-elsewhere', userId: active), isNull);
+
+      connectivityController.add(true);
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      expect(
+        (await Datum.manager<TestEntity>().read('made-elsewhere', userId: active))?.name,
+        'Missed while offline',
+        reason: 'without this, the device shows old data until its next local change',
+      );
+      expect(await Datum.manager<TestEntity>().read('not-mine-to-fetch', userId: idle), isNull, reason: 'a user that is neither active nor has pending changes is left alone');
     });
 
     test('syncs successfully when online - multiple users with pending operations', () async {

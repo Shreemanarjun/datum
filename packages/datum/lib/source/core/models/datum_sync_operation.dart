@@ -59,6 +59,14 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
   /// Whether sync has given up on this operation; see [parkedError].
   bool get isParked => parkedError != null;
 
+  /// The version the row had on this device before this edit: for an
+  /// entity's oldest pending operation, the version it last had in common
+  /// with the remote. A remote row still at (or below) that version has not
+  /// changed since, so the edit is simply ahead of it, not in conflict.
+  ///
+  /// Null for a create, and for operations queued before this field existed.
+  final int? baseVersion;
+
   /// Creates a [DatumSyncOperation].
   const DatumSyncOperation({
     required this.id,
@@ -72,6 +80,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
     this.retryCount = 0,
     this.sizeInBytes = 0,
     this.parkedError,
+    this.baseVersion,
   }) : assert(retryCount >= 0, 'retryCount cannot be negative');
 
   /// Creates a [DatumSyncOperation] from a map.
@@ -101,6 +110,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       retryCount: map['retryCount'] as int? ?? 0,
       sizeInBytes: map['sizeInBytes'] as int? ?? 0,
       parkedError: map['parkedError'] as String?,
+      baseVersion: map['baseVersion'] as int?,
     );
   }
 
@@ -117,6 +127,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
     int? retryCount,
     int? sizeInBytes,
     String? parkedError,
+    int? baseVersion,
   }) {
     return DatumSyncOperation<T>(
       id: id ?? this.id,
@@ -130,6 +141,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       retryCount: retryCount ?? this.retryCount,
       sizeInBytes: sizeInBytes ?? this.sizeInBytes,
       parkedError: parkedError ?? this.parkedError,
+      baseVersion: baseVersion ?? this.baseVersion,
     );
   }
 
@@ -147,6 +159,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
         data: data,
         delta: data == null ? delta : null,
         sizeInBytes: sizeInBytes,
+        baseVersion: baseVersion,
       );
 
   /// Converts the operation to a map representation.
@@ -163,6 +176,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
       'retryCount': retryCount,
       'sizeInBytes': sizeInBytes,
       if (parkedError != null) 'parkedError': parkedError,
+      if (baseVersion != null) 'baseVersion': baseVersion,
     };
   }
 
@@ -182,6 +196,7 @@ class DatumSyncOperation<T extends DatumEntityInterface> extends Equatable {
         retryCount,
         sizeInBytes,
         parkedError,
+        baseVersion,
       ];
 
   @override

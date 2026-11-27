@@ -82,7 +82,9 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
   /// Whether to enable detailed logging from the Datum engine.
   final bool enableLogging;
 
-  /// The default direction for synchronization.
+  /// The default direction for synchronization: [SyncDirection.pullThenPush],
+  /// so conflicting edits reach the conflict resolver instead of the last
+  /// upload silently replacing the other.
   final SyncDirection defaultSyncDirection;
 
   /// The current version of the data schema for migration purposes.
@@ -285,7 +287,7 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
     this.defaultUserSwitchStrategy = UserSwitchStrategy.syncThenSwitch,
     this.initialUserId,
     this.enableLogging = true,
-    this.defaultSyncDirection = SyncDirection.pushThenPull,
+    this.defaultSyncDirection = SyncDirection.pullThenPush,
     this.schemaVersion = 0,
     this.migrations = const [],
     this.syncExecutionStrategy = const SequentialStrategy(),

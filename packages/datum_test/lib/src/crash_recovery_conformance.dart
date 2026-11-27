@@ -45,6 +45,7 @@ import 'sync_stack_conformance.dart';
 ///   },
 /// );
 /// ```
+// Scenarios: sync.crash (packages/datum/doc/SYNC_SCENARIOS.md)
 void runCrashRecoveryConformanceTests({
   required String name,
   required Future<LocalAdapter<ConformanceEntity>> Function() openLocal,

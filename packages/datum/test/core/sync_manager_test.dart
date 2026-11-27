@@ -1134,12 +1134,13 @@ void main() async {
             'e1',
             userId,
             'Remote',
-          ).copyWith(version: 2, modifiedAt: DateTime.now());
+          ).copyWith(modifiedAt: DateTime.now());
+          // Same version, different content: both devices edited it.
           final localItem = TestEntity.create(
             'e1',
             userId,
             'Local',
-          ).copyWith(version: 1, modifiedAt: DateTime.now());
+          ).copyWith(modifiedAt: DateTime.now());
 
           when(
             () => localAdapter.getPendingOperations(userId),
@@ -1762,7 +1763,8 @@ void main() async {
       // Act & Assert
       final errorEventFuture = expectLater(manager.onSyncError, emits(isA<DatumSyncErrorEvent>().having((e) => e.error, 'error', originalError)));
       final syncThrowsFuture = expectLater(
-        () => manager.synchronize('user1'),
+        // Push first: this test is about an upload that fails.
+        () => manager.synchronize('user1', options: const DatumSyncOptions(direction: SyncDirection.pushThenPull)),
         throwsA(
           isA<UnknownException>()
               .having(

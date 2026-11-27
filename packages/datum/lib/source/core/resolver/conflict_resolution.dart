@@ -123,6 +123,34 @@ class DatumConflictResolution<T extends DatumEntityInterface> extends Equatable 
 }
 
 /// Base interface for components that resolve synchronization conflicts.
+///
+/// A conflict is two edits of the same row made without seeing each other:
+///
+/// - an unsynced local edit of a row that has changed remotely since the
+///   edit started (its queued operation's `baseVersion`);
+/// - the same version with different content on both sides;
+/// - concurrent vector clocks, for entities that carry one.
+///
+/// These are not conflicts and never reach a resolver: a remote row that is
+/// merely newer than a local row with no unsynced edit (it replaces the
+/// local row), and a remote row that has not changed since this device's
+/// unsynced edit started (the edit is kept and uploaded).
+///
+/// With the default `SyncDirection.pullThenPush`, a device looks before it
+/// uploads, so its unsynced edits meet the other device's upload here. With
+/// `pushThenPull` the upload happens first and the last push wins.
+///
+/// Two devices whose syncs overlap can still both upload before either
+/// looks. A remote adapter that is `GuardedWriteCapable` refuses the second
+/// upload (the row is no longer where that edit started), and the engine
+/// brings it here; entities that carry a vector clock have it detected on
+/// every device. A remote that accepts every write, with entities that
+/// carry no clock, keeps the last upload: nothing records that the two
+/// edits never saw each other.
+///
+/// What the resolver decides replaces whatever was queued for the row: the
+/// winner is uploaded as one write made on top of the remote row it was
+/// compared with.
 abstract class DatumConflictResolver<T extends DatumEntityInterface> {
   /// A descriptive name for the resolver strategy (e.g., "LastWriteWins").
   String get name;

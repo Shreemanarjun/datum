@@ -68,7 +68,9 @@ class DatumConflictDetector<T extends DatumEntityInterface> {
       return null; // One is an ancestor of the other, no conflict.
     }
 
-    // Fallback: If versions differ, it's a sign of independent modification.
+    // Fallback: different versions. The engine takes a newer remote row as
+    // is when this device has no unsynced edit of it; otherwise this is an
+    // independent modification.
     if (localItem.version != remoteItem.version) {
       return DatumConflictContext(
         userId: userId,
@@ -86,9 +88,11 @@ class DatumConflictDetector<T extends DatumEntityInterface> {
     // carry no vector clocks. Identical re-delivered rows (the bulk of every
     // full pull) short-circuit on the timestamp comparison; the deep map
     // comparison only runs for same-instant ties.
-    // isAtSameMomentAs, not ==: a local-time and a UTC DateTime for the same
-    // instant are unequal under ==, which flagged every pulled row.
-    if (!localItem.modifiedAt.isAtSameMomentAs(remoteItem.modifiedAt) || !const DeepCollectionEquality().equals(localItem.toDatumMap(), remoteItem.toDatumMap())) {
+    // Instants are compared in milliseconds: `==` is false for a local-time
+    // and a UTC DateTime of the same instant, and a local store that keeps
+    // epoch milliseconds reads a row back coarser than the server returns
+    // it. Either one flagged every pulled row.
+    if (localItem.modifiedAt.millisecondsSinceEpoch != remoteItem.modifiedAt.millisecondsSinceEpoch || !const DeepCollectionEquality().equals(localItem.toDatumMap(), remoteItem.toDatumMap())) {
       return DatumConflictContext(
         userId: userId,
         entityId: localItem.id,

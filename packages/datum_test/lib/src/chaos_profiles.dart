@@ -183,6 +183,7 @@ Future<bool> _alwaysRetry(DatumException error) async => true;
 /// the adapter. [profiles] defaults to [ChaosProfile.defaultProfiles].
 /// [onFaultsObserved] receives the per-profile injected-fault count, for
 /// logging or reporting.
+// Scenarios: sync.chaos (packages/datum/doc/SYNC_SCENARIOS.md)
 void runChaosConformanceTests({
   required String name,
   required Future<LocalAdapter<ConformanceEntity>> Function() createLocal,

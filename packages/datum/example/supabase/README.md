@@ -142,6 +142,36 @@ jank on a device.
   of each entity type took.
 - **Undo and redo in the paint screen work on every device,** because they
   are derived from the synced strokes rather than from a list in memory.
+- **The timing strip follows live updates.** It used to move only on the
+  device that made an edit, because a change received over realtime runs no
+  sync cycle. It now shows, newest first, `Task sync 36 ms ↑1` on the editing
+  device and `Task live ↓1 · 7 ms to apply · 157 ms after the edit` on the
+  others (checked both ways across the iOS simulator and both emulators).
+- **Staying current without a restart.** A dropped realtime subscription is
+  retried for as long as the user is signed in (it gave up after five
+  attempts) and followed by an incremental pull; the app also pulls when it
+  returns to the foreground. Pulls ask only for the signed-in user's rows.
+- **Paintings.** The list counts strokes from the strokes themselves (the
+  stored `stroke_count` column was never updated and is gone), and the
+  canvas is a fixed 2:3 sheet, so a drawing made on a phone is whole on a
+  tablet or an unfolded foldable.
+- **The adapter guards its writes.** `SupabaseRemoteAdapter` implements
+  `GuardedWriteCapable`: an edit is one `UPDATE ... WHERE version <= base`
+  and a create one `INSERT ... ON CONFLICT DO NOTHING`, so Postgres refuses
+  an upload made on top of a row another device has since changed. Datum
+  then lets the conflict resolver decide instead of the last upload
+  replacing the other.
+- **The strip also shows the sync from app start,** which often finishes
+  before the first screen is drawn, and has a widget test over a real Datum
+  instance (`test/shared/sync_timing_strip_test.dart`). The paintings list
+  and the drawing sheet have widget tests too (`test/features/paint/`).
+- **Conflicts on real devices.** With one emulator offline holding a queued
+  edit and the same task changed elsewhere, the offline device took the
+  newer row as soon as realtime delivered it, dropped its own queued edit,
+  and uploaded nothing after reconnecting. The live test
+  (`test/live/supabase_local_sync_test.dart`) checks the same rules, and
+  scoped sync, against real Postgres. The full list of scenarios and their
+  tests is in `packages/datum/doc/SYNC_SCENARIOS.md`.
 - **Login:** Enter moves from email to password and submits. **Dark theme:**
   task titles, the empty state and the add button use theme colors.
 

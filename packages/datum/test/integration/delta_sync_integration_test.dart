@@ -30,6 +30,7 @@ TestEntity _entity(String id, {String name = 'n', DateTime? modifiedAt}) => Test
       version: 1,
     );
 
+// Scenarios: sync.delta (packages/datum/doc/SYNC_SCENARIOS.md)
 void main() {
   late LocalSyncServer server;
   late DatumManager<TestEntity> manager;

@@ -428,7 +428,7 @@ void main() {
 
   group('syncDirectionResolver integration', () {
     test('uses custom resolver when no pending operations exist', () async {
-      // Arrange - Create a resolver that returns pullThenPush when no pending operations
+      // Arrange - Create a resolver that returns pullOnly when no pending operations
       SyncDirection? capturedDirection;
       int capturedPendingCount = -1;
 
@@ -437,7 +437,7 @@ void main() {
         syncDirectionResolver: (pendingCount, defaultDirection) {
           capturedPendingCount = pendingCount;
           capturedDirection = defaultDirection;
-          return pendingCount == 0 ? SyncDirection.pullThenPush : null;
+          return pendingCount == 0 ? SyncDirection.pullOnly : null;
         },
       );
 
@@ -454,7 +454,7 @@ void main() {
 
       // Assert
       expect(capturedPendingCount, 0); // No pending operations
-      expect(capturedDirection, SyncDirection.pushThenPull); // Default direction
+      expect(capturedDirection, SyncDirection.pullThenPush); // Default direction
       expect(result.wasSkipped, false);
       expect(result.syncedCount, 0); // No data to sync
 
@@ -491,7 +491,7 @@ void main() {
 
       // Assert
       expect(capturedPendingCount, 1); // One pending operation
-      expect(capturedDirection, SyncDirection.pushThenPull); // Default direction
+      expect(capturedDirection, SyncDirection.pullThenPush); // Default direction
       expect(result.wasSkipped, false);
 
       manager.dispose();

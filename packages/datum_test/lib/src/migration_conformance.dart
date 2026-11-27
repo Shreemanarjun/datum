@@ -53,6 +53,7 @@ import 'conformance_entity.dart';
 ///   table: 'conformance_migration',
 /// );
 /// ```
+// Scenarios: store.migration (packages/datum/doc/SYNC_SCENARIOS.md)
 void runMigrationConformanceTests({
   required String name,
   required Future<LocalAdapter<ConformanceEntity>> Function() createLocal,

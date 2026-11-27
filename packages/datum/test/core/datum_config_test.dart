@@ -21,7 +21,7 @@ void main() {
       );
       expect(config.initialUserId, isNull);
       expect(config.enableLogging, isTrue);
-      expect(config.defaultSyncDirection, SyncDirection.pushThenPull);
+      expect(config.defaultSyncDirection, SyncDirection.pullThenPush);
       expect(config.schemaVersion, 0);
       expect(config.migrations, isEmpty);
       expect(config.syncExecutionStrategy, isA<SequentialStrategy>());

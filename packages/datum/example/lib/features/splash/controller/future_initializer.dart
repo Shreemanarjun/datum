@@ -22,6 +22,7 @@ import 'package:example/features/settings/user_settings.dart';
 import 'package:example/core/theme/theme_controller.dart';
 import 'package:example/shared/translations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/widgets.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -172,22 +173,38 @@ Future<void> initializeApp() async {
   _syncWithSession();
 }
 
-/// Ties sync to the Supabase session: signing in resumes sync, starts
-/// auto-sync and syncs once; signing out pauses it. (At app start the
-/// persisted session is covered by `autoStartSync` and the cold-start sync.)
+/// Keeps the signed-in user in sync around the events that interrupt it:
+/// signing in resumes sync, starts auto-sync and syncs once; signing out
+/// pauses it; coming back to the foreground pulls what was missed while the
+/// app's sockets were suspended. (At app start the persisted session is
+/// covered by `autoStartSync` and the cold-start sync; losing and regaining
+/// the network is handled by Datum itself.)
 void _syncWithSession() {
-  Supabase.instance.client.auth.onAuthStateChange.listen((state) {
+  void syncNow(String userId, String reason) => unawaited(Datum.instance
+      .synchronize(userId, options: DatumSyncOptions(reason: reason))
+      .then<void>((_) {},
+          onError: (Object e) => talker.warning('Sync ($reason) failed: $e')));
+
+  final auth = Supabase.instance.client.auth;
+  auth.onAuthStateChange.listen((state) {
     final userId = state.session?.user.id;
     if (state.event == AuthChangeEvent.signedOut) {
       Datum.instance.pauseSync();
     } else if (state.event == AuthChangeEvent.signedIn && userId != null) {
       Datum.instance.resumeSync();
       Datum.instance.startAutoSync(userId);
-      unawaited(Datum.instance.synchronize(userId).then<void>((_) {},
-          onError: (Object e) => talker.warning('Sign-in sync failed: $e')));
+      syncNow(userId, 'sign-in');
     }
   });
+  _resumeListener = AppLifecycleListener(onResume: () {
+    final userId = auth.currentUser?.id;
+    if (userId != null) syncNow(userId, 'resume');
+  });
 }
+
+// Held for the app's lifetime.
+// ignore: unused_element
+AppLifecycleListener? _resumeListener;
 
 /// App startup. Read by the splash screen; errors surface there.
 final appInitialization = futureSignal(initializeApp);

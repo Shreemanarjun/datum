@@ -108,6 +108,10 @@ void main() {
       when(
         () => localAdapter.read(any(), userId: any(named: 'userId')),
       ).thenAnswer((_) async => null);
+      // Remote changes are screened against what the device already has.
+      when(
+        () => localAdapter.readByIds(any(), userId: any(named: 'userId')),
+      ).thenAnswer((_) async => {});
       when(() => localAdapter.update(any())).thenAnswer((_) async {});
 
       when(

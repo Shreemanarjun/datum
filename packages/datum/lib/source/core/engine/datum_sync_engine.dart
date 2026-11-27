@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:collection/collection.dart';
 import 'package:datum/source/adapter/adapter_capabilities.dart';
 import 'package:datum/source/adapter/local_adapter.dart';
 import 'package:datum/source/adapter/remote_adapter.dart';
@@ -24,6 +25,7 @@ import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:datum/source/core/models/datum_sync_result.dart';
 import 'package:datum/source/core/models/datum_sync_scope.dart';
 import 'package:datum/source/core/models/datum_sync_status_snapshot.dart';
+import 'package:datum/source/core/query/datum_query.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/utils/hash_generator.dart';
 import 'package:datum/source/utils/connectivity_checker.dart';
@@ -131,7 +133,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
 
     // Loaded once and reused by the pre-check and the start snapshot.
     final pendingAtStart = (await queueManager.getPending(userId)).length;
-    final skipped = await _preflightSkip(userId, options, pendingAtStart, snapshot.pendingOperations);
+    final skipped = await _preflightSkip(userId, options, scope, pendingAtStart, snapshot.pendingOperations);
     if (skipped != null) return (skipped, <DatumSyncEvent<T>>[]);
 
     // Fetch the last sync result to get the previous total byte counts.
@@ -184,7 +186,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       }
 
       // Update metadata after a genuinely completed sync cycle.
-      await _updateMetadata(userId, pulledRemote: _directionOf(options) != SyncDirection.pushOnly);
+      await _updateMetadata(userId, pulledRemote: _directionOf(options) != SyncDirection.pushOnly, scopeKey: _scopeKey(scope));
 
       final result = await _cycleResult(userId, stopwatch, totals);
 
@@ -211,6 +213,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   Future<DatumSyncResult<T>?> _preflightSkip(
     String userId,
     DatumSyncOptions<T>? options,
+    DatumSyncScope? scope,
     int pendingAtStart,
     int snapshotPending,
   ) async {
@@ -229,6 +232,14 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       return null;
     }
 
+    // An incremental pull asks the server itself what changed since this
+    // device's position: one cheap request, and the authority. The metadata
+    // comparison below relies on a beacon that only Datum clients write, at
+    // the end of a cycle — a writer that was killed before that, or any
+    // other writer, leaves it unchanged, and devices that trusted it would
+    // show old data until their next local change.
+    if (_pullsIncrementally(options, scope)) return null;
+
     // Fetch local and remote metadata to determine if a sync is necessary.
     // This pre-check is an OPTIMIZATION — if the metadata fetch fails (e.g. a
     // transient network blip on the remote call), degrade to running the sync
@@ -242,8 +253,15 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       logger.warn('Metadata pre-check failed for user $userId ($e); proceeding with a full sync.');
     }
 
-    // Compare relevant metadata fields for skipping.
-    final metadataMatches = localMetadata != null && remoteMetadata != null && localMetadata.dataHash == remoteMetadata.dataHash && _deepCompareEntityCounts(localMetadata.entityCounts, remoteMetadata.entityCounts);
+    // Compare relevant metadata fields for skipping. A scope is compared by
+    // the beacon value seen when this device last pulled THAT scope: the
+    // beacon says nothing about a scope that was never pulled.
+    final key = _scopeKey(scope);
+    final metadataMatches = localMetadata != null &&
+        remoteMetadata != null &&
+        (key.isEmpty
+            ? localMetadata.dataHash == remoteMetadata.dataHash && _deepCompareEntityCounts(localMetadata.entityCounts, remoteMetadata.entityCounts)
+            : remoteMetadata.dataHash != null && _pullState(localMetadata, key).hash == remoteMetadata.dataHash);
 
     // If metadata matches and there are no pending local operations, skip the sync.
     if (!metadataMatches || pendingAtStart != 0) return null;
@@ -264,12 +282,21 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   ) async {
     Future<int> push() => _pushChanges(userId, options, generatedEvents);
     Future<int> pull() => _pullChanges(userId, options, scope, generatedEvents);
-    return switch (_directionOf(options)) {
+    _refusedEntityIds.clear();
+    final direction = _directionOf(options);
+    final first = switch (direction) {
       SyncDirection.pushThenPull => (pushed: await push(), pulled: await pull()),
       SyncDirection.pullThenPush => (pulled: await pull(), pushed: await push()),
       SyncDirection.pushOnly => (pushed: await push(), pulled: 0),
       SyncDirection.pullOnly => (pushed: 0, pulled: await pull()),
     };
+    // The remote refused an upload because the row changed there (see
+    // [GuardedWriteCapable]). Settle it now instead of next cycle: read the
+    // row if this cycle has not done so since, let the resolver decide, and
+    // send what it decided.
+    if (_refusedEntityIds.isEmpty || direction == SyncDirection.pushOnly) return first;
+    final pulledAgain = direction == SyncDirection.pullThenPush ? await pull() : 0;
+    return (pushed: first.pushed + await push(), pulled: first.pulled + pulledAgain);
   }
 
   Future<DatumSyncResult<T>> _cycleResult(
@@ -493,6 +520,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       _notifyPostOperationObservers(operation, success: false);
       throw SyncExceptionWithEvents(e, stackTrace, generatedEvents);
     }
+    if (e is ConflictException && _isGuarded(operation)) {
+      _refuse(operation);
+      return 0;
+    }
     final isRetryable = e is DatumException && operation.retryCount < config.errorRecoveryStrategy.maxRetries && await config.errorRecoveryStrategy.shouldRetry(e);
 
     if (isRetryable) {
@@ -541,13 +572,16 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
 
   /// Sends a single (non-batched) operation to the remote adapter.
   Future<void> _sendToRemote(DatumSyncOperation<T> operation) async {
+    if (_travelsAlone(operation)) return _sendGuarded(operation);
     switch (operation.type) {
       case DatumOperationType.create:
         if (operation.data == null) {
           throw ArgumentError('Create op needs data');
         }
         logger.debug('Creating entity ${operation.entityId} on remote.');
-        await remoteAdapter.create(operation.data!);
+        if ((await _createAll([operation.data!])).isNotEmpty) {
+          throw ConflictException(message: 'Entity ${operation.entityId} already exists on the remote.');
+        }
       case DatumOperationType.update:
         if (operation.data == null) {
           throw ArgumentError('Update op needs data');
@@ -584,7 +618,71 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     }
   }
 
+  /// Whether the remote checks [operation] before applying it: a create must
+  /// find no row, an edit must find the row where it started.
+  bool _isGuarded(DatumSyncOperation<T> operation) =>
+      remoteAdapter is GuardedWriteCapable<T> && (operation.type == DatumOperationType.create || operation.baseVersion != null);
+
+  /// A guarded edit is checked against its own base, so it is sent by
+  /// itself. Creates still go out in bulk.
+  bool _travelsAlone(DatumSyncOperation<T> operation) => _isGuarded(operation) && operation.type != DatumOperationType.create;
+
+  /// Creates [entities] on the remote; returns the ids a guarded remote
+  /// refused because a row was already there.
+  Future<Set<String>> _createAll(List<T> entities) async {
+    final remote = remoteAdapter;
+    if (remote is GuardedWriteCapable<T>) return (remote as GuardedWriteCapable<T>).createAllIfAbsent(entities);
+    entities.length == 1 ? await remote.create(entities.single) : await remote.createAll(entities);
+    return const {};
+  }
+
+  /// Leaves [operation] queued after the remote refused it: not a failure,
+  /// another device changed the row first. Nothing later for this entity may
+  /// overtake it, and the pull that follows gives both versions to the
+  /// resolver.
+  void _refuse(DatumSyncOperation<T> operation) {
+    logger.info('Upload of ${operation.entityId} refused: the row changed remotely since the edit started.');
+    _refusedEntityIds.add(operation.entityId);
+    _blockedEntityIds.add(operation.entityId);
+    _notifyPostOperationObservers(operation, success: false);
+  }
+
+  /// Sends an edit the remote applies only if the row is still where the
+  /// edit started. A refusal surfaces as a `ConflictException`.
+  Future<void> _sendGuarded(DatumSyncOperation<T> operation) async {
+    final guard = remoteAdapter as GuardedWriteCapable<T>;
+    final base = operation.baseVersion!;
+    if (operation.type == DatumOperationType.delete) {
+      try {
+        await guard.deleteIfUnchanged(operation.entityId, baseVersion: base, userId: operation.userId);
+      } on EntityNotFoundException {
+        // Already gone remotely: the delete has nothing left to do.
+        logger.warn('Entity ${operation.entityId} not found on remote during delete - considering operation successful');
+      }
+      return;
+    }
+    final delta = operation.delta ?? const <String, dynamic>{};
+    await guard.patchIfUnchanged(
+      id: operation.entityId,
+      delta: delta.isNotEmpty ? delta : operation.data!.toDatumMap(target: MapTarget.remote),
+      baseVersion: base,
+      userId: operation.userId,
+    );
+  }
+
+  /// Entities whose guarded upload the remote refused this cycle: the row
+  /// changed there since the edit started. The edit stays queued; the pull
+  /// that follows gives both versions to the resolver.
+  final Set<String> _refusedEntityIds = {};
+
   bool _isForced(DatumSyncOptions<T>? options) => options?.forceFullSync ?? false;
+
+  /// Whether this cycle pulls and can do so incrementally (cursor or delta).
+  bool _pullsIncrementally(DatumSyncOptions<T>? options, DatumSyncScope? scope) {
+    final remote = remoteAdapter;
+    final capable = remote is CursorSyncCapable<T> || remote is DeltaSyncCapable<T>;
+    return capable && config.enableDeltaSync && _directionOf(options) != SyncDirection.pushOnly && !_detectsDeletions(options, scope);
+  }
 
   /// Whether this pull compares the full remote id set against local rows.
   /// Needs an unscoped, unfiltered pull, and deletions being synced at all.
@@ -751,6 +849,57 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   /// metadata `customMetadata`.
   static const String syncCursorKey = '__sync_cursor__';
 
+  /// The reserved key holding this device's pull state per [DatumSyncScope]
+  /// inside sync metadata `customMetadata`: `{scope: {hash, cursor, since}}`.
+  ///
+  /// A pull position (cursor or watermark) and the "nothing changed" beacon
+  /// describe the rows that were asked for. Kept once per device, a sync of
+  /// a second scope started from the first scope's position and never read
+  /// the rows it had filtered out.
+  static const String syncScopesKey = '__sync_scopes__';
+
+  // ponytail: fixed cap; a dropped scope is read in full again. Make it a
+  // config value if an app really cycles through more scopes than this.
+  static const _maxTrackedScopes = 16;
+
+  /// Identifies [scope] among this device's pull states; empty when the pull
+  /// is not narrowed.
+  String _scopeKey(DatumSyncScope? scope) {
+    final query = scope?.query.toString();
+    return query == null || query == const DatumQuery().toString() ? '' : query;
+  }
+
+  /// This device's pull state for [scopeKey]. The unscoped state is the
+  /// metadata's own fields; a scope's lives under [syncScopesKey].
+  ({String? hash, String? cursor, DateTime? since}) _pullState(DatumSyncMetadata? metadata, String scopeKey) {
+    final scopes = metadata?.customMetadata?[syncScopesKey] as Map?;
+    if (scopeKey.isEmpty) {
+      // The sync stamp stands in for a missing watermark only while no
+      // scoped pull has moved it without reading everything.
+      final since = metadata?.serverTimestamp ?? (scopes == null ? metadata?.lastSyncTime : null);
+      return (hash: metadata?.dataHash, cursor: metadata?.customMetadata?[syncCursorKey] as String?, since: since);
+    }
+    final state = scopes?[scopeKey] as Map?;
+    return (hash: state?['hash'] as String?, cursor: state?['cursor'] as String?, since: DateTime.tryParse(state?['since'] as String? ?? ''));
+  }
+
+  /// [custom] with the pull position this cycle reached for [scopeKey].
+  Map<String, dynamic>? _withPullState(Map<String, dynamic>? custom, String scopeKey, {required String hash, String? cursor, DateTime? since}) {
+    if (scopeKey.isEmpty) return cursor == null ? custom : {...?custom, syncCursorKey: cursor};
+    final scopes = {...?(custom?[syncScopesKey] as Map?)?.cast<String, dynamic>()};
+    final previous = scopes.remove(scopeKey) as Map?;
+    // Re-inserted last: the map's order is least recently pulled first.
+    scopes[scopeKey] = {
+      'hash': hash,
+      'cursor': cursor ?? previous?['cursor'],
+      'since': _later(DateTime.tryParse(previous?['since'] as String? ?? ''), since)?.toIso8601String(),
+    };
+    while (scopes.length > _maxTrackedScopes) {
+      scopes.remove(scopes.keys.first);
+    }
+    return {...?custom, syncScopesKey: scopes};
+  }
+
   /// Cursors returned by [CursorSyncCapable.readChanges] this cycle, staged
   /// per user until [_updateMetadata] persists them.
   final Map<String, String> _pendingCursors = {};
@@ -818,16 +967,14 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // Cursor-based incremental pull — the generalized (v2) path. A null
       // cursor means "from the beginning", so even the first sync goes
       // through the feed; the returned cursor persists via sync metadata.
-      final metadata = await localAdapter.getSyncMetadata(userId);
-      final cursor = metadata?.customMetadata?[syncCursorKey] as String?;
+      final cursor = _pullState(await localAdapter.getSyncMetadata(userId), _scopeKey(scope)).cursor;
       logger.info('Cursor pull for user $userId (cursor: ${cursor ?? '<start>'}).');
       return _readFeed(remote as CursorSyncCapable<T>, cursor, userId, scope);
     }
     if (remote is! DeltaSyncCapable<T>) return null;
-    final metadata = await localAdapter.getSyncMetadata(userId);
-    // Prefer the server's own clock when the adapter recorded one; fall
-    // back to the local sync stamp.
-    final watermark = metadata?.serverTimestamp ?? metadata?.lastSyncTime;
+    // The server's own clock when the adapter recorded one, else the local
+    // sync stamp; null when this scope was never pulled (read it in full).
+    final watermark = _pullState(await localAdapter.getSyncMetadata(userId), _scopeKey(scope)).since;
     if (watermark == null) return null;
     // Incremental pull: only rows modified since the watermark, widened by
     // the configured overlap to tolerate clock skew. Re-delivered rows are
@@ -875,7 +1022,68 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     if (remote.version != local.version) {
       return remote.version > local.version;
     }
-    return remote.modifiedAt.isAfter(local.modifiedAt);
+    // In milliseconds, as the conflict detector compares them.
+    return remote.modifiedAt.millisecondsSinceEpoch > local.modifiedAt.millisecondsSinceEpoch;
+  }
+
+  /// Whether a pulled row must leave the local one alone. A local hard delete
+  /// still waiting to upload is not resurrected. And a remote row that has
+  /// not moved past the version this device's unsynced edit started from is
+  /// not news: the local row is ahead of it and will be pushed. (Treating
+  /// that as a conflict let a remote-priority resolver throw the edit away.)
+  ///
+  /// From a live feed, a row older than the local one is left alone too: it
+  /// may only be a late event, and says nothing about what the server holds
+  /// now. (A pull does say that, and its older row is a conflict.)
+  bool _keepsLocal(T? local, T remote, _PullContext<T> pull) {
+    final queued = pull.queued[remote.id] ?? const [];
+    if (local == null) return queued.isNotEmpty;
+    final base = _baseVersion(queued);
+    if (base != null) return remote.version <= base;
+    return pull.live && remote.version < local.version;
+  }
+
+  /// Drops the queued edits of [remote]'s row that have evidently been
+  /// uploaded already: the remote row is exactly the result of one of them,
+  /// so it and the edits before it arrived, and only their acknowledgement
+  /// was lost (a crash, a dropped connection). Without this, a remote that
+  /// guards writes would refuse the replay as stale for ever.
+  Future<void> _dropDelivered(_PullContext<T> pull, T remote) async {
+    final queued = pull.queued[remote.id];
+    if (queued == null) return;
+    final landed = queued.lastIndexWhere((op) => _isSameRow(op.data, remote, pull.userId));
+    for (final op in queued.sublist(0, landed + 1)) {
+      await queueManager.dequeue(op.id);
+    }
+    queued.removeRange(0, landed + 1);
+    if (queued.isEmpty) pull.queued.remove(remote.id);
+  }
+
+  /// Same version and same content, as the conflict detector compares them.
+  bool _isSameRow(T? a, T b, String userId) => a != null && a.version == b.version && conflictDetector.detect(localItem: a, remoteItem: b, userId: userId) == null;
+
+  /// Whether a detected difference is only the remote being ahead of a row
+  /// this device has no unsynced edit of. Nothing was edited here, so there
+  /// is nothing to resolve: the newer row is simply taken.
+  ///
+  /// Rows carrying vector clocks are judged by those instead, and a row
+  /// owned by another user is never taken.
+  bool _isFastForward(DatumConflictContext context, T? local, T remote, _PullContext<T> pull) {
+    if (local == null || context.type == DatumConflictType.userMismatch) return false;
+    final clocked = local.vectorClock != null && remote.vectorClock != null;
+    return !clocked && remote.version > local.version && !pull.queued.containsKey(remote.id);
+  }
+
+  /// Screens rows received from the remote change feed by the rules of a
+  /// pull. A row that competes with an unsynced local edit is resolved here.
+  /// A row that is identical to, older than, or the starting point of what
+  /// this device has is dropped (feeds repeat and reorder events). Returns
+  /// the rows to save as they are (new, or newer than a local row with
+  /// nothing unsynced) and the conflict events the screening produced.
+  Future<({List<T> toSave, List<DatumSyncEvent<T>> events})> screenRemoteChanges(String userId, List<T> items) async {
+    final events = <DatumSyncEvent<T>>[];
+    final sorted = await _sortRemoteBatch(items, userId, null, events, 0, 0, live: true);
+    return (toSave: [...sorted.toCreate, ...sorted.toUpdate], events: events..removeWhere((e) => e is DatumSyncProgressEvent<T>));
   }
 
   // Process a batch of remote items
@@ -887,17 +1095,35 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     int processedCount,
     int cumulativeBytesSoFar,
   ) async {
+    final sorted = await _sortRemoteBatch(remoteBatch, userId, options, generatedEvents, processedCount, cumulativeBytesSoFar);
+    await _applyPulledWrites(userId, sorted.toCreate, sorted.toUpdate);
+    return sorted.bytes;
+  }
+
+  /// Decides what each remote row means for the local store: resolves the
+  /// conflicts, and returns the rows to create or update as they are.
+  Future<({List<T> toCreate, List<T> toUpdate, int bytes})> _sortRemoteBatch(
+    List<T> remoteBatch,
+    String userId,
+    DatumSyncOptions<T>? options,
+    List<DatumSyncEvent<T>> generatedEvents,
+    int processedCount,
+    int cumulativeBytesSoFar, {
+    bool live = false,
+  }) async {
     int batchBytes = 0;
-    // Non-conflicting writes are applied in bulk after the loop so adapters
+    // Non-conflicting writes are applied in bulk by the caller so adapters
     // with native batching (e.g. one SQLite transaction) commit once per batch.
     final toCreate = <T>[];
     final toUpdate = <T>[];
+    final queued = await queueManager.getPending(userId);
     final pull = (
       userId: userId,
       events: generatedEvents,
       resolver: options?.conflictResolver ?? conflictResolver,
       resolve: options?.resolveConflicts ?? true,
-      pending: _opIdsByEntity(await queueManager.getPending(userId)),
+      queued: queued.groupListsBy((op) => op.entityId),
+      live: live,
     );
 
     // Get local items for this batch only
@@ -909,8 +1135,8 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     for (var i = 0; i < remoteBatch.length; i++) {
       final remoteItem = remoteBatch[i];
       final localItem = localItemsMap[remoteItem.id];
-      // Locally hard-deleted, delete not pushed yet: don't resurrect it.
-      if (localItem == null && pull.pending.containsKey(remoteItem.id)) continue;
+      await _dropDelivered(pull, remoteItem);
+      if (_keepsLocal(localItem, remoteItem, pull)) continue;
 
       final context = conflictDetector.detect(
         localItem: localItem,
@@ -918,7 +1144,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         userId: userId,
       );
 
-      if (context != null) {
+      if (context != null && !_isFastForward(context, localItem, remoteItem, pull)) {
         await _resolvePulledConflict(pull, context, localItem, remoteItem);
         continue;
       }
@@ -954,8 +1180,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       }
     }
 
-    await _applyPulledWrites(userId, toCreate, toUpdate);
-    return batchBytes;
+    return (toCreate: toCreate, toUpdate: toUpdate, bytes: batchBytes);
   }
 
   /// Commits a pull batch's non-conflicting writes in bulk.
@@ -999,13 +1224,8 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         // of the winning local state so the remote converges. Previously
         // nothing was propagated, so the very same conflict re-fired on
         // every subsequent sync and the winner never reached other devices.
-        // An unchanged local winner whose own op is still queued needs no
-        // extra push: that op delivers it.
         final winner = resolution.resolvedData ?? localItem;
-        final alreadyQueued = winner == localItem && pull.pending.containsKey(context.entityId);
-        if (winner != null && !alreadyQueued) {
-          await _enqueueResolutionPush(pull.userId, winner);
-        }
+        if (winner != null) await _queueWinner(pull, winner, remoteItem.version);
       case DatumResolutionStrategy.takeRemote:
         // Honor a resolver-transformed value (`useRemote(tweaked)`); the raw
         // remoteItem was previously written unconditionally, silently
@@ -1013,9 +1233,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         await localAdapter.update(resolution.resolvedData ?? remoteItem);
         hashCache.invalidate(pull.userId);
         // The losing local ops must not push over the winner afterwards.
-        for (final opId in pull.pending[context.entityId] ?? const <String>[]) {
-          await queueManager.dequeue(opId);
-        }
+        await _dropQueued(pull, context.entityId);
       case DatumResolutionStrategy.merge:
         if (resolution.resolvedData == null) {
           throw StateError('Merge resolution must provide a merged item.');
@@ -1025,7 +1243,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
         hashCache.invalidate(pull.userId);
         // The merged value must also reach the remote, or the merge repeats
         // forever and never propagates to other devices.
-        await _enqueueResolutionPush(pull.userId, merged);
+        await _queueWinner(pull, merged, remoteItem.version);
       // abort/askUser change nothing — reporting them as "resolved" both
       // inflated conflictsResolved and emitted a misleading resolved event.
       case DatumResolutionStrategy.abort:
@@ -1053,9 +1271,29 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     );
   }
 
+  /// Removes every operation queued for [entityId]: the resolver's decision
+  /// replaces what they would have uploaded.
+  Future<void> _dropQueued(_PullContext<T> pull, String entityId) async {
+    for (final op in pull.queued.remove(entityId) ?? const []) {
+      await queueManager.dequeue(op.id);
+    }
+  }
+
+  /// Makes [winner] the one thing queued for its row: the edits queued
+  /// before were made against a remote row that has since changed (a guarded
+  /// remote would refuse them again), and the winner already holds their
+  /// outcome.
+  Future<void> _queueWinner(_PullContext<T> pull, T winner, int remoteVersion) async {
+    await _dropQueued(pull, winner.id);
+    await _enqueueResolutionPush(pull.userId, winner, baseVersion: remoteVersion);
+  }
+
   /// Queues a push of a conflict-resolution winner so the remote (and other
   /// devices) converge on the resolved state.
-  Future<void> _enqueueResolutionPush(String userId, T item) async {
+  ///
+  /// [baseVersion] is the remote version the resolver saw: while the remote
+  /// stays there, the queued winner is not in conflict with it again.
+  Future<void> _enqueueResolutionPush(String userId, T item, {int? baseVersion}) async {
     final payload = item.toDatumMap(target: MapTarget.remote);
     await queueManager.enqueue(DatumSyncOperation<T>(
       // Stable per entity: a repeat resolution replaces the queued push
@@ -1068,6 +1306,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       timestamp: DateTime.now(),
       data: item,
       sizeInBytes: jsonEncode(payload).length,
+      baseVersion: baseVersion,
     ));
   }
 
@@ -1136,7 +1375,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
   /// Store size above which the metadata rehash runs on a background isolate.
   static const _isolateHashThreshold = 500;
 
-  Future<void> _updateMetadata(String userId, {bool pulledRemote = true}) async {
+  Future<void> _updateMetadata(String userId, {bool pulledRemote = true, String scopeKey = ''}) async {
     try {
       final (hash: contentHash, count: itemCount) = await _contentHash(userId);
       final existingMetadata = await localAdapter.getSyncMetadata(userId);
@@ -1150,9 +1389,13 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // every row behind it forever.
       final stagedCursor = pulledRemote ? _pendingCursors.remove(userId) : null;
       final stagedWatermark = pulledRemote ? _pendingServerWatermarks.remove(userId) : null;
+      // A scoped pull read only part of the data: it records its own
+      // position and leaves the unscoped one (the metadata's own fields)
+      // describing the last full reconciliation.
+      final reconciledAll = pulledRemote && scopeKey.isEmpty;
       // Monotonic: overlap re-deliveries can carry older stamps.
       final serverTimestamp = _later(existingMetadata?.serverTimestamp, stagedWatermark);
-      final localCustomMetadata = stagedCursor == null ? existingMetadata?.customMetadata : {...?existingMetadata?.customMetadata, syncCursorKey: stagedCursor};
+      final localCustomMetadata = pulledRemote ? _withPullState(existingMetadata?.customMetadata, scopeKey, hash: contentHash, cursor: stagedCursor, since: stagedWatermark) : existingMetadata?.customMetadata;
       final remoteCustomMetadata = _withoutCursor(localCustomMetadata);
 
       final updatedDevices = <String, DateTime>{...?existingMetadata?.devices};
@@ -1201,7 +1444,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       // beacon so other devices pull our push), but keep the local hash and
       // counts describing the last state we actually reconciled — the next
       // pull-inclusive sync then sees the difference and runs.
-      final localMetadata = pulledRemote
+      final localMetadata = reconciledAll
           ? newMetadata
           : DatumSyncMetadata(
               userId: userId,
@@ -1323,7 +1566,9 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     var currentBatch = <DatumSyncOperation<T>>[];
 
     for (final op in operations) {
-      if (currentBatch.isNotEmpty && !(_canBatchWith(currentBatch.last, op) && currentBatch.length < batchSize)) {
+      // A guarded edit is checked against its own base: it travels alone.
+      final batchable = currentBatch.isEmpty || (!_travelsAlone(op) && !_travelsAlone(currentBatch.last) && _canBatchWith(currentBatch.last, op) && currentBatch.length < batchSize);
+      if (!batchable) {
         result.add(_collapseBatch(currentBatch));
         currentBatch = [];
       }
@@ -1352,10 +1597,11 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
     );
 
     try {
+      var refused = const <String>{};
       switch (batch.type) {
         case DatumOperationType.create:
           final entities = batch.operations.map((op) => op.data!).toList();
-          await remoteAdapter.createAll(entities);
+          refused = await _createAll(entities);
         case DatumOperationType.update:
           final entities = batch.operations.map((op) => op.data!).toList();
           await remoteAdapter.updateAll(entities);
@@ -1365,6 +1611,10 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       }
 
       for (final op in batch.operations) {
+        if (refused.contains(op.entityId)) {
+          _refuse(op);
+          continue;
+        }
         await queueManager.dequeue(op.id);
         _notifyPostOperationObservers(op, success: true);
       }
@@ -1372,7 +1622,7 @@ class DatumSyncEngine<T extends DatumEntityInterface> {
       if (!statusSubject.isClosed) {
         statusSubject.add(
           statusSubject.value.copyWith(
-            syncedCount: statusSubject.value.syncedCount + batch.operations.length,
+            syncedCount: statusSubject.value.syncedCount + batch.operations.length - refused.length,
           ),
         );
       }
@@ -1435,17 +1685,23 @@ typedef _PullContext<T extends DatumEntityInterface> = ({
   DatumConflictResolver<T> resolver,
   // False (`resolveConflicts: false`): conflicts are reported, not resolved.
   bool resolve,
-  // entityId -> ids of its still-queued local ops.
-  Map<String, List<String>> pending,
+  // entityId -> its still-queued local edits, oldest first.
+  Map<String, List<DatumSyncOperation<T>>> queued,
+  // The rows come from a change feed, not from a read of the remote.
+  bool live,
 });
 
-/// entityId -> ids of its queued ops.
-Map<String, List<String>> _opIdsByEntity(List<DatumSyncOperation> ops) {
-  final byEntity = <String, List<String>>{};
-  for (final op in ops) {
-    (byEntity[op.entityId] ??= []).add(op.id);
+/// The version a row's queued edits started from (the oldest one's base);
+/// null when any of them does not know: a create, or an operation queued by
+/// a build that did not record it.
+int? _baseVersion(List<DatumSyncOperation> queued) {
+  int? base;
+  for (final op in queued) {
+    final opBase = op.baseVersion;
+    if (opBase == null) return null;
+    if (base == null || opBase < base) base = opBase;
   }
-  return byEntity;
+  return base;
 }
 
 /// The later of two optional timestamps (null-tolerant).
@@ -1455,10 +1711,13 @@ DateTime? _later(DateTime? current, DateTime? candidate) {
   return candidate.isAfter(current) ? candidate : current;
 }
 
-/// [custom] without the device-local sync cursor, or null when nothing remains.
+/// [custom] without the device-local pull positions (the cursor and the
+/// per-scope states), or null when nothing remains.
 Map<String, dynamic>? _withoutCursor(Map<String, dynamic>? custom) {
   if (custom == null) return null;
-  final stripped = {...custom}..remove(DatumSyncEngine.syncCursorKey);
+  final stripped = {...custom}
+    ..remove(DatumSyncEngine.syncCursorKey)
+    ..remove(DatumSyncEngine.syncScopesKey);
   return stripped.isEmpty ? null : stripped;
 }
 

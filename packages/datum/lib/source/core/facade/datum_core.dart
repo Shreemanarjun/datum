@@ -767,7 +767,7 @@ class Datum {
     _connectivitySubscription = connectivityChecker.onStatusChange.listen(
       (isConnected) async {
         if (isConnected) {
-          logger.info('Connectivity restored - triggering sync for all users with pending changes...');
+          logger.info('Connectivity restored - catching up...');
           await _syncOnConnectivityRestoration();
         } else {
           logger.info('Connectivity lost');
@@ -786,27 +786,29 @@ class Datum {
     return false;
   }
 
-  /// Synchronizes all users that have pending operations when connectivity is restored.
+  /// When connectivity returns, synchronizes every user that has changes
+  /// waiting to upload, and every user that is being kept in sync
+  /// (auto-sync on): those may have missed remote changes while offline, and
+  /// would otherwise show old data until their next local change.
   Future<void> _syncOnConnectivityRestoration() async {
-    final allUserIds = <String>{};
+    final userIds = <String>{for (final manager in _managers.allManagers) ...manager.autoSyncUserIds};
     for (final manager in _managers.allManagers) {
       try {
-        final userIds = await manager.localAdapter.getAllUserIds();
-        allUserIds.addAll(userIds);
+        for (final userId in await manager.localAdapter.getAllUserIds()) {
+          if (!userIds.contains(userId) && await _hasPending(userId)) userIds.add(userId);
+        }
       } catch (e) {
         logger.warn('Could not get user IDs from ${manager.localAdapter.runtimeType}: $e');
       }
     }
 
-    for (final userId in allUserIds) {
+    for (final userId in userIds) {
       if (_managers.allManagers.any((m) => m.isDisposed)) return; // Datum disposed meanwhile
-      if (await _hasPending(userId)) {
-        try {
-          logger.info('Triggering automatic sync for user $userId due to connectivity restoration');
-          await synchronize(userId);
-        } catch (e) {
-          logger.error('Failed to synchronize user $userId on connectivity restoration: $e');
-        }
+      try {
+        logger.info('Triggering automatic sync for user $userId due to connectivity restoration');
+        await synchronize(userId, options: const DatumSyncOptions(reason: 'reconnect'));
+      } catch (e) {
+        logger.error('Failed to synchronize user $userId on connectivity restoration: $e');
       }
     }
   }

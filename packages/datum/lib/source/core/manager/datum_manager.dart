@@ -43,6 +43,7 @@ import 'package:datum/source/core/models/vector_clock.dart';
 import 'package:datum/source/core/persistence/datum_persistence.dart';
 import 'package:datum/source/core/query/datum_query.dart';
 import 'package:datum/source/core/query/datum_raw_query.dart';
+import 'package:datum/source/core/events/conflict_resolved_event.dart';
 import 'package:datum/source/core/resolver/conflict_resolution.dart';
 import 'package:datum/source/core/resolver/last_write_wins_resolver.dart';
 import 'package:datum/source/core/sync/datum_sync_request_strategy.dart';
@@ -222,6 +223,10 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   /// Public event streams
   Stream<DatumSyncEvent<T>> get eventStream => _eventController.stream;
   Stream<DataChangeEvent<T>> get onDataChange => eventStream.whereType<DataChangeEvent<T>>();
+
+  /// Batches of changes that arrived through an adapter's change stream
+  /// (e.g. realtime) and were applied without a sync cycle.
+  Stream<LiveChangesAppliedEvent<T>> get onLiveChangesApplied => eventStream.whereType<LiveChangesAppliedEvent<T>>();
   Stream<DatumSyncStartedEvent<T>> get onSyncStarted => eventStream.whereType<DatumSyncStartedEvent<T>>();
   Stream<DatumSyncProgressEvent<T>> get onSyncProgress => eventStream.whereType<DatumSyncProgressEvent<T>>();
   Stream<DatumSyncCompletedEvent<T>> get onSyncCompleted => eventStream.whereType<DatumSyncCompletedEvent<T>>();
@@ -564,7 +569,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     // entity id — keying by id alone silently dropped legitimate remote
     // updates arriving within the cache window of an unrelated local write.
     final newChanges = changes.whereNot((c) {
-      final isRecent = _recentChangeCache.containsKey(_changeFingerprint(c.entityId, c.data));
+      final isRecent = _recentChangeCache.containsKey(_fingerprintOf(c));
       if (isRecent) {
         _logger.debug(
           'Ignoring duplicate external change for entity ${c.entityId}',
@@ -582,89 +587,126 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     );
 
     // 3. Process all new changes.
+    final watch = Stopwatch()..start();
+    final applied = <DatumChangeDetail<T>>[];
+    // Added to the cache before anything is awaited: the same change may be
+    // delivered again while this one is still being processed.
     for (final change in newChanges) {
-      // Add to cache *before* processing to handle race conditions.
-      _recentChangeCache[_changeFingerprint(change.entityId, change.data)] = DateTime.now();
-
+      _recordLocalEcho(change.entityId, change.data, deleted: change.type == DatumOperationType.delete);
+    }
+    final screened = source == DataSource.remote ? await _screenLiveChanges(newChanges) : (save: newChanges, taken: <DatumChangeDetail<T>>[]);
+    // Rows the conflict resolver already wrote here count as received too.
+    applied.addAll(screened.taken);
+    for (final change in screened.save) {
       try {
-        if (change.type == DatumOperationType.delete) {
-          // For an external delete, we bypass the main `delete` method's
-          // preliminary read. We trust the event and directly call the
-          // local adapter to perform the deletion. This is more efficient
-          // and avoids the incorrect `read` call seen in the test failure.
-          _logger.debug(
-            'Applying external delete for ${change.entityId} directly to local adapter.',
-          );
-          final deleted = await localAdapter.delete(
-            change.entityId,
-            userId: change.userId,
-          );
-          _metadataHashCache.invalidate(change.userId);
-          if (deleted) {
-            _eventController.add(
-              // We can't easily get the size of a deleted item from a remote
-              // event, so we'll consider it 0 for bytesPulled calculation.
-              // The size of the delete *operation* is calculated on push.
-              DatumSyncProgressEvent<T>(userId: change.userId, bytesPulled: 0, completed: 1, total: 1),
-            );
-            _eventController.add(
-              DataChangeEvent<T>(
-                userId: change.userId,
-                // We don't have the full data for a delete event, so this is null.
-                data: change.data,
-                changeType: ChangeType.deleted,
-                source: source,
-              ),
-            );
-          }
-        } else if (change.data != null) {
-          // If change is from remote, just save locally.
-          // If from local, it's an external change, so queue it for remote.
-          await push(
-            item: change.data!,
-            userId: change.userId,
-            source: source, // Let push handle the logic
-          );
-          // If the change is from remote, it contributes to bytesPulled.
-          final payload = change.data!.toDatumMap(target: MapTarget.local);
-          final size = (await _isolateHelper.computeJsonEncode(payload)).length;
-          if (_eventController.isClosed) {
-            _logger.warn(
-              'Cannot emit sync progress event; manager is disposed.',
-            );
-            return;
-          }
-          _eventController.add(
-            DatumSyncProgressEvent<T>(
-              userId: change.userId,
-              bytesPulled: size,
-              completed: 1,
-              total: 1,
-            ),
-          );
-        }
+        if (await _applyExternalChange(change, source)) applied.add(change);
       } on Object catch (e, stack) {
         _logger.error(
           'Failed to process external change for ${change.entityId} from $source: $e',
           stack,
         );
         // Remove from cache on failure so it can be retried if the event arrives again.
-        _recentChangeCache.remove(_changeFingerprint(change.entityId, change.data));
+        _recentChangeCache.remove(_fingerprintOf(change));
       }
     }
+    // A change from the local store's own stream was not received from
+    // anywhere: it is already stored, and was only queued for upload.
+    if (source == DataSource.remote) _reportLiveChanges(applied, watch.elapsed);
   }
+
+  /// Screens changes from the remote feed by the rules of a pull (see
+  /// `DatumSyncEngine.screenRemoteChanges`): a feed delivers whatever another
+  /// device wrote, in any order and more than once, and saving it blindly
+  /// rolled rows back and overwrote unsynced local edits. Returns the changes
+  /// to save as they are (deletes pass through) and the ones a conflict
+  /// resolver has already taken into the local store.
+  Future<({List<DatumChangeDetail<T>> save, List<DatumChangeDetail<T>> taken})> _screenLiveChanges(List<DatumChangeDetail<T>> changes) async {
+    final toSave = Set<T>.identity();
+    final resolvedHere = <String>{};
+    final upserts = changes.where((c) => c.type != DatumOperationType.delete && c.data != null);
+    for (final MapEntry(key: userId, value: ofUser) in upserts.groupListsBy((c) => c.userId).entries) {
+      final screened = await _syncEngineInstance.screenRemoteChanges(userId, [for (final c in ofUser) c.data!]);
+      toSave.addAll(screened.toSave);
+      resolvedHere.addAll([
+        for (final event in screened.events)
+          if (event is ConflictResolvedEvent<T> && event.resolution.strategy != DatumResolutionStrategy.takeLocal) event.entityId
+      ]);
+      _processSyncEvents(screened.events);
+    }
+    bool saves(DatumChangeDetail<T> c) => c.type == DatumOperationType.delete || toSave.contains(c.data);
+    return (
+      save: changes.where(saves).toList(),
+      taken: changes.where((c) => !saves(c) && resolvedHere.contains(c.entityId)).toList(),
+    );
+  }
+
+  /// Applies one external [change]. False when it changed nothing.
+  Future<bool> _applyExternalChange(DatumChangeDetail<T> change, DataSource source) async {
+    final data = change.data;
+    if (change.type == DatumOperationType.delete) {
+      // Trust the event and delete directly, without `delete`'s preliminary
+      // read.
+      final deleted = await localAdapter.delete(change.entityId, userId: change.userId);
+      _metadataHashCache.invalidate(change.userId);
+      if (!deleted) return false;
+      // A delete event's size is unknown, so it counts as 0 bytes pulled.
+      _eventController
+        ..add(DatumSyncProgressEvent<T>(userId: change.userId, bytesPulled: 0, completed: 1, total: 1))
+        ..add(DataChangeEvent<T>(userId: change.userId, data: data, changeType: ChangeType.deleted, source: source));
+      return true;
+    }
+    if (data == null) return false;
+    // From remote: saved locally. From the local store: queued for remote.
+    await push(item: data, userId: change.userId, source: source);
+    final size = (await _isolateHelper.computeJsonEncode(data.toDatumMap(target: MapTarget.local))).length;
+    if (!_eventController.isClosed) {
+      _eventController.add(DatumSyncProgressEvent<T>(userId: change.userId, bytesPulled: size, completed: 1, total: 1));
+    }
+    return true;
+  }
+
+  /// Emits one [LiveChangesAppliedEvent] per user for the [applied] changes.
+  void _reportLiveChanges(List<DatumChangeDetail<T>> applied, Duration duration) {
+    if (_eventController.isClosed) return;
+    for (final MapEntry(key: userId, value: changes) in applied.groupListsBy((c) => c.userId).entries) {
+      _eventController.add(LiveChangesAppliedEvent<T>(
+        userId: userId,
+        count: changes.length,
+        duration: duration,
+        lastChangedAt: changes.map((c) => c.timestamp).max,
+      ));
+    }
+  }
+
+  /// Users this manager is keeping in sync automatically.
+  Set<String> get autoSyncUserIds => {..._autoSyncRuns.keys};
 
   /// Content fingerprint identifying one exact state of an entity —
   /// the dedupe key for external changes and for recognizing the adapter's
   /// echo of this manager's own writes (see [_recordLocalEcho]).
-  String _changeFingerprint(String entityId, T? data) => data == null ? '$entityId:deleted' : '$entityId:${data.version}:${data.modifiedAt.toIso8601String()}';
+  ///
+  /// A delete is keyed apart from an upsert: a feed that sends the row's last
+  /// state with its delete would otherwise look like a repeat of the upsert
+  /// that came before it, and the delete would be dropped.
+  ///
+  /// The time is keyed as an instant in milliseconds, not as text: the feed
+  /// returns a local write with its timestamp in UTC, which prints
+  /// differently, and local stores keep milliseconds.
+  String _changeFingerprint(String entityId, T? data, {bool deleted = false}) {
+    final state = data == null ? '' : ':${data.version}:${data.modifiedAt.millisecondsSinceEpoch}';
+    return deleted ? '$entityId:deleted$state' : '$entityId$state';
+  }
+
+  String _fingerprintOf(DatumChangeDetail<T> change) => _changeFingerprint(change.entityId, change.data, deleted: change.type == DatumOperationType.delete);
 
   /// Records the fingerprint of a write this manager just performed, so the
   /// local adapter's change-stream echo of it is dropped instead of being
   /// re-pushed (which re-ran pre-save middleware — double-encrypting with
   /// non-idempotent transforms — and enqueued duplicate sync operations).
-  void _recordLocalEcho(String entityId, T? data) {
-    _recentChangeCache[_changeFingerprint(entityId, data)] = DateTime.now();
+  void _recordLocalEcho(String entityId, T? data, {bool deleted = false}) {
+    _recentChangeCache[_changeFingerprint(entityId, data, deleted: deleted)] = DateTime.now();
+    // The row exists (again): a later delete of it is news, not a repeat.
+    if (!deleted) _recentChangeCache.remove(_changeFingerprint(entityId, null, deleted: true));
     // Adapters without a change stream never reach _handleExternalChange, so
     // expire here too — at most once per window, keeping writes O(1).
     if (DateTime.now().difference(_lastExpirySweep) > config.changeCacheDuration) _cleanupChangeCache();
@@ -782,8 +824,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
       }
     }));
 
-    await localAdapter.create(transformed);
+    // Before the write: adapters emit the change before the write returns.
     _recordLocalEcho(transformed.id, transformed);
+    await localAdapter.create(transformed);
     _metadataHashCache.invalidate(transformed.userId);
 
     if (source == DataSource.local || forceRemoteSync) {
@@ -837,9 +880,9 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     // next pull reports as a conflict.
     final remoteKeys = transformed.toDatumMap(target: MapTarget.remote).keys.toSet();
     final localDelta = diffDatumMaps(transformed.toDatumMap(), existing.toDatumMap())?..removeWhere((key, _) => remoteKeys.contains(key) && !delta.containsKey(key));
+    _recordLocalEcho(transformed.id, transformed);
     final patched = localDelta == null || localDelta.isEmpty ? existing : await localAdapter.patch(id: transformed.id, delta: localDelta, userId: userId);
     _recordLocalEcho(transformed.id, patched);
-    _recordLocalEcho(transformed.id, transformed);
     _metadataHashCache.invalidate(userId);
 
     if (source == DataSource.local || forceRemoteSync) {
@@ -849,6 +892,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
         entityId: transformed.id,
         data: transformed,
         delta: delta,
+        baseVersion: existing.version,
       );
       await _enqueueSized(operation);
     }
@@ -1395,6 +1439,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
         type: soft ? DatumOperationType.update : DatumOperationType.delete,
         entityId: id,
         data: soft ? entityForEvent : null,
+        baseVersion: existing.version,
       ));
     }
 
@@ -1455,7 +1500,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     final existing = await localAdapter.read(id, userId: userId);
     if (existing == null || !existing.isDeleted) return null;
     final restored = await _setDeletedLocally(existing, userId, deleted: false);
-    await _enqueueSized(_createOperation(userId: userId, type: DatumOperationType.update, entityId: id, data: restored));
+    await _enqueueSized(_createOperation(userId: userId, type: DatumOperationType.update, entityId: id, data: restored, baseVersion: existing.version));
     _eventController.add(DataChangeEvent<T>(userId: userId, data: restored, changeType: ChangeType.updated, source: DataSource.local));
     _cacheCoordinator.invalidateCachesForEntity(restored);
     return restored;
@@ -1501,8 +1546,8 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   Future<bool> _hardDeleteLocally(T existing, String userId) async {
     final id = existing.id;
     final deleted = await localAdapter.delete(id, userId: userId);
-    _recordLocalEcho(id, null);
-    _recordLocalEcho(id, existing);
+    _recordLocalEcho(id, null, deleted: true);
+    _recordLocalEcho(id, existing, deleted: true);
     _metadataHashCache.invalidate(userId);
     if (!deleted) _logger.warn('Local adapter failed to delete entity $id');
     return deleted;
@@ -1535,7 +1580,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
   /// configured backoff ([DatumErrorRecoveryStrategy.backoffStrategy]) for the
   /// most-retried one, rather than leaving them to the next auto-sync.
   Future<void> _scheduleBackoffRetry(String userId, DatumSyncResult<T> result) async {
+    // Disposed during the sync: dispose already cancelled every timer.
+    if (isDisposed) return;
     _backoffRetryTimers.remove(userId)?.cancel();
+    // The write a debounced sync was armed for is already uploaded.
+    if (await getPendingCount(userId) == 0) _syncAfterWriteTimers.remove(userId)?.cancel();
     final attempts = [
       for (final op in result.pendingOperations)
         if (!op.isParked && op.retryCount > 0) op.retryCount
@@ -1942,6 +1991,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
         entityId: relatedEntity.id,
         data: relatedEntity,
         delta: patchData,
+        baseVersion: relatedEntity.version,
       ));
     }
   }
@@ -1969,6 +2019,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
         userId: existing.userId, // Use the entity's actual userId
         type: DatumOperationType.delete,
         entityId: id,
+        baseVersion: existing.version,
       );
       // Calculate size for delete operation (it's small, just the ID)
       final payload = {'id': id};
@@ -2625,6 +2676,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     required String entityId,
     T? data,
     Map<String, dynamic>? delta,
+    int? baseVersion,
   }) {
     return DatumSyncOperation<T>(
       id: const Uuid().v4(),
@@ -2632,6 +2684,7 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
       type: type,
       data: data,
       delta: delta,
+      baseVersion: baseVersion,
       entityId: entityId,
       // Deterministic per-entity identifier so operations can be safely filtered
       // and deserialized when multiple entity types share one pending store (#16).

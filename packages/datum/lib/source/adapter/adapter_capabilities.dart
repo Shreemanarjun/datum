@@ -77,6 +77,43 @@ mixin DeltaSyncCapable<T extends DatumEntityInterface> {
   Future<List<T>> readSince(DateTime since, {String? userId, DatumSyncScope? scope});
 }
 
+/// The remote adapter can refuse a write when the row has changed since the
+/// writer last saw it (compare-and-set on the row's `version`).
+///
+/// A remote that accepts every write lets two devices that upload edits of
+/// the same row, without having seen each other's, overwrite one another.
+/// The engine catches that on the device that pulls before it pushes, but
+/// not when the two syncs overlap. With this capability the second upload is
+/// refused whatever the timing or the sync direction: the engine keeps the
+/// edit queued, reads the row, and gives both versions to the conflict
+/// resolver.
+///
+/// The engine calls these instead of `create`, `patch`, `update` and
+/// `delete`: an edit of an existing row carries the version it started from
+/// (`DatumSyncOperation.baseVersion`), and a create must find no row. The
+/// check and the write must be one atomic step on the backend (e.g.
+/// `UPDATE ... WHERE version <= :base`, `INSERT ... ON CONFLICT DO NOTHING`).
+mixin GuardedWriteCapable<T extends DatumEntityInterface> {
+  /// Creates the [entities] whose ids do not exist yet and returns the ids
+  /// that already did; those rows are left as they are. (A row that turns
+  /// out to be this device's own earlier upload is recognized by the engine
+  /// on the pull that follows; any other is a conflict.)
+  Future<Set<String>> createAllIfAbsent(List<T> entities);
+
+  /// Applies [delta] (remote keys and formats; the whole row for a full
+  /// update) to row [id] only while its version is [baseVersion] or lower.
+  ///
+  /// Throws `ConflictException` and changes nothing when the row is past
+  /// that version, and `EntityNotFoundException` when it does not exist.
+  Future<void> patchIfUnchanged({required String id, required Map<String, dynamic> delta, required int baseVersion, String? userId});
+
+  /// Deletes row [id] only while its version is [baseVersion] or lower.
+  ///
+  /// Throws `ConflictException` and changes nothing when the row is past
+  /// that version, and `EntityNotFoundException` when it does not exist.
+  Future<void> deleteIfUnchanged(String id, {required int baseVersion, String? userId});
+}
+
 /// The result of one [CursorSyncCapable.readChanges] page: the changed
 /// entities plus the opaque cursor to pass on the next call.
 typedef CursorPage<T> = ({List<T> items, String nextCursor});

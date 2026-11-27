@@ -1,5 +1,79 @@
 # Unreleased
 
+- `LiveChangesAppliedEvent` / `DatumManager.onLiveChangesApplied`: fired
+  when changes received over the remote adapter's change stream (a realtime
+  feed) were saved: how many, how long it took, and when the latest was
+  made. No sync cycle runs for those, so nothing else told the app. The echo
+  of the device's own writes is not reported.
+- `DatumManager.autoSyncUserIds`. After the network comes back, users being
+  auto-synced are synced too, not only users with something to upload.
+- **Behavior change:** a sync on a delta- or cursor-capable remote always
+  asks for changes; the "nothing changed" metadata check is only used for
+  remotes that would otherwise re-read everything. A device that missed a
+  live update gets it on its next sync.
+- **Behavior change: what counts as a conflict.** A conflict is an unsynced
+  local edit of a row that changed remotely since the edit started, the same
+  version with different content, or concurrent vector clocks. Two cases that
+  used to go to the resolver no longer do:
+  - a pulled row that is newer than a local row with no unsynced edit
+    replaces it (same result as before with the default resolver; with
+    `LocalPriorityResolver`, a prompting resolver or `askUser`/`abort`,
+    ordinary edits from other devices used to be rejected or held);
+  - a remote row that has not changed since the local edit started is left
+    alone and the edit is uploaded. Before, `RemotePriorityResolver` threw
+    the unsynced edit away (after a failed upload, or on any pull-first
+    sync) and a merge resolver merged the edit with its own ancestor.
+- **Behavior change: live changes follow the pull rules.** A row received
+  over the remote adapter's change stream used to be saved as it came. A late
+  or repeated event rolled the row back to an older state, and an edit from
+  another device replaced a row with an unsynced local edit while that edit
+  stayed queued. Each live row is now screened like a pulled one
+  (`DatumSyncEngine.screenRemoteChanges`): newer than an untouched local row
+  is saved, a conflict with an unsynced edit goes to the resolver, and an
+  older or identical row is ignored.
+- **`GuardedWriteCapable`** (remote adapter capability): `createAllIfAbsent`,
+  `patchIfUnchanged`, `deleteIfUnchanged`. The remote refuses a create whose
+  id exists and an edit of a row that is past the version the edit started
+  from. A refused upload is not a failure: the edit stays queued, the engine
+  reads the row, the resolver decides, and the result is sent in the same
+  cycle. Two devices can then no longer overwrite each other's upload,
+  however their syncs overlap and whichever sync direction is used. Guarded
+  edits are sent one by one; creates still go out in bulk.
+- **Behavior change:** when a resolver keeps the local row or merges, its
+  result replaces the edits queued for that row (one full upload) instead of
+  being queued behind them.
+- A queued edit whose result is already on the remote (the upload arrived,
+  its acknowledgement did not) is recognized on the next pull and dropped,
+  also when it is the first of several edits of one row. Before, the row it
+  had itself uploaded could be taken for another device's change.
+- A live change the resolver took into the local store counts in
+  `LiveChangesAppliedEvent`.
+- `DatumSyncOperation.baseVersion`: the version the row had before the queued
+  edit. Persisted with the operation; operations queued by older builds
+  simply have none.
+- **Behavior change:** `DatumConfig.defaultSyncDirection` is now
+  `pullThenPush`. A device looks at the remote before it uploads, so
+  conflicting edits reach the resolver instead of the last upload silently
+  replacing the other. `pushThenPull` keeps the old order (last push wins).
+- **Sync scopes keep their own pull state.** The pull position (cursor or
+  watermark) and the "nothing changed" check were kept once per device, so
+  after syncing one `DatumSyncScope`, a sync of another scope was skipped or
+  started past the rows the first scope had filtered out, and never
+  downloaded them. Each scope now has its own state (the 16 most recently
+  used; a forgotten scope is read in full again), stored in the local sync
+  metadata under `DatumSyncEngine.syncScopesKey`.
+- A sync started while a debounced `syncAfterWriteDelay` sync is waiting
+  uploads the write; the debounced one no longer runs for nothing.
+- Fixes, all from comparing timestamps as text or finer than the local store
+  keeps them (now compared as instants, in milliseconds):
+  - the remote feed's echo of a local write was saved a second time;
+  - a row whose server timestamp has microseconds was reported and resolved
+    as a conflict on every pull;
+  - a local write's own change-stream echo was counted as downloaded bytes
+    (the echo is now recognized before the write returns).
+- Fix: a delete from the change stream that carries the row's last state
+  was dropped as a repeat of the upsert before it.
+
 - **Breaking:** `TimeoutException` is now `DatumTimeoutException` (it
   shadowed `dart:async`'s). A sync timeout throws it.
 - **Breaking:** `Relation.getRelatedManager()` returns `RelatedSource<T>`

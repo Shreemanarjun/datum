@@ -10,9 +10,10 @@ import 'sync_stack_conformance.dart';
 
 /// Runs [runSyncStackConformanceTests] for one local adapter against EVERY
 /// bundled remote: [InMemoryRemoteAdapter] (full pulls, strict 404s),
-/// [HttpRemoteAdapter] over [LocalSyncServer] (timestamp-delta pulls) and
-/// [CursorHttpRemoteAdapter] (cursor change feed). Per-entity fault injection
-/// is wired for all three.
+/// [GuardedInMemoryRemoteAdapter] (the same, refusing edits of rows that
+/// changed since the edit started), [HttpRemoteAdapter] over
+/// [LocalSyncServer] (timestamp-delta pulls) and [CursorHttpRemoteAdapter]
+/// (cursor change feed). Per-entity fault injection is wired for all four.
 ///
 /// ```dart
 /// runSyncConformanceMatrix(
@@ -40,6 +41,22 @@ void runSyncConformanceMatrix({
     reopenLocal: reopenLocal,
     failEntityWrites: (id, {required status, times = 1}) =>
         backend.failWrites(id, status: status, times: times),
+  );
+
+  final guarded = InMemoryRemoteBackend();
+  runSyncStackConformanceTests(
+    name: '$name + InMemoryRemote with guarded writes',
+    createLocal: createLocal,
+    createRemote: () async => GuardedInMemoryRemoteAdapter<ConformanceEntity>(
+      backend: guarded,
+      fromMap: ConformanceEntity.fromMap,
+    ),
+    resetBackend: () async => guarded.reset(),
+    destroyLocal: destroyLocal,
+    reopenLocal: reopenLocal,
+    failEntityWrites: (id, {required status, times = 1}) =>
+        guarded.failWrites(id, status: status, times: times),
+    remoteGuardsWrites: true,
   );
 
   group('$name + HTTP', () {

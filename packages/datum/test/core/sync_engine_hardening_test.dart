@@ -229,23 +229,36 @@ void main() {
       await manager.initialize();
       addTearDown(manager.dispose);
 
-      // Divergent copies with NO pending ops (both edited independently).
+      // Divergent copies with NO pending ops: both devices edited the same
+      // version independently.
       await local.create(TestEntity(id: 'e1', userId: 'u1', name: 'local-edit', value: 1, modifiedAt: DateTime(2030), createdAt: DateTime(2024), version: 2));
-      remote.addRemoteItem('u1', TestEntity(id: 'e1', userId: 'u1', name: 'remote-edit', value: 10, modifiedAt: DateTime(2030, 2), createdAt: DateTime(2024), version: 3));
+      remote.addRemoteItem('u1', TestEntity(id: 'e1', userId: 'u1', name: 'remote-edit', value: 10, modifiedAt: DateTime(2030, 2), createdAt: DateTime(2024), version: 2));
 
       final first = await manager.synchronize('u1');
       expect(first.conflictsResolved, 1);
       expect((await manager.read('e1', userId: 'u1'))?.name, 'merged');
-      // The merged winner was queued for push (previously nothing was queued,
-      // so the remote never converged and the merge re-fired every sync).
-      expect(first.pendingOperations, isNotEmpty);
-
-      final second = await manager.synchronize('u1'); // delivers the merged winner
-      expect(second.failedCount, 0);
+      // Pull first (the default): the merged winner is uploaded in the same
+      // cycle. (Previously nothing was queued at all, so the remote never
+      // converged and the merge re-fired every sync.)
+      expect(first.pendingOperations, isEmpty);
       expect((await remote.read('e1', userId: 'u1'))?.name, 'merged', reason: 'remote must converge on the merged value');
 
-      final third = await manager.synchronize('u1');
-      expect(third.conflictsResolved, 0, reason: 'the same conflict must not re-fire forever');
+      final second = await manager.synchronize('u1');
+      expect(second.conflictsResolved, 0, reason: 'the same conflict must not re-fire forever');
+
+      // Push first: the winner is found after this cycle's upload, so it
+      // waits for the next one.
+      // (Forced: the rows below are written behind the engine's back.)
+      const pushFirst = DatumSyncOptions<TestEntity>(direction: SyncDirection.pushThenPull, forceFullSync: true);
+      await local.update(TestEntity(id: 'e1', userId: 'u1', name: 'local-again', value: 1, modifiedAt: DateTime(2032), createdAt: DateTime(2024), version: 9));
+      remote.addRemoteItem('u1', TestEntity(id: 'e1', userId: 'u1', name: 'remote-again', value: 10, modifiedAt: DateTime(2032, 2), createdAt: DateTime(2024), version: 9));
+      final third = await manager.synchronize('u1', options: pushFirst);
+      expect(third.conflictsResolved, 1);
+      expect(third.pendingOperations, isNotEmpty);
+      final fourth = await manager.synchronize('u1', options: pushFirst); // delivers the merged winner
+      expect(fourth.failedCount, 0);
+      expect((await remote.read('e1', userId: 'u1'))?.version, 10);
+      expect((await manager.synchronize('u1', options: pushFirst)).conflictsResolved, 0);
     });
 
     test('pause mid-sync yields a cancelled result, keeps paused status, no metadata stamp', () async {

@@ -9,94 +9,38 @@ import 'package:example/const/secrets.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:recase/recase.dart';
 
-/// Manages retry logic for Supabase realtime subscriptions
+/// Retries a dropped realtime subscription with capped exponential backoff
+/// (1, 2, 4, 8, 16, then every 30 seconds). It never gives up: a device that
+/// was offline for a while must get its live updates back without an app
+/// restart.
 class _SubscriptionRetryManager {
   Timer? _retryTimer;
-  int _retryCount = 0;
-  bool _isRetrying = false;
-  DateTime? _lastRetryTime;
-  int _consecutiveFailures = 0;
+  int _attempts = 0;
 
-  static const int maxRetries = 5;
-  static const Duration baseRetryDelay = Duration(seconds: 1);
-
-  bool get isRetrying => _isRetrying;
-  bool get hasFailures => _retryCount > 0 || _consecutiveFailures > 0;
+  bool get hasFailures => _attempts > 0;
 
   void scheduleRetry(
-      String tableName, bool isAuthenticated, VoidCallback retryCallback) {
-    if (_isRetrying || !isAuthenticated) {
-      talker.debug(
-          "Skipping retry: already retrying or not authenticated for table: $tableName");
-      return;
-    }
-
-    _trackFailure();
-
-    if (_retryCount >= maxRetries) {
-      talker.error(
-          "Max retry attempts reached for table: $tableName. Giving up.");
-      return;
-    }
-
-    _isRetrying = true;
-    _retryCount++;
-
-    final delay = _calculateDelay();
+      String tableName, bool isAuthenticated, VoidCallback retry) {
+    if (_retryTimer != null || !isAuthenticated) return;
+    final delay = Duration(seconds: _attempts < 5 ? 1 << _attempts : 30);
+    _attempts++;
     talker.warning(
-        "Scheduling retry attempt $_retryCount for table: $tableName in ${delay.inSeconds} seconds");
-
-    _retryTimer?.cancel();
+        'Realtime for $tableName dropped; retry $_attempts in ${delay.inSeconds}s');
     _retryTimer = Timer(delay, () {
-      if (!isAuthenticated) {
-        talker.debug(
-            "Skipping retry: user not authenticated for table: $tableName");
-        _isRetrying = false;
-        return;
-      }
-
-      talker.info(
-          "Retrying subscription for table: $tableName (attempt $_retryCount)");
-      _isRetrying = false;
-      retryCallback();
+      _retryTimer = null;
+      retry();
     });
   }
 
-  void _trackFailure() {
-    final now = DateTime.now();
-    if (_lastRetryTime != null &&
-        now.difference(_lastRetryTime!).inSeconds < 30) {
-      _consecutiveFailures++;
-    } else {
-      _consecutiveFailures = 1;
-    }
-    _lastRetryTime = now;
-  }
-
-  Duration _calculateDelay() {
-    var delaySeconds =
-        (baseRetryDelay.inSeconds * (1 << (_retryCount - 1))).clamp(1, 30);
-    if (_consecutiveFailures >= 3) {
-      delaySeconds = (delaySeconds * 5).clamp(30, 300);
-    }
-    return Duration(seconds: delaySeconds);
-  }
-
   void reset() {
-    _retryCount = 0;
-    _isRetrying = false;
     _retryTimer?.cancel();
     _retryTimer = null;
-    _consecutiveFailures = 0;
-    _lastRetryTime = null;
+    _attempts = 0;
   }
 
-  void dispose() {
-    _retryTimer?.cancel();
-  }
+  void dispose() => _retryTimer?.cancel();
 }
 
-/// Holds state that cannot be sent across isolates
 class _SupabaseAdapterState<T extends DatumEntityInterface> {
   RealtimeChannel? channel;
   StreamController<DatumChangeDetail<T>>? streamController;
@@ -111,7 +55,7 @@ class _SupabaseAdapterState<T extends DatumEntityInterface> {
 }
 
 class SupabaseRemoteAdapter<T extends DatumEntityInterface>
-    extends RemoteAdapter<T> with DeltaSyncCapable<T> {
+    extends RemoteAdapter<T> with DeltaSyncCapable<T>, GuardedWriteCapable<T> {
   final String tableName;
   final T Function(Map<String, dynamic>) fromMap;
   final SupabaseClient? _clientOverride;
@@ -232,6 +176,7 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
             .from(tableName)
             .select()
             .gt('updated_at', since.toUtc().toIso8601String());
+        if (userId != null) query = query.eq('user_id', userId);
         for (final condition in scope?.query.filters ?? const []) {
           query = _applyFilter(query, condition);
         }
@@ -292,6 +237,9 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
     try {
       PostgrestFilterBuilder queryBuilder = _client.from(tableName).select();
       talker.debug("🔍 [Adapter] Created query builder for table: $tableName");
+      // Row-level security may let a session see more than its own rows
+      // (shared data, a stale session): a sync for one user pulls only theirs.
+      if (userId != null) queryBuilder = queryBuilder.eq('user_id', userId);
 
       // Apply filters from the sync scope, if provided.
       if (scope != null) {
@@ -400,6 +348,87 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
             'Failed to push item: upsert did not return the expected record. Check RLS policies.',
           );
         }
+      });
+
+  /// Why a guarded write touched no row: it is gone, or another device
+  /// moved it past [baseVersion].
+  Future<Never> _refused(String id, int baseVersion) async {
+    final row = await _client
+        .from(tableName)
+        .select('version')
+        .eq('id', id)
+        .maybeSingle();
+    if (row == null) {
+      throw EntityNotFoundException(
+          message: 'Entity with id $id not found in table $tableName');
+    }
+    throw ConflictException(
+        message:
+            'Row $id in $tableName is at version ${row['version']}, past $baseVersion');
+  }
+
+  // One statement each: Postgres checks and writes, or does neither. Two
+  // devices can no longer overwrite each other's upload, however their
+  // syncs overlap.
+  @override
+  Future<Set<String>> createAllIfAbsent(List<T> entities) => _guarded(() async {
+        if (entities.isEmpty) return const {};
+        final rows = [
+          for (final e in entities)
+            _toSnakeCase(e.toDatumMap(target: MapTarget.remote))
+              ..['user_id'] = e.userId
+        ];
+        final created = await _client
+            .from(tableName)
+            .upsert(rows, onConflict: 'id', ignoreDuplicates: true)
+            .select('id');
+        final taken = {for (final e in entities) e.id}
+          ..removeAll(created.map((row) => row['id']));
+        if (taken.isEmpty) return taken;
+        // A taken id this session cannot read is someone else's row.
+        final readable = await _client
+            .from(tableName)
+            .select('id')
+            .inFilter('id', taken.toList());
+        if (readable.length < taken.length) {
+          throw AuthorizationException(
+              message: 'An id is already used by a row of another account '
+                  'in $tableName');
+        }
+        return taken;
+      });
+
+  @override
+  Future<void> patchIfUnchanged({
+    required String id,
+    required Map<String, dynamic> delta,
+    required int baseVersion,
+    String? userId,
+  }) =>
+      _guarded(() async {
+        final written = await _client
+            .from(tableName)
+            .update(_toSnakeCase(delta))
+            .eq('id', id)
+            .lte('version', baseVersion)
+            .select('id');
+        if (written.isEmpty) await _refused(id, baseVersion);
+      });
+
+  @override
+  Future<void> deleteIfUnchanged(
+    String id, {
+    required int baseVersion,
+    String? userId,
+  }) =>
+      _guarded(() async {
+        final deleted = await _client
+            .from(tableName)
+            .delete()
+            .eq('id', id)
+            .lte('version', baseVersion)
+            .select('id');
+        if (deleted.isEmpty) await _refused(id, baseVersion);
       });
 
   @override
@@ -1036,43 +1065,29 @@ class SupabaseRemoteAdapter<T extends DatumEntityInterface>
 
     if (hadFailures) {
       talker.info(
-          "Subscription restored for table: $tableName after failures. Triggering full sync to catch missed updates.");
-      _triggerFullSyncAfterRestoration();
+          "Subscription restored for table: $tableName after failures. Pulling what was missed.");
+      unawaited(_catchUpAfterRestoration());
     } else {
       talker.debug(
           "Subscription restored for table: $tableName (no failures detected)");
     }
   }
 
-  void _triggerFullSyncAfterRestoration() async {
+  /// Changes made while the feed was down were never delivered: pull them.
+  Future<void> _catchUpAfterRestoration() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null || !Datum.isInitialized) return;
     try {
-      final currentUser = _client.auth.currentUser;
-      if (currentUser == null) {
-        talker.debug(
-            "No authenticated user found, skipping restoration sync for table: $tableName");
-        return;
-      }
-
-      // Check if Datum is initialized before attempting sync
-      if (!Datum.isInitialized) {
-        talker.debug(
-            "Datum not initialized yet, skipping restoration sync for table: $tableName");
-        return;
-      }
-
       await Datum.manager<T>().synchronize(
-        currentUser.id,
+        userId,
         options: DatumSyncOptions<T>(
-          forceFullSync: true,
           direction: SyncDirection.pullOnly,
+          reason: 'realtime-restored',
         ),
       );
-
-      talker.info(
-          "Successfully completed restoration sync for table: $tableName");
     } catch (e, stackTrace) {
       talker.error(
-          "Failed to perform restoration sync for table: $tableName: $e",
+          'Catch-up after realtime restoration failed for $tableName: $e',
           stackTrace);
     }
   }

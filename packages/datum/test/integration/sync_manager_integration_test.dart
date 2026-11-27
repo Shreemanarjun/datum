@@ -262,10 +262,10 @@ void main() {
         createdAt: baseTime,
         version: 1,
       );
+      // Same version, different content: both devices edited it.
       final remoteEntity = localEntity.copyWith(
         name: 'Remote Version',
         modifiedAt: baseTime.add(const Duration(seconds: 10)),
-        version: 2,
       );
 
       // Setup conflict scenario

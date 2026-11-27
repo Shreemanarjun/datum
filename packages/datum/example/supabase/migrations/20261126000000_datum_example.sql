@@ -57,7 +57,6 @@ CREATE TABLE public.paint_canvases (
     title TEXT NOT NULL,
     description TEXT,
     thumbnail_stroke_data JSONB,
-    stroke_count INTEGER DEFAULT 0,
     is_deleted BOOLEAN DEFAULT FALSE,
     version INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW(),

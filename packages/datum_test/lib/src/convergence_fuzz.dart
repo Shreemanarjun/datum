@@ -34,6 +34,7 @@ typedef _VisibleRow = ({String name, int value, bool isDeleted});
 ///       InMemoryLocalAdapter(fromMap: ConformanceEntity.fromMap)..initialize(),
 /// );
 /// ```
+// Scenarios: sync.fuzz (packages/datum/doc/SYNC_SCENARIOS.md)
 void runConvergenceFuzzTests({
   required String name,
   required Future<LocalAdapter<ConformanceEntity>> Function() createLocal,

@@ -170,3 +170,59 @@ class InMemoryRemoteAdapter<T extends DatumEntityInterface>
   @override
   Future<bool> isConnected() async => true;
 }
+
+/// An [InMemoryRemoteAdapter] that refuses an edit of a row that has moved
+/// past the version the edit started from (see [GuardedWriteCapable]): the
+/// in-process stand-in for a backend with `UPDATE ... WHERE version <= :base`.
+class GuardedInMemoryRemoteAdapter<T extends DatumEntityInterface>
+    extends InMemoryRemoteAdapter<T>
+    with GuardedWriteCapable<T> {
+  GuardedInMemoryRemoteAdapter({required super.backend, required super.fromMap});
+
+  /// The stored row [id], checked against [baseVersion]. No await between
+  /// this and the write that follows, so the two are one step.
+  Map<String, dynamic> _unchanged(String id, int baseVersion, String? userId) {
+    backend._maybeFail(id);
+    final existing = _find(id, userId);
+    if (existing == null) {
+      throw EntityNotFoundException(message: 'Entity $id not found');
+    }
+    final version = _decode(existing).version;
+    if (version > baseVersion) {
+      throw ConflictException(
+        message: 'Entity $id is at version $version, past $baseVersion',
+      );
+    }
+    return existing;
+  }
+
+  @override
+  Future<Set<String>> createAllIfAbsent(List<T> entities) async {
+    final taken = <String>{};
+    for (final entity in entities) {
+      backend._maybeFail(entity.id);
+      _find(entity.id, entity.userId) == null
+          ? _put(entity)
+          : taken.add(entity.id);
+    }
+    return taken;
+  }
+
+  @override
+  Future<void> patchIfUnchanged({
+    required String id,
+    required Map<String, dynamic> delta,
+    required int baseVersion,
+    String? userId,
+  }) async => _unchanged(id, baseVersion, userId).addAll(delta);
+
+  @override
+  Future<void> deleteIfUnchanged(
+    String id, {
+    required int baseVersion,
+    String? userId,
+  }) async {
+    final row = _unchanged(id, baseVersion, userId);
+    backend.rows[_decode(row).userId]?.remove(id);
+  }
+}

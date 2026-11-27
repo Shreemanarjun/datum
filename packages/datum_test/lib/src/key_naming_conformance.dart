@@ -53,6 +53,7 @@ class SnakeKeyedEntity extends DatumEntity {
 /// Runs the key-naming conformance checks against a fresh adapter from
 /// [create]: reads, user scoping, user listing and clearing all work for an
 /// entity whose map keys are not `userId`/`isDeleted`.
+// Scenarios: store.keys (packages/datum/doc/SYNC_SCENARIOS.md)
 void runKeyNamingConformanceTests({
   required String name,
   required Future<LocalAdapter<SnakeKeyedEntity>> Function() create,
@@ -117,6 +118,39 @@ void runKeyNamingConformanceTests({
       await manager.synchronize('u1');
       expect((await remote.read('a', userId: 'u1'))?.isDeleted, isFalse);
       expect(await manager.restore(id: 'a', userId: 'u1'), isNull, reason: 'not a tombstone');
+    });
+
+    test('a timestamp finer than the local store keeps is not a conflict on every pull', () async {
+      final remote = InMemoryRemoteAdapter<SnakeKeyedEntity>(backend: InMemoryRemoteBackend(), fromMap: SnakeKeyedEntity.fromMap);
+      final manager = DatumManager<SnakeKeyedEntity>(
+        localAdapter: await create(),
+        remoteAdapter: remote,
+        connectivity: TestConnectivityChecker(),
+        datumConfig: const DatumConfig<SnakeKeyedEntity>(enableLogging: false),
+      );
+      await manager.initialize();
+      addTearDown(manager.dispose);
+      // The remote (ISO-8601) keeps microseconds, the local map (epoch
+      // milliseconds) does not: the same row reads back differently.
+      final fine = DateTime.utc(2026, 5, 1, 12, 0, 0, 250, 750);
+      await manager.push(item: SnakeKeyedEntity('a', 'u1', 'alpha', modifiedAt: fine), userId: 'u1');
+      await manager.synchronize('u1');
+      await remote.update(SnakeKeyedEntity('a', 'u1', 'alpha', modifiedAt: fine));
+      expect((await remote.read('a', userId: 'u1'))?.modifiedAt, fine);
+
+      final changes = <DataChangeEvent<SnakeKeyedEntity>>[];
+      final subscription = manager.onDataChange.listen(changes.add);
+      addTearDown(subscription.cancel);
+      for (var pull = 0; pull < 2; pull++) {
+        final result = await manager.synchronize('u1', options: const DatumSyncOptions(forceFullSync: true));
+        expect(result.conflictsResolved, 0, reason: 'nobody edited the row');
+      }
+      expect(changes, isEmpty, reason: 'an unchanged row is not written again');
+
+      // A real edit made elsewhere in the same millisecond still arrives.
+      await remote.update(SnakeKeyedEntity('a', 'u1', 'renamed', modifiedAt: fine.add(const Duration(microseconds: 100))));
+      await manager.synchronize('u1', options: const DatumSyncOptions(forceFullSync: true));
+      expect((await manager.read('a', userId: 'u1'))?.name, 'renamed');
     });
   });
 }

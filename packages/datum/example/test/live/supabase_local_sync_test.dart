@@ -58,7 +58,7 @@ Future<R> _timed<R>(String step, Future<R> Function() body) async {
   return result;
 }
 
-Future<_Device> _device(String email, String password) async {
+Future<_Device> _device(String email, String password, {DatumConflictResolver<Task>? resolver}) async {
   final client = SupabaseClient(Secrets.SUPABASE_URL, Secrets.SUPABASE_ANON_KEY, authOptions: _auth);
   await client.auth.signInWithPassword(email: email, password: password);
   final net = TestConnectivityChecker();
@@ -69,6 +69,7 @@ Future<_Device> _device(String email, String password) async {
     connectivity: net,
     datumConfig: DatumConfig<Task>(
       enableLogging: false,
+      defaultConflictResolver: resolver,
       // Local stack shares one clock; a tight overlap keeps delta pulls small.
       deltaSyncOverlap: const Duration(seconds: 1),
       authState: client.auth.onAuthStateChange.map((s) => s.session != null),
@@ -102,6 +103,7 @@ Future<({String id, String email})> _signUp(String email, String password) async
   return (id: id, email: email);
 }
 
+// Scenarios: backend.supabase (packages/datum/doc/SYNC_SCENARIOS.md)
 void main() {
   late _Device a;
   late _Device b;
@@ -237,5 +239,158 @@ void main() {
     await m.manager.synchronize(mallory.id).then<void>((_) {}, onError: (_) {});
     expect((await m.manager.getParkedOperations(mallory.id)).map((o) => o.entityId), [_id('live-3')]);
     expect((await _serverRows(a.client)).firstWhere((r) => r['id'] == _id('live-3'))['title'], 'task 3');
+  }, skip: _live ? null : 'pass --dart-define=SUPABASE_URL=… (see header)', timeout: const Timeout(Duration(minutes: 3)));
+
+  test('what is and is not a conflict, and scoped sync, against real Postgres', () async {
+    Future<String?> onServer(String name) async => (await _serverRows(a.client)).firstWhere((r) => r['id'] == _id(name))['title'] as String?;
+    Future<void> edit(_Device d, String name, String title) async {
+      final current = (await d.manager.read(_id(name), userId: userId))!;
+      await d.manager.push(item: current.copyWith(title: title, modifiedAt: DateTime.now()));
+    }
+
+    Future<({_Device device, List<String> conflicts})> join(DatumConflictResolver<Task> resolver) async {
+      final device = await _device(email, password, resolver: resolver);
+      addTearDown(() async {
+        await device.manager.dispose();
+        await device.client.dispose();
+      });
+      await device.manager.synchronize(userId);
+      final conflicts = <String>[];
+      final sub = device.manager.onConflict.listen((e) => conflicts.add(e.context.entityId));
+      addTearDown(sub.cancel);
+      return (device: device, conflicts: conflicts);
+    }
+
+    // 1. A device that insists on its own copy still takes an edit made
+    //    elsewhere to a row it never touched.
+    final local = await join(LocalPriorityResolver<Task>());
+    await edit(a, 'live-10', 'edited once on A');
+    await edit(a, 'live-10', 'edited twice on A');
+    await a.manager.synchronize(userId);
+    await local.device.manager.synchronize(userId, options: const DatumSyncOptions(forceFullSync: true));
+    expect((await local.device.manager.read(_id('live-10'), userId: userId))?.title, 'edited twice on A');
+    expect(local.conflicts, isEmpty);
+    expect(await local.device.manager.getPendingCount(userId), 0, reason: 'its old copy is not pushed back');
+    expect(await onServer('live-10'), 'edited twice on A');
+
+    // 2. A device that defers to the server keeps its own unsynced edit when
+    //    the server row has not changed (it is re-read here: a forced pull).
+    final remote = await join(RemotePriorityResolver<Task>());
+    await edit(remote.device, 'live-11', 'edited on the deferring device');
+    await remote.device.manager.synchronize(userId, options: const DatumSyncOptions(forceFullSync: true));
+    expect(remote.conflicts, isEmpty);
+    expect(await onServer('live-11'), 'edited on the deferring device');
+    expect(await remote.device.manager.getPendingCount(userId), 0);
+
+    // 3. Both edit the same row: that is a conflict, and each device's
+    //    resolver decides. Pull first, so the other edit is seen before
+    //    anything is overwritten.
+    await edit(a, 'live-12', 'A got there first');
+    await a.manager.synchronize(userId);
+    await edit(remote.device, 'live-12', 'the deferring device, later');
+    await edit(local.device, 'live-13', 'the insisting device');
+    await edit(a, 'live-13', 'A, uploaded first');
+    await a.manager.synchronize(userId);
+    await remote.device.manager.synchronize(userId);
+    await local.device.manager.synchronize(userId);
+    expect(remote.conflicts, [_id('live-12')]);
+    expect(await onServer('live-12'), 'A got there first');
+    expect((await remote.device.manager.read(_id('live-12'), userId: userId))?.title, 'A got there first');
+    expect(local.conflicts, [_id('live-13')]);
+    expect(await onServer('live-13'), 'the insisting device');
+    expect(await remote.device.manager.getPendingCount(userId), 0);
+    expect(await local.device.manager.getPendingCount(userId), 0);
+
+    // 4. The server itself refuses a stale write, in one statement: the
+    //    guard that makes overlapping uploads safe.
+    final server = (await _serverRows(a.client)).firstWhere((r) => r['id'] == _id('live-15'));
+    final version = server['version'] as int;
+    await expectLater(
+      a.remote.patchIfUnchanged(id: _id('live-15'), delta: {'title': 'stale write', 'version': version}, baseVersion: version - 1),
+      throwsA(isA<ConflictException>()),
+    );
+    expect(await onServer('live-15'), server['title'], reason: 'a refused write changes nothing');
+    await a.remote.patchIfUnchanged(id: _id('live-15'), delta: {'title': 'current write', 'version': version + 1}, baseVersion: version);
+    expect(await onServer('live-15'), 'current write');
+    await expectLater(a.remote.patchIfUnchanged(id: const Uuid().v4(), delta: {'title': 'nobody'}, baseVersion: 1), throwsA(isA<EntityNotFoundException>()));
+    // A create never replaces a row that is already there.
+    final current = (await _serverRows(a.client)).firstWhere((r) => r['id'] == _id('live-15'));
+    final taken = await a.remote.createAllIfAbsent([
+      _task(userId, 'created once', id: _id('guard-new')),
+      _task(userId, 'must not replace', id: _id('live-15')),
+    ]);
+    expect(taken, {_id('live-15')});
+    expect(await onServer('guard-new'), 'created once');
+    expect((await _serverRows(a.client)).firstWhere((r) => r['id'] == _id('live-15')), current);
+    await expectLater(a.remote.deleteIfUnchanged(_id('live-15'), baseVersion: version), throwsA(isA<ConflictException>()));
+    expect(await onServer('live-15'), 'current write', reason: 'a refused delete deletes nothing');
+    await a.manager.synchronize(userId, options: const DatumSyncOptions(forceFullSync: true));
+    expect((await a.manager.read(_id('live-15'), userId: userId))?.title, 'current write');
+
+    // 5. Overlapping uploads: A edits once, the deferring device twice, and
+    //    each uploads without looking first. Whichever way the race with
+    //    realtime goes, the second upload must not replace A's: the server
+    //    refuses it, or the live change reaches the device first.
+    await edit(a, 'live-16', 'A, one edit');
+    await edit(remote.device, 'live-16', 'deferring device, first edit');
+    await edit(remote.device, 'live-16', 'deferring device, second edit');
+    const upload = DatumSyncOptions<Task>(direction: SyncDirection.pushOnly);
+    expect((await a.manager.synchronize(userId, options: upload)).failedCount, 0);
+    expect((await remote.device.manager.synchronize(userId, options: upload)).failedCount, 0, reason: 'a refused upload is not a failure');
+    expect(await onServer('live-16'), 'A, one edit');
+    await remote.device.manager.synchronize(userId);
+    expect((await remote.device.manager.read(_id('live-16'), userId: userId))?.title, 'A, one edit');
+    expect(await remote.device.manager.getPendingCount(userId), 0);
+    expect(await remote.device.manager.getParkedOperations(userId), isEmpty);
+    expect(remote.conflicts.where((id) => id == _id('live-16')), hasLength(1));
+    expect(await onServer('live-16'), 'A, one edit');
+
+    // 6. What the three phones did by hand: a device goes offline holding a
+    //    queued edit; the same row changes twice elsewhere and arrives over
+    //    realtime. The offline device takes the newer row, its own edit
+    //    leaves the queue, and reconnecting uploads nothing over it.
+    final offline = await join(LastWriteWinsResolver<Task>());
+    final liveBatches = <LiveChangesAppliedEvent<Task>>[];
+    final liveSub = offline.device.manager.onLiveChangesApplied.listen(liveBatches.add);
+    addTearDown(liveSub.cancel);
+    offline.device.net.setOnline(false);
+    await edit(offline.device, 'live-17', 'edited while offline');
+    expect(await offline.device.manager.getPendingCount(userId), 1);
+    await edit(a, 'live-17', 'A, first');
+    await a.manager.synchronize(userId);
+    await edit(a, 'live-17', 'A, second');
+    await a.manager.synchronize(userId);
+    await _until(() async => (await offline.device.manager.read(_id('live-17'), userId: userId))?.title == 'A, second');
+    expect(await offline.device.manager.getPendingCount(userId), 0, reason: 'the edit that lost is not uploaded later');
+    expect(offline.conflicts, contains(_id('live-17')));
+    await _until(() async => liveBatches.isNotEmpty); // the app is told a live change arrived
+    final before = (await _serverRows(a.client)).firstWhere((r) => r['id'] == _id('live-17'));
+    offline.device.net.setOnline(true);
+    await offline.device.manager.synchronize(userId);
+    final after = (await _serverRows(a.client)).firstWhere((r) => r['id'] == _id('live-17'));
+    expect((after['title'], after['version']), (before['title'], before['version']));
+    expect(after['title'], 'A, second');
+
+    // 7. Scopes: a fresh device syncs the completed tasks, then the open
+    //    ones. The second scope must not start from the first one's position.
+    await a.manager.push(item: (await a.manager.read(_id('live-14'), userId: userId))!.copyWith(isCompleted: true, modifiedAt: DateTime.now()));
+    await a.manager.synchronize(userId);
+    DatumSyncScope completed(bool value) => DatumSyncScope(query: DatumQuery(filters: [Filter('is_completed', FilterOperator.equals, value)]));
+    final scoped = (await _device(email, password));
+    addTearDown(() async {
+      await scoped.manager.dispose();
+      await scoped.client.dispose();
+    });
+    await scoped.manager.synchronize(userId, scope: completed(true));
+    expect((await scoped.manager.readAll(userId: userId)).map((t) => t.id), [_id('live-14')]);
+    await Future<void>.delayed(const Duration(milliseconds: 1500)); // past the overlap window
+    await scoped.manager.synchronize(userId, scope: completed(false));
+    final open = (await _serverRows(a.client)).where((r) => r['is_completed'] == false && r['is_deleted'] != true).length;
+    expect(await scoped.manager.readAll(userId: userId), hasLength(open + 1), reason: 'every open task, plus the completed one');
+    // A change inside the first scope still arrives through it.
+    await edit(a, 'live-14', 'completed and renamed');
+    await a.manager.synchronize(userId);
+    await scoped.manager.synchronize(userId, scope: completed(true));
+    expect((await scoped.manager.read(_id('live-14'), userId: userId))?.title, 'completed and renamed');
   }, skip: _live ? null : 'pass --dart-define=SUPABASE_URL=… (see header)', timeout: const Timeout(Duration(minutes: 3)));
 }

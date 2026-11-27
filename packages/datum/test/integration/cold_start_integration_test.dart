@@ -8,6 +8,7 @@ import '../mocks/mock_adapters.dart';
 import '../mocks/mock_connectivity_checker.dart';
 import '../mocks/test_entity.dart';
 
+// Scenarios: sync.coldstart (packages/datum/doc/SYNC_SCENARIOS.md)
 void main() {
   group('Cold Start Integration Tests', () {
     late MockLocalAdapter<TestEntity> localAdapter;

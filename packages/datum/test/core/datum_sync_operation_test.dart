@@ -95,8 +95,8 @@ void main() {
       expect(stringRepresentation, contains('op1'));
       expect(stringRepresentation, contains('create'));
       expect(stringRepresentation, contains('e1'));
-      // retryCount, sizeInBytes, parkedError (positional props).
-      expect(stringRepresentation, contains(', 2, 0, null)'));
+      // retryCount, sizeInBytes, parkedError, baseVersion (positional props).
+      expect(stringRepresentation, contains(', 2, 0, null, null)'));
     });
 
     test('equality operator and hashCode work correctly', () {

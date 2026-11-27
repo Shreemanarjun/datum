@@ -27,6 +27,7 @@ MockConnectivityChecker _connected() {
   return c;
 }
 
+// Scenarios: sync.http (packages/datum/doc/SYNC_SCENARIOS.md)
 void main() {
   late LocalSyncServer server;
   late HttpRemoteAdapter<TestEntity> remote;
@@ -255,12 +256,34 @@ void main() {
     expect(await manager.getPendingOperations('u1'), isEmpty);
   });
 
-  test('skip fast-path saves wire traffic: no entity fetch on an unchanged sync', () async {
+  test('an unchanged sync on a delta-capable remote is one incremental read, and never misses a write made behind its back', () async {
     await manager.push(item: TestEntity.create('e1', 'u1', 'stable'), userId: 'u1');
     await manager.synchronize('u1');
 
     server.requestLog.clear();
+    server.requestUris.clear();
     final second = await manager.synchronize('u1');
+    expect(second.wasSkipped, isFalse);
+    final reads = server.requestUris.where((u) => u.path == '/entities').toList();
+    expect(reads, hasLength(1));
+    expect(reads.single.queryParameters, contains('modifiedSince'), reason: 'incremental, not a full read');
+    expect(server.requestLog.where((r) => r.startsWith('GET /metadata')), isEmpty, reason: 'the beacon is not consulted');
+
+    // Another writer (a server job, a client killed before it wrote the
+    // metadata beacon) adds a row: the beacon still matches, the row is new.
+    server.seed('u1', TestEntity.create('e2', 'u1', 'written elsewhere').toDatumMap(target: MapTarget.remote));
+    await manager.synchronize('u1');
+    expect((await manager.read('e2', userId: 'u1'))?.name, 'written elsewhere');
+  });
+
+  test('without incremental pulls the metadata beacon decides: an unchanged sync fetches no entities', () async {
+    final device = await newDevice(config: const DatumConfig<TestEntity>(enableDeltaSync: false));
+    addTearDown(device.dispose);
+    await device.push(item: TestEntity.create('e1', 'u1', 'stable'), userId: 'u1');
+    await device.synchronize('u1');
+
+    server.requestLog.clear();
+    final second = await device.synchronize('u1');
     expect(second.wasSkipped, isTrue);
     expect(
       server.requestLog.where((r) => r.startsWith('GET /entities')),
@@ -330,6 +353,20 @@ void main() {
     await synced.timeout(const Duration(seconds: 5));
     expect(server.storage['u1']?.keys, containsAll([for (var i = 0; i < 5; i++) 'w$i']));
     expect(await device.getPendingCount('u1'), 0);
+
+    // A write the app syncs itself is not synced a second time.
+    final cycles = <DatumSyncCompletedEvent<TestEntity>>[];
+    final subscription = device.onSyncCompleted.listen(cycles.add);
+    addTearDown(subscription.cancel);
+    await device.pushAndSync(item: TestEntity.create('own', 'u1', 'synced by the app'), userId: 'u1');
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(cycles.where((c) => !c.result.wasSkipped), hasLength(1), reason: 'the debounced sync had nothing left to upload');
+    // A write made during a sync still gets its own debounced sync.
+    final running = device.synchronize('u1');
+    await device.push(item: TestEntity.create('late', 'u1', 'written during a sync'), userId: 'u1');
+    await running;
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(server.storage['u1']?['late']?['name'], 'written during a sync');
 
     // Off by default: the shared manager never syncs on its own.
     await manager.push(item: TestEntity.create('idle', 'u1', 'x'), userId: 'u1');

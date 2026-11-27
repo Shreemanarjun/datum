@@ -9,9 +9,9 @@ import 'package:datum/source/core/resolver/conflict_resolution.dart';
 ///
 /// It never looks at timestamps, so it is the choice when device clocks
 /// cannot be trusted. Which concurrent edit survives then depends on the
-/// sync direction: with `pushThenPull` (the default) the last device to push
-/// wins; with `pullThenPush` the first one does and the later edit is
-/// dropped.
+/// sync direction: with `pullThenPush` (the default) the first device to
+/// push wins and the later edit is dropped; with `pushThenPull` the last one
+/// to push wins.
 class RemotePriorityResolver<T extends DatumEntityInterface> implements DatumConflictResolver<T> {
   @override
   String get name => 'RemotePriority';

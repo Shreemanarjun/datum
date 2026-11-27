@@ -199,10 +199,10 @@ void main() {
         createdAt: baseTime,
         version: 1,
       );
+      // Same version, different content: both devices edited it.
       final remote = local.copyWith(
         name: 'Remote',
         modifiedAt: baseTime.add(const Duration(seconds: 1)),
-        version: 2,
       );
 
       when(
@@ -339,10 +339,10 @@ void main() {
         createdAt: baseTime,
         version: 1,
       );
+      // Same version, different content: both devices edited it.
       final remote = local.copyWith(
         name: 'Remote',
         modifiedAt: baseTime.add(const Duration(seconds: 1)),
-        version: 2,
       );
 
       when(

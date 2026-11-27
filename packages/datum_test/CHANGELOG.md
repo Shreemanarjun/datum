@@ -1,5 +1,32 @@
 ## Unreleased
 
+- **Conflict matrix** in the sync-stack suite: 14 situations (each side
+  untouched, created, edited once, edited twice or deleted) x 4 resolver
+  policies x both sync directions, on three devices. Every row must end the
+  same on all replicas and the server, as the documented winner, with a
+  conflict reported only when both sides changed, and nothing rewritten
+  afterwards.
+- `GuardedInMemoryRemoteAdapter` (a remote that is `GuardedWriteCapable`),
+  and a fourth remote in `runSyncConformanceMatrix`: every local adapter now
+  runs the whole suite against it too (`remoteGuardsWrites`).
+- Sync-stack suite: two devices that upload edits of one row without seeing
+  each other (guarded: the resolver decides; unguarded: the last upload
+  stays), and a chain of queued edits whose first one landed without its
+  acknowledgement, under every resolver and both directions.
+- Sync-stack suite: scoped syncs (a second scope is not skipped, rows outside
+  a scope are left alone, devices with different scopes see each other's
+  edits, positions are kept for a bounded number of scopes), and an edit
+  survives a failed upload under every resolver.
+- `s.device(deltaSyncOverlap:)`.
+
+- Key-naming conformance: a server timestamp finer than the local store
+  keeps (microseconds vs epoch milliseconds) is not a conflict on every
+  pull, and a real edit in the same millisecond still arrives.
+- Sync-stack suite: an idle sync on an incremental remote still asks for
+  changes; other remotes skip only while the metadata beacon matches. A
+  remote edit of a row the device never touched is taken whatever the
+  resolver; an unsynced local edit of it is a conflict.
+
 - `LocalSyncServer`: `failRetryAfterSeconds` (adds `Retry-After` to injected
   failures) and `expireFeedsOnce` (410 on the next incremental read).
   `HttpRemoteAdapter` maps `Retry-After`, 410 → `ResyncRequiredException`,

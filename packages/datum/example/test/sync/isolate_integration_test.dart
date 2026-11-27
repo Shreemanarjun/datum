@@ -8,6 +8,7 @@ import 'package:datum/source/core/models/datum_entity.dart';
 import 'package:datum/source/core/models/datum_operation.dart';
 import 'package:datum/source/core/models/datum_sync_metadata.dart';
 import 'package:datum/source/core/models/datum_sync_operation.dart';
+import 'package:datum/source/core/models/datum_sync_options.dart';
 import 'package:datum/source/core/models/datum_sync_result.dart';
 import 'package:datum/source/core/sync/datum_sync_execution_strategy.dart'
     hide IsolateStrategy;
@@ -300,7 +301,10 @@ void main() {
       // can correctly catch the asynchronous error. The sync engine wraps
       // the original exception, but the manager re-throws the original error.
       await expectLater(
-        () => manager.synchronize(userId),
+        // Push first: this test is about an upload that fails.
+        () => manager.synchronize(userId,
+            options: const DatumSyncOptions(
+                direction: SyncDirection.pushThenPull)),
         // IMPORTANT: When testing exceptions that cross isolate boundaries,
         // do NOT use `throwsA(exceptionInstance)`.
         //

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:signals_flutter/signals_flutter.dart';
 import 'package:datum/datum.dart';
 import 'package:example/data/paint/entity/paint_canvas.dart';
+import 'package:example/data/paint/entity/paint_stroke.dart';
 import 'package:example/bootstrap.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -17,21 +18,51 @@ Stream<List<PaintCanvas>> _watchCanvases() {
         ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt)));
 }
 
+/// Strokes per canvas, counted from the strokes themselves so the number
+/// follows edits made on any device (a count stored on the canvas would be
+/// one more row for two devices to disagree about).
+Stream<Map<String, int>> _watchStrokeCounts() {
+  final userId = Supabase.instance.client.auth.currentUser?.id;
+  if (userId == null) return Stream.value({});
+
+  return Datum.manager<PaintStroke>()
+      .watchAll(userId: userId, includeInitialData: true)
+      .map((strokes) {
+    final counts = <String, int>{};
+    for (final stroke in strokes) {
+      counts.update(stroke.canvasId, (n) => n + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  });
+}
+
 class PaintCanvasList extends SignalStatefulWidget {
   final Function(String) onCanvasSelected;
 
-  const PaintCanvasList({super.key, required this.onCanvasSelected});
+  /// What the list shows: the signed-in user's synced paintings and their
+  /// stroke counts unless a test supplies its own.
+  final Stream<List<PaintCanvas>> Function() watchCanvases;
+  final Stream<Map<String, int>> Function() watchStrokeCounts;
+
+  const PaintCanvasList({
+    super.key,
+    required this.onCanvasSelected,
+    this.watchCanvases = _watchCanvases,
+    this.watchStrokeCounts = _watchStrokeCounts,
+  });
 
   @override
   State<PaintCanvasList> createState() => _PaintCanvasListState();
 }
 
 class _PaintCanvasListState extends State<PaintCanvasList> with GlobalHelper {
-  final _canvases = streamSignal(_watchCanvases);
+  late final _canvases = streamSignal(widget.watchCanvases);
+  late final _strokeCounts = streamSignal(widget.watchStrokeCounts);
 
   @override
   void dispose() {
     _canvases.dispose();
+    _strokeCounts.dispose();
     super.dispose();
   }
 
@@ -39,15 +70,18 @@ class _PaintCanvasListState extends State<PaintCanvasList> with GlobalHelper {
   Widget build(BuildContext context) {
     final theme = ShadTheme.of(context);
 
+    // Read here, not in the list's item builder: only what `build` reads
+    // rebuilds this widget when it changes.
+    final strokeCounts = _strokeCounts.value.value ?? const <String, int>{};
     return _canvases.value.map(
-      data: (canvases) => _buildList(context, canvases, theme),
+      data: (canvases) => _buildList(context, canvases, strokeCounts, theme),
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (err, stack) => Center(child: Text('Error: $err')),
     );
   }
 
-  Widget _buildList(
-      BuildContext context, List<PaintCanvas> canvases, ShadThemeData theme) {
+  Widget _buildList(BuildContext context, List<PaintCanvas> canvases,
+      Map<String, int> strokeCounts, ShadThemeData theme) {
     if (canvases.isEmpty) {
       return _buildEmptyState(context, theme);
     }
@@ -80,31 +114,36 @@ class _PaintCanvasListState extends State<PaintCanvasList> with GlobalHelper {
                 padding: const EdgeInsets.only(bottom: 12),
                 child: ShadCard(
                   padding: EdgeInsets.zero,
-                  child: ListTile(
-                    leading: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        LucideIcons.brush,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    title: Text(
-                      canvas.title,
-                      style: theme.textTheme.p
-                          .copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text(
-                      '${canvas.strokeCount} strokes • Modified ${canvas.modifiedAt.toString().split(' ')[0]}',
-                      style: theme.textTheme.muted,
-                    ),
-                    trailing: _buildPopupMenu(context, canvas, theme),
-                    onTap: () => widget.onCanvasSelected(canvas.id),
-                  ),
+                  // Its own Material: the card's background would hide the
+                  // tile's ink splash (Flutter asserts on that in debug).
+                  child: Material(
+                      type: MaterialType.transparency,
+                      child: ListTile(
+                        leading: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary
+                                .withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            LucideIcons.brush,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        title: Text(
+                          canvas.title,
+                          style: theme.textTheme.p
+                              .copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text(
+                          '${strokeCounts[canvas.id] ?? 0} strokes • Modified ${canvas.modifiedAt.toString().split(' ')[0]}',
+                          style: theme.textTheme.muted,
+                        ),
+                        trailing: _buildPopupMenu(context, canvas, theme),
+                        onTap: () => widget.onCanvasSelected(canvas.id),
+                      )),
                 ),
               );
             },

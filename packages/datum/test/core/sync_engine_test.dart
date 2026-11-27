@@ -488,16 +488,9 @@ void main() {
 
     group('Conflict Resolution Logging', () {
       setUp(() {
-        final remoteItem = TestEntity.create(
-          'e1',
-          'user-1',
-          'Remote',
-        ).copyWith(version: 2);
-        final localItem = TestEntity.create(
-          'e1',
-          'user-1',
-          'Local',
-        ).copyWith(version: 1);
+        // Edited on both devices from the same version: a real conflict.
+        final remoteItem = TestEntity.create('e1', 'user-1', 'Remote');
+        final localItem = TestEntity.create('e1', 'user-1', 'Local');
 
         when(
           () => remoteAdapter.readAll(userId: 'user-1'),
