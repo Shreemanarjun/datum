@@ -25,6 +25,11 @@ class ExcludableEntity extends DatumEntity {
   /// A map of fields that should only be stored locally.
   final Map<String, dynamic>? localOnlyFields;
 
+  /// Tells the engine which keys those are, so a row arriving from the
+  /// remote does not wipe them.
+  @override
+  Set<String> get deviceOnlyFields => {...?localOnlyFields?.keys};
+
   /// A map of fields that should only be sent to the remote.
   final Map<String, dynamic>? remoteOnlyFields;
 

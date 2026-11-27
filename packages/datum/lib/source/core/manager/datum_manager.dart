@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show max;
 import 'dart:isolate';
 
 import 'package:collection/collection.dart';
@@ -597,9 +598,13 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     final screened = source == DataSource.remote ? await _screenLiveChanges(newChanges) : (save: newChanges, taken: <DatumChangeDetail<T>>[]);
     // Rows the conflict resolver already wrote here count as received too.
     applied.addAll(screened.taken);
+    final received = <String, int>{};
     for (final change in screened.save) {
       try {
-        if (await _applyExternalChange(change, source)) applied.add(change);
+        final bytes = await _applyExternalChange(change, source);
+        if (bytes == null) continue;
+        applied.add(change);
+        received.update(change.userId, (total) => total + bytes, ifAbsent: () => bytes);
       } on Object catch (e, stack) {
         _logger.error(
           'Failed to process external change for ${change.entityId} from $source: $e',
@@ -611,7 +616,20 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     }
     // A change from the local store's own stream was not received from
     // anywhere: it is already stored, and was only queued for upload.
-    if (source == DataSource.remote) _reportLiveChanges(applied, watch.elapsed);
+    if (source != DataSource.remote) return;
+    _reportLiveChanges(applied, watch.elapsed);
+    await _countLiveBytes(received);
+  }
+
+  /// Bytes received over the live feed belong to the running totals too: on
+  /// a device that gets most of its data live, the totals of sync cycles
+  /// alone say next to nothing.
+  Future<void> _countLiveBytes(Map<String, int> received) async {
+    for (final MapEntry(key: userId, value: bytes) in received.entries) {
+      final last = await localAdapter.getLastSyncResult(userId);
+      if (last == null || bytes == 0) continue;
+      await localAdapter.saveLastSyncResult(userId, last.withTotals(pushed: last.totalBytesPushed, pulled: last.totalBytesPulled + bytes));
+    }
   }
 
   /// Screens changes from the remote feed by the rules of a pull (see
@@ -640,29 +658,29 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
     );
   }
 
-  /// Applies one external [change]. False when it changed nothing.
-  Future<bool> _applyExternalChange(DatumChangeDetail<T> change, DataSource source) async {
+  /// Applies one external [change]. Returns its size in bytes (0 for a
+  /// delete, whose size is unknown), or null when it changed nothing.
+  Future<int?> _applyExternalChange(DatumChangeDetail<T> change, DataSource source) async {
     final data = change.data;
     if (change.type == DatumOperationType.delete) {
       // Trust the event and delete directly, without `delete`'s preliminary
       // read.
       final deleted = await localAdapter.delete(change.entityId, userId: change.userId);
       _metadataHashCache.invalidate(change.userId);
-      if (!deleted) return false;
-      // A delete event's size is unknown, so it counts as 0 bytes pulled.
+      if (!deleted) return null;
       _eventController
         ..add(DatumSyncProgressEvent<T>(userId: change.userId, bytesPulled: 0, completed: 1, total: 1))
         ..add(DataChangeEvent<T>(userId: change.userId, data: data, changeType: ChangeType.deleted, source: source));
-      return true;
+      return 0;
     }
-    if (data == null) return false;
+    if (data == null) return null;
     // From remote: saved locally. From the local store: queued for remote.
     await push(item: data, userId: change.userId, source: source);
     final size = (await _isolateHelper.computeJsonEncode(data.toDatumMap(target: MapTarget.local))).length;
     if (!_eventController.isClosed) {
       _eventController.add(DatumSyncProgressEvent<T>(userId: change.userId, bytesPulled: size, completed: 1, total: 1));
     }
-    return true;
+    return size;
   }
 
   /// Emits one [LiveChangesAppliedEvent] per user for the [applied] changes.
@@ -2280,7 +2298,11 @@ class DatumManager<T extends DatumEntityInterface> with Disposable implements Re
 
   /// Persists the sync [result] and mirrors the sync metadata to persistence.
   Future<void> _persistSyncResult(String userId, DatumSyncResult<T> result) async {
-    await localAdapter.saveLastSyncResult(userId, result);
+    // A cycle cut short (a timeout) reports no totals of its own: saving it
+    // as is would reset the running ones to zero.
+    final previous = result.wasCancelled ? await localAdapter.getLastSyncResult(userId) : null;
+    final kept = previous == null ? result : result.withTotals(pushed: max(result.totalBytesPushed, previous.totalBytesPushed), pulled: max(result.totalBytesPulled, previous.totalBytesPulled));
+    await localAdapter.saveLastSyncResult(userId, kept);
     final metadata = await localAdapter.getSyncMetadata(userId);
     if (metadata != null) {
       await persistence?.saveSyncMetadata(userId, metadata);

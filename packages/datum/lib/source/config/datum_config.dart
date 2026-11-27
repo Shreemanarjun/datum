@@ -511,7 +511,7 @@ class DatumConfig<T extends DatumEntityInterface> extends Equatable {
 
   @override
   String toString() {
-    return 'DatumConfig(autoSyncInterval: $autoSyncInterval, autoStartSync: $autoStartSync, syncTimeout: $syncTimeout, defaultConflictResolver: $defaultConflictResolver, defaultUserSwitchStrategy: $defaultUserSwitchStrategy, initialUserId: $initialUserId, enableLogging: $enableLogging, defaultSyncDirection: $defaultSyncDirection, schemaVersion: $schemaVersion, migrations: $migrations, syncExecutionStrategy: $syncExecutionStrategy, onMigrationError: $onMigrationError, syncRequestStrategy: $syncRequestStrategy, errorRecoveryStrategy: $errorRecoveryStrategy, remoteEventDebounceTime: $remoteEventDebounceTime, changeCacheDuration: $changeCacheDuration)';
+    return 'DatumConfig(autoSyncInterval: $autoSyncInterval, autoStartSync: $autoStartSync, syncTimeout: $syncTimeout, defaultConflictResolver: $defaultConflictResolver, defaultUserSwitchStrategy: $defaultUserSwitchStrategy, initialUserId: ${initialUserId == null ? null : '<callback>'}, enableLogging: $enableLogging, defaultSyncDirection: $defaultSyncDirection, schemaVersion: $schemaVersion, migrations: $migrations, syncExecutionStrategy: $syncExecutionStrategy, onMigrationError: $onMigrationError, syncRequestStrategy: $syncRequestStrategy, errorRecoveryStrategy: $errorRecoveryStrategy, remoteEventDebounceTime: $remoteEventDebounceTime, changeCacheDuration: $changeCacheDuration)';
   }
 
   @override

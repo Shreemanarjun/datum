@@ -121,6 +121,26 @@ class DatumSyncResult<T extends DatumEntityInterface> {
         skipReason = null,
         retryAfter = null;
 
+  /// This result with the running totals [pushed] and [pulled] (the bytes
+  /// moved over this device's lifetime, not only in this cycle).
+  DatumSyncResult<T> withTotals({required int pushed, required int pulled}) => DatumSyncResult<T>(
+        userId: userId,
+        duration: duration,
+        syncedCount: syncedCount,
+        failedCount: failedCount,
+        conflictsResolved: conflictsResolved,
+        pendingOperations: pendingOperations,
+        totalBytesPushed: pushed,
+        totalBytesPulled: pulled,
+        bytesPushedInCycle: bytesPushedInCycle,
+        bytesPulledInCycle: bytesPulledInCycle,
+        wasSkipped: wasSkipped,
+        wasCancelled: wasCancelled,
+        error: error,
+        skipReason: skipReason,
+        retryAfter: retryAfter,
+      );
+
   /// Whether the sync completed successfully without any failures.
   bool get isSuccess => !wasSkipped && !wasCancelled && failedCount == 0 && error == null;
 

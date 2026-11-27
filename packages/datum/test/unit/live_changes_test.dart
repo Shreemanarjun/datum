@@ -45,6 +45,7 @@ void main() {
     expect(live.single.duration, lessThan(const Duration(seconds: 1)));
     expect((await manager.readAll(userId: 'u1')).map((e) => e.id), unorderedEquals(['r1', 'r2']));
     expect(cycles, isEmpty, reason: 'no sync cycle ran, so nothing else would tell the app');
+    expect(await manager.getLastSyncResult('u1'), isNull, reason: 'receiving a change is not a sync: no result is made up for it');
     expect(await manager.getPendingCount('u1'), 0, reason: 'a received change is not queued for upload');
 
     // The same change delivered again applies nothing and reports nothing.
@@ -90,6 +91,16 @@ void main() {
     expect(progress, isEmpty, reason: 'and nothing was downloaded');
     expect((await manager.read('mine', userId: 'u1'))?.name, 'edited');
     expect(await manager.getPendingCount('u1'), 2, reason: 'each write is queued once');
+
+    // Once the device has synced, bytes received live join its running
+    // totals: most of a realtime app's data arrives this way.
+    await manager.synchronize('u1');
+    final before = (await manager.getLastSyncResult('u1'))!;
+    remote.emitChange(change(madeAgo('r9', 10)));
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    final after = (await manager.getLastSyncResult('u1'))!;
+    expect(after.totalBytesPulled, greaterThan(before.totalBytesPulled));
+    expect((after.totalBytesPushed, after.syncedCount, after.duration), (before.totalBytesPushed, before.syncedCount, before.duration), reason: 'the rest of the last sync is as it was');
   });
   test('a live change follows the pull rules: stale rows are ignored and a row competing with an unsynced edit goes to the resolver', () async {
     final online = MockConnectivityChecker();

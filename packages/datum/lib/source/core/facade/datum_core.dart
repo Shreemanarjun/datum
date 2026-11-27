@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:collection/collection.dart';
+
 import 'package:datum/source/config/datum_config.dart';
 import 'package:datum/source/core/cascade_delete.dart';
 import 'package:datum/source/core/engine/datum_observer.dart';
@@ -382,14 +384,14 @@ class Datum {
       );
       datum.globalObservers.addAll(observers);
 
-      datum._logInitializationHeader(logBuffer, config: config, connectivityChecker: connectivityChecker);
+      datum._logInitializationHeader(logBuffer, config: config, connectivityChecker: connectivityChecker, initialUser: await _describeInitialUser(config));
       datum._logObservers(logBuffer);
       if (registrations.isNotEmpty) {
         logBuffer.writeln('├─ 📦 Registering Entities');
       }
       for (final reg in registrations) {
         reg.capture(
-          <TT extends DatumEntityInterface>() => datum._register<TT>(reg as DatumRegistration<TT>, logBuffer),
+          <TT extends DatumEntityInterface>() => datum._register<TT>(reg as DatumRegistration<TT>, logBuffer, reg == registrations.last),
         );
       }
       await datum._initializeManagers(logBuffer);
@@ -442,10 +444,24 @@ class Datum {
   String _yellow(Object text) => logger.colors ? '\x1B[33m$text\x1B[0m' : text.toString();
   String _cyan(Object text) => logger.colors ? '\x1B[36m$text\x1B[0m' : text.toString();
 
+  /// Who `DatumConfig.initialUserId` names, for the log. The option is a
+  /// callback, so printing it as is shows a closure, not a user; and a
+  /// callback that throws must not stop Datum from starting just to be logged.
+  static Future<String?> _describeInitialUser(DatumConfig config) async {
+    final resolve = config.initialUserId;
+    if (resolve == null) return null;
+    try {
+      return await resolve() ?? 'nobody is signed in yet';
+    } on Object catch (e) {
+      return 'unknown ($e)';
+    }
+  }
+
   void _logInitializationHeader(
     StringBuffer logBuffer, {
     required DatumConfig config,
     required DatumConnectivityChecker connectivityChecker,
+    String? initialUser,
   }) {
     logBuffer.writeln('🚀 Initializing Datum...');
     logBuffer.writeln(_cyan('   Hello! Datum is your smart offline-first data synchronization framework 😊'));
@@ -453,9 +469,8 @@ class Datum {
     logBuffer.writeln('│  ├─ 📝 ${_yellow('Logging')}: ${_green(config.enableLogging)}');
     logBuffer.writeln('│  ├─ 🔄 ${_yellow('Auto-sync')}: ${_green(config.autoStartSync)} (Interval: ${_cyan(formatDuration(config.autoSyncInterval))})');
     if (config.autoStartSync) {
-      final initialUserId = config.initialUserId;
-      if (initialUserId != null) {
-        logBuffer.writeln('│  │  └─ 🎯 Targeting initial user: ${_green(initialUserId)}');
+      if (initialUser != null) {
+        logBuffer.writeln('│  │  └─ 🎯 Targeting initial user: ${_green(initialUser)}');
       } else {
         logBuffer.writeln('│  │  └─ 🎯 Discovering all local users to sync.');
       }
@@ -520,7 +535,7 @@ class Datum {
       logBuffer.writeln('├─ ❤️  Initial Health Status');
       for (final managerEntry in _managers.entries) {
         final health = (managerEntry.value as DatumManager<DatumEntityInterface>).currentStatus.health;
-        logBuffer.writeln('│  └─ ${_cyan(managerEntry.key)}: ${_green(health.status.name)}');
+        logBuffer.writeln('│  ${_branch(managerEntry.key == _managers.entries.last.key)}─ ${_cyan(managerEntry.key)}: ${_green(health.status.name)}');
       }
     }
 
@@ -543,22 +558,26 @@ class Datum {
     logBuffer.writeln('│  └─ 📈 Totals: Items: ${_green(totalItems)}, Pending: ${_yellow(totalPending)}');
   }
 
-  /// Logs [userId]'s last sync time and transferred data volumes.
+  /// Logs [userId]'s last sync time and transferred data volumes, over every
+  /// entity type (each manager keeps its own).
   Future<void> _logUserSyncHistory(StringBuffer logBuffer, String userId) async {
-    final firstManager = _managers.isNotEmpty ? _managers.allManagers.first : null;
-    final metadata = await firstManager?.localAdapter.getSyncMetadata(userId);
-    final lastSyncResult = await firstManager?.getLastSyncResult(userId);
-
-    final lastSyncTime = metadata?.lastSyncTime;
+    DateTime? lastSyncTime;
+    final results = <DatumSyncResult<DatumEntityInterface>>[];
+    for (final manager in _managers.allManagers) {
+      final synced = (await manager.localAdapter.getSyncMetadata(userId))?.lastSyncTime;
+      if (synced != null && (lastSyncTime == null || synced.isAfter(lastSyncTime))) lastSyncTime = synced;
+      final result = await manager.getLastSyncResult(userId);
+      if (result != null) results.add(result);
+    }
     logBuffer.writeln(lastSyncTime != null ? '│  │  ├─ 🕒 Last Sync: ${_cyan(formatDuration(DateTime.now().difference(lastSyncTime)))} ago' : '│  │  ├─ 🕒 Last Sync: Never synced');
 
-    if (lastSyncResult == null) {
+    if (results.isEmpty) {
       logBuffer.writeln('│  │  ├─ 💾 Data Transferred: No history');
       return;
     }
-    String kb(int bytes) => (bytes / 1024).toStringAsFixed(2);
-    logBuffer.writeln('│  │  ├─ 💾 Total Data: ${_green('↑${kb(lastSyncResult.totalBytesPushed)} KB')} / ${_green('↓${kb(lastSyncResult.totalBytesPulled)} KB')}');
-    logBuffer.writeln('│  │  ├─ 📈 Last Sync: ${_green('↑${kb(lastSyncResult.bytesPushedInCycle)} KB')} / ${_green('↓${kb(lastSyncResult.bytesPulledInCycle)} KB')}');
+    String kb(int Function(DatumSyncResult<DatumEntityInterface>) bytes) => (results.map(bytes).sum / 1024).toStringAsFixed(2);
+    logBuffer.writeln('│  │  ├─ 💾 Total Data: ${_green('↑${kb((r) => r.totalBytesPushed)} KB')} / ${_green('↓${kb((r) => r.totalBytesPulled)} KB')}');
+    logBuffer.writeln('│  │  ├─ 📈 Last Sync: ${_green('↑${kb((r) => r.bytesPushedInCycle)} KB')} / ${_green('↓${kb((r) => r.bytesPulledInCycle)} KB')}');
   }
 
   /// Logs per-entity item/pending/size figures for [userId] and returns the
@@ -591,7 +610,7 @@ class Datum {
     if (globalObservers.isNotEmpty) {
       logBuffer.writeln('├─ 👀 Global Observers Registered (${_green(globalObservers.length)}):');
       for (final observer in globalObservers) {
-        logBuffer.writeln('│  └─ ${_green(observer.runtimeType)}');
+        logBuffer.writeln('│  ${_branch(observer == globalObservers.last)}─ ${_green(observer.runtimeType)}');
       }
     }
   }
@@ -612,6 +631,7 @@ class Datum {
   void _register<T extends DatumEntityInterface>(
     DatumRegistration<T> registration, [
     StringBuffer? logBuffer,
+    bool isLast = true,
   ]) {
     if (_managers.containsKey(T)) {
       throw StateError(
@@ -619,42 +639,40 @@ class Datum {
       );
     }
 
-    if (logBuffer != null) _logRegistration<T>(logBuffer, registration);
+    if (logBuffer != null) _logRegistration<T>(logBuffer, registration, isLast: isLast);
 
     _adapterPairs[T] = AdapterPairImpl<T>.fromRegistration(registration);
   }
 
   /// Writes the registration tree for entity type [T] to [logBuffer].
-  void _logRegistration<T extends DatumEntityInterface>(StringBuffer logBuffer, DatumRegistration<T> registration) {
+  void _logRegistration<T extends DatumEntityInterface>(StringBuffer logBuffer, DatumRegistration<T> registration, {required bool isLast}) {
     final middlewares = registration.middlewares ?? const [];
     final observers = registration.observers ?? const [];
-    final isRelational = isSubtype<RelationalDatumEntity, T>();
-    String branch(bool hasMore) => hasMore ? '├' : '└';
+    // The entity's own line continues down to the next entity, if any.
+    final indent = '│  ${isLast ? ' ' : '│'}  ';
 
-    logBuffer.writeln('│  └─ 🧩 Entity: ${_cyan(T)}');
-    logBuffer.writeln('│     ├─ 🏠 Local Adapter: ${_green(registration.localAdapter.runtimeType)}');
-    logBuffer.writeln('│     ├─ ☁️   Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
-    logBuffer.writeln('│     ├─ ⚖️  Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
-    logBuffer.writeln('│     ${branch(middlewares.isNotEmpty || observers.isNotEmpty || isRelational)}─ 🔧 Custom Config: ${_green(registration.config != null)}');
-
+    logBuffer.writeln('│  ${_branch(isLast)}─ 🧩 Entity: ${_cyan(T)}');
+    logBuffer.writeln('$indent├─ 🏠 Local Adapter: ${_green(registration.localAdapter.runtimeType)}');
+    logBuffer.writeln('$indent├─ ☁️   Remote Adapter: ${_green(registration.remoteAdapter.runtimeType)}');
+    logBuffer.writeln('$indent├─ ⚖️  Conflict Resolver: ${_green(registration.conflictResolver?.runtimeType ?? 'Default (LastWriteWinsResolver)')}');
+    logBuffer.writeln('$indent├─ 🔧 Custom Config: ${_green(registration.config != null)}');
     if (middlewares.isNotEmpty) {
-      logBuffer.writeln('│     ${branch(observers.isNotEmpty || isRelational)}─ 🔗 Middlewares (${_green(middlewares.length)}):');
-      _logTypeList(logBuffer, middlewares);
+      logBuffer.writeln('$indent├─ 🔗 Middlewares (${_green(middlewares.length)}):');
+      _logTypeList(logBuffer, middlewares, indent);
     }
     if (observers.isNotEmpty) {
-      logBuffer.writeln('│     ${branch(isRelational)}─ 👀 Observers (${_green(observers.length)}):');
-      _logTypeList(logBuffer, observers);
+      logBuffer.writeln('$indent├─ 👀 Observers (${_green(observers.length)}):');
+      _logTypeList(logBuffer, observers, indent);
     }
-    if (isRelational) {
-      logBuffer.writeln('│     └─ 🤝 Relational: ${_green(true)} ');
-    } else if (middlewares.isEmpty && observers.isEmpty) {
-      logBuffer.writeln('│     └─ 🤝 Relational: ${_green(false)}');
-    }
+    logBuffer.writeln('$indent└─ 🤝 Relational: ${_green(isSubtype<RelationalDatumEntity, T>())}');
   }
 
-  void _logTypeList(StringBuffer logBuffer, List<Object> items) {
+  /// The mark of an item in a printed tree: the last one closes the branch.
+  static String _branch(bool isLast) => isLast ? '└' : '├';
+
+  void _logTypeList(StringBuffer logBuffer, List<Object> items, String indent) {
     for (final item in items) {
-      logBuffer.writeln('│     │  └─ ${_green(item.runtimeType)}');
+      logBuffer.writeln('$indent│  ${_branch(item == items.last)}─ ${_green(item.runtimeType)}');
     }
   }
 
@@ -666,7 +684,7 @@ class Datum {
     // Parallel initialization of managers for better performance
     final initializationFutures = <Future<StringBuffer>>[];
     for (final type in _adapterPairs.keys) {
-      initializationFutures.add(_initializeManagerForTypeParallel(type));
+      initializationFutures.add(_initializeManagerForTypeParallel(type, isLast: type == _adapterPairs.keys.last));
     }
 
     // Wait for all managers to initialize in parallel
@@ -678,13 +696,13 @@ class Datum {
     }
   }
 
-  Future<StringBuffer> _initializeManagerForTypeParallel(Type type) async {
+  Future<StringBuffer> _initializeManagerForTypeParallel(Type type, {required bool isLast}) async {
     final logBuffer = StringBuffer();
     // Callers only pass keys of _adapterPairs, so the pair is always present.
     final adapters = _adapterPairs[type]!;
 
     final manager = adapters.createManager(this);
-    logBuffer.writeln('│  └─ ✨ Manager for ${_cyan(type)} ready.');
+    logBuffer.writeln('│  ${_branch(isLast)}─ ✨ Manager for ${_cyan(type)} ready.');
     _managers.registerByType(type, manager);
 
     final subscription = manager.eventStream.listen(
@@ -702,7 +720,7 @@ class Datum {
     final adapters = _adapterPairs[type]!;
 
     final manager = adapters.createManager(this);
-    logBuffer.writeln('│  └─ ✨ Manager for ${_cyan(type)} ready.');
+    logBuffer.writeln('└─ ✨ Manager for ${_cyan(type)} ready.');
     _managers.registerByType(type, manager);
 
     final subscription = manager.eventStream.listen(

@@ -600,6 +600,10 @@ mixin RelationalDatumEntityMixin implements Equatable, DatumEntityInterface {
   @override
   bool get isRelational => true;
 
+  /// No device-only fields unless the entity names some.
+  @override
+  Set<String> get deviceOnlyFields => const {};
+
   /// A map defining all relationships for this entity.
   ///
   /// The key is a descriptive name for the relation, and the value is an

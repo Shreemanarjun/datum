@@ -112,8 +112,10 @@ void main() {
 
       expect(result.isSuccess(), isTrue);
       final logOutput = sink.messages.join('\n');
-      // initialUserId is a callback, so the log prints the closure itself.
-      expect(logOutput, contains('Targeting initial user:'));
+      // initialUserId is a callback: the log shows who it names, not the
+      // closure.
+      expect(logOutput, contains('Targeting initial user: auto-user'));
+      expect(logOutput, isNot(contains('Closure')));
       expect(logOutput, contains('Remote changes will be pulled before pushing local changes'));
       expect(logOutput, contains('processed in parallel batches'));
       expect(logOutput, contains('skipped if a sync is already in progress'));
@@ -208,6 +210,50 @@ void main() {
       // Byte counters from the persisted last sync result.
       expect(logOutput, contains('Total Data: ↑2.00 KB / ↓1.00 KB'));
       expect(logOutput, contains('Last Sync: ↑0.50 KB / ↓0.25 KB'));
+    });
+
+    test('the summary adds up every entity type and closes each branch once', () async {
+      final sink = CollectingLogSink();
+      final logger = DatumLogger(colors: false, sink: sink);
+      DatumSyncResult<E> moved<E extends DatumEntityInterface>(int pushed, int pulled) => DatumSyncResult<E>(
+            userId: 'u1',
+            duration: const Duration(seconds: 1),
+            syncedCount: 1,
+            failedCount: 0,
+            conflictsResolved: 0,
+            pendingOperations: const [],
+            totalBytesPushed: pushed,
+            totalBytesPulled: pulled,
+          );
+      final first = MockLocalAdapter<TestEntity>(fromJson: TestEntity.fromJson)..addLocalItem('u1', TestEntity.create('e1', 'u1', 'One'));
+      await first.saveLastSyncResult('u1', moved<TestEntity>(2048, 0));
+      final second = MockLocalAdapter<NonRelationalTestEntity>(fromJson: (map) => NonRelationalTestEntity.create(map['id'] as String, 'u1', map['name'] as String))
+        ..addLocalItem('u1', NonRelationalTestEntity.create('n1', 'u1', 'Two'));
+      await second.saveLastSyncResult('u1', moved<NonRelationalTestEntity>(1024, 4096));
+
+      final result = await Datum.initialize(
+        config: const DatumConfig(),
+        connectivityChecker: _connectivity(),
+        logger: logger,
+        registrations: [
+          DatumRegistration<TestEntity>(localAdapter: first, remoteAdapter: MockRemoteAdapter<TestEntity>(fromJson: TestEntity.fromJson)),
+          DatumRegistration<NonRelationalTestEntity>(localAdapter: second, remoteAdapter: MockRemoteAdapter<NonRelationalTestEntity>()),
+        ],
+      );
+      expect(result.isSuccess(), isTrue);
+      final log = sink.messages.join('\n');
+
+      // The first entity type alone pulled nothing; the user pulled 4 KB.
+      expect(log, contains('Total Data: ↑3.00 KB / ↓4.00 KB'));
+      // Items that have a sibling after them branch, the last one closes.
+      expect(log, contains('├─ 🧩 Entity: TestEntity'));
+      expect(log, contains('└─ 🧩 Entity: NonRelationalTestEntity'));
+      expect(log, contains('├─ ✨ Manager for TestEntity ready.'));
+      expect(log, contains('└─ ✨ Manager for NonRelationalTestEntity ready.'));
+      expect(log, isNot(contains('└─ 🔧 Custom Config')), reason: 'a line always follows it');
+      expect('🤝 Relational:'.allMatches(log), hasLength(2), reason: 'one per entity type, as its last line');
+      expect(log, contains('└─ 🤝 Relational: true\n'));
+      expect(log, contains('└─ 🤝 Relational: false\n'));
     });
 
     test('warns when a local adapter cannot enumerate user ids', () async {

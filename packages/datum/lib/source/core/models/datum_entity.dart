@@ -60,6 +60,26 @@ abstract interface class DatumEntityInterface {
 
   /// Indicates whether this entity supports relationships.
   bool get isRelational;
+
+  /// Keys of the local map (`toDatumMap()`) that never leave this device: a
+  /// draft, a "seen" flag, a cached thumbnail path.
+  ///
+  /// The remote map (`toDatumMap(target: MapTarget.remote)`) must not contain
+  /// them and `diff` must not report them. In return the engine keeps their
+  /// values when a row arrives from the remote (a pull, a live change, a
+  /// conflict the remote wins), ignores them when it compares the two sides,
+  /// and saves an edit of only such fields locally without queueing an
+  /// upload. A row created from the remote starts with whatever the entity's
+  /// `fromMap` gives a missing key (usually null).
+  Set<String> get deviceOnlyFields;
+}
+
+/// [entity]'s local map without its device-only fields: what the local and
+/// the remote copy of a row have in common.
+Map<String, dynamic> sharedLocalMap(DatumEntityInterface entity) {
+  final map = entity.toDatumMap();
+  final deviceOnly = entity.deviceOnlyFields;
+  return deviceOnly.isEmpty ? map : (map..removeWhere((key, _) => deviceOnly.contains(key)));
 }
 
 /// The **base sealed class** for all entities managed by the Datum framework.
@@ -239,6 +259,10 @@ mixin DatumEntityMixin implements Equatable, DatumEntityInterface {
   /// Indicates whether this entity supports relationships. Always `false` for this mixin.
   @override
   bool get isRelational => false;
+
+  /// No device-only fields unless the entity names some.
+  @override
+  Set<String> get deviceOnlyFields => const {};
 
   /// Provides the list of properties to be used by the [Equatable] mixin
   /// for value equality checks.
